@@ -16,9 +16,16 @@ import (
 	"hash/fnv"
 	"sync"
 	"io/ioutil"
+	"compress/gzip"
+	main "../main"
+	"github.com/boltdb/bolt"
 )
-
-
+type DumpConfigurationType struct {
+	GZIP bool
+	FieldSeparator byte
+	LineSeparator byte
+	InputBufferSize int
+}
 type PeerInfo struct{
 	LeftColumnRowsIntersection *sparsebitset.BitSet
 	RightColumnRowsIntersection *sparsebitset.BitSet
@@ -162,23 +169,114 @@ func(p *Pair) String() (string) {
 	result = result + fmt.Sprintf("%v",p.RightColumnToRowBitSet.Column)
 	return result
 }
+const (
+	BSMessageTable  int = 1
+	BSMessageNewBucket int  = 2
+	BSMessagePayload  int = 3
+)
+
+type DataBSMessageType struct {
+  	table *metadata.TableInfo
+	column *metadata.ColumnInfo
+	lineNumber uint64
+	dataImage *[]byte
+	command byte
+	//dataHash *[]byte
+}
+
+func TableDataExtractor(
+	in chan DataBSMessageType,
+	out chan DataBSMessageType,
+	dumpConfig DumpConfigurationType,
+	) {
+	for message := range in {
+		if BSMessageTable != message.command {
+			continue
+		}
+		file, err := os.Open(message.table.String)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+		if dumpConfig.GZIP {
+			file, err = gzip.NewReader(file)
+			if err != nil {
+				panic(err)
+			}
+			defer file.Close()
+		}
+
+		rawData := bufio.NewReaderSize(file, dumpConfig.InputBufferSize)
+		metadataColumnCount := len(message.table.Columns)
+
+		lineNumber := uint64(0)
+
+		for {
+			line, err := rawData.ReadSlice(dumpConfig.LineSeparator)
+			if err == io.EOF {
+				close(out)
+				break
+			} else if err != nil {
+				panic(err)
+			}
+			lineNumber++
+
+			//line = strings.TrimSuffix(line, string(byte(0xD)))
+
+			lineColumns := bytes.Split(line,dumpConfig.FieldSeparator)
+
+			lineColumnCount := len(lineColumns)
+			if metadataColumnCount != lineColumnCount {
+				panic(fmt.Sprintf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+					lineNumber,
+					metadataColumnCount,
+					lineColumnCount,
+				))
+			}
+
+			for columnIndex := range message.table.Columns {
+				if lineNumber == 1 {
+					out <- DataBSMessageType{
+						column:message.table.Columns[columnIndex],
+						command:BSMessageNewBucket,
+					}
+				}
+				out <- DataBSMessageType{
+					column:message.table.Columns[columnIndex],
+					lineNumber:lineNumber,
+					dataImage:lineColumns[columnIndex],
+					command:BSMessagePayload,
+				}
+			}
+
+		}
+	}
+}
+
+func DataBitSetBuilder (
+	in chan DataBSMessageType,
+	out chan DataBSMessageType,
+	appConfig main.AppConfigType,
+	){
+	for message := range in {
+		switch message.command {
+		case BSMessageNewBucket: {
+			appConfig.Db.Update(func(tx *bolt.Tx) error {
+				bucketName := []byte(message.column.Id)
+				tx.DeleteBucket("")
+			})
+		}
+
+		}
+		message.column.Id.Int64
+	}
 
 
+}
 func TableBitSetProcessor(
 	in <- chan *metadata.TableInfo,
 	done chan <- bool,
 	bsConf *BitsetServiceConfig) {
-	type ColumnAuxiliaries struct {
-		columnInfo   *metadata.ColumnInfo
-		bitsets map[string]*sparsebitset.BitSet
-		hroChannel   chan *HRO
-		hroBackChannel chan bool
-		statsChannel chan string
-		statsBackChannel chan bool
-	}
-
-	var fieldDelimiter []byte = []byte("|")
-	var lineDelimiter []byte = []byte("\n")
 	var totalBytesRead uint64 = 0
 	var rowCounter uint64 = 0
 	var hasher hash.Hash64;

@@ -21,21 +21,23 @@ import (
 	/*"log"
 	"net/http"
 	"github.com/pkg/profile"*/
-	"github.com/pkg/profile"
+	//"github.com/pkg/profile"
+	"github.com/boltdb/bolt"
 )
 
 
-var wg sync.WaitGroup
-//var hs hash.Hash64;
-
-//var match uint32
-
-
+type AppConfigType struct {
+	Db *bolt.DB
+	StartTime time.Time
+	DumpConfiguration bitsetservice.DumpConfigurationType;
+//	BSConfig *bitsetservice.BitsetServiceConfig
+}
+var AppConfig AppConfigType = AppConfigType{}
 func m1ain() {
 	/*go func() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()*/
-	defer profile.Start(profile.CPUProfile).Stop()
+	//defer profile.Start(profile.CPUProfile).Stop()
 	//fmt.Println(*(*[8]byte)(unsafe.Pointer(&a)))
 
 	//fmt.Println(sb2.Offset64Bits(256+64+1))
@@ -190,8 +192,16 @@ func mainzz()  {
 	fmt.Println("total:",time.Since(start0))
 }
 
+
 func main() {
-	start := time.Now()
+	AppConfig.StartTime = time.Now()
+	AppConfig.DumpConfiguration = bitsetservice.DumpConfigurationType{
+			GZIP:true,
+			FieldSeparator:[]byte("|"),
+			LineSeparator:[]byte("\n"),
+			InputBufferSize:50*1024,
+	}
+
 	bs := &bitsetservice.BitsetServiceConfig{
 		DumpRootPath:"C:/home/",
 		BSRootPath: "C:/home/BS/",
