@@ -17,7 +17,7 @@ func(conf BitsetServiceConfig) checkBSRootPath() {
 	}
 }
 
-func (conf BitsetServiceConfig) GetBSPath(column *metadata.ColumnInfo)  (string) {
+func (conf BitsetServiceConfig) GetBSPath(column *metadata.ColumnInfoType)  (string) {
 	conf.checkBSRootPath()
 	column.СheckId()
 	column.СheckTableInfo()
@@ -31,7 +31,7 @@ func (conf BitsetServiceConfig) GetBSPath(column *metadata.ColumnInfo)  (string)
 }
 
 
-func (conf BitsetServiceConfig) GetBSPathFileName(column *metadata.ColumnInfo, category string)  (string) {
+func (conf BitsetServiceConfig) GetBSPathFileName(column *metadata.ColumnInfoType, category string)  (string) {
 	conf.checkBSRootPath()
 	column.СheckId()
 	column.СheckTableInfo()
@@ -46,7 +46,7 @@ func (conf BitsetServiceConfig) GetBSPathFileName(column *metadata.ColumnInfo, c
 	)
 }
 
-func(conf BitsetServiceConfig) GetHROPath(column *metadata.ColumnInfo) (string) {
+func(conf BitsetServiceConfig) GetHROPath(column *metadata.ColumnInfoType) (string) {
 	conf.checkBSRootPath()
 	column.СheckId()
 	column.СheckTableInfo()

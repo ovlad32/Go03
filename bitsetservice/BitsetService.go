@@ -17,7 +17,6 @@ import (
 	"sync"
 	"io/ioutil"
 	"compress/gzip"
-	main "../main"
 	"github.com/boltdb/bolt"
 )
 type DumpConfigurationType struct {
@@ -52,7 +51,7 @@ func(peerInfo PeerInfo) String() (string) {
 }
 
 type ColumnToBitSet struct{
-	Column *metadata.ColumnInfo
+	Column *metadata.ColumnInfoType
 	RowNumbers *sparsebitset.BitSet
 	RowNumbersCardinality uint64
 	//PeersCardinality map[*JoinBit][]uint64
@@ -176,8 +175,8 @@ const (
 )
 
 type DataBSMessageType struct {
-  	table *metadata.TableInfo
-	column *metadata.ColumnInfo
+  	table *metadata.TableInfoType
+	column *metadata.ColumnInfoType
 	lineNumber uint64
 	dataImage *[]byte
 	command byte
@@ -256,7 +255,6 @@ func TableDataExtractor(
 func DataBitSetBuilder (
 	in chan DataBSMessageType,
 	out chan DataBSMessageType,
-	appConfig main.AppConfigType,
 	){
 	for message := range in {
 		switch message.command {
@@ -274,7 +272,7 @@ func DataBitSetBuilder (
 
 }
 func TableBitSetProcessor(
-	in <- chan *metadata.TableInfo,
+	in <- chan *metadata.TableInfoType,
 	done chan <- bool,
 	bsConf *BitsetServiceConfig) {
 	var totalBytesRead uint64 = 0

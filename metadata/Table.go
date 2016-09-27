@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	"database/sql"
+	//"database/sql"
 )
 
 /*
@@ -95,6 +95,7 @@ func CreateDumpTables(table *TableInfo) {
 	}
 }
 */
+/*
 func GetMetadataInfoHC() []TableInfo {
 	table1 := "mt.contracts2"
 	table2 := "cra.liabilities2"
@@ -238,3 +239,4 @@ func GetMetadataInfoHC() []TableInfo {
 	}
 	return result
 }
+*/
