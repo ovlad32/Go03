@@ -100,13 +100,13 @@ func flipBit_(bits *uint64, n uint64) {
 }
 
 // testBit checks to see if the bit at the given position is set.
-func  testBit_(bits *uint64,n uint64) bool {
+func testBit_(bits *uint64, n uint64) bool {
 	return ((*bits) & (1 << n)) > 0
 }
 
 // blockAry makes manipulation of blocks easier.  It is also
 // `sort.Sort`able.
-type blockAry map[uint64] uint64
+type blockAry map[uint64]uint64
 
 // Len answers the number of blocks in this slice.
 func (a blockAry) Len() int {
@@ -181,7 +181,6 @@ for n,v := range(a) {
 return t, nil
 */
 
-
 //}
 /*
 // delete removes the block at the specified location.
@@ -198,16 +197,17 @@ func (a blockAry) delete(idx uint32) (blockAry, error) {
 }
 */
 // setBit sets the bit at the given position to `1`.
-func (a *blockAry) setBit(n uint64) (error) {
+func (a *blockAry) setBit(n uint64) error {
 	off, bit := offsetBits(n)
 	if _, found := (*a)[off]; !found {
-		(*a)[off] = (1<<bit)
+		(*a)[off] = (1 << bit)
 	} else {
 		//setBit_( &(*a)[off],bit)
 		(*a)[off] |= 1 << bit
 	}
 	return nil
 }
+
 /*
 // clearBit sets the bit at the given position to `0`.
 func (a blockAry) clearBit(n uint64) (blockAry, error) {
@@ -279,7 +279,6 @@ type BitSet struct {
 	set blockAry
 }
 
-
 // New creates a new BitSet using the given size hint.
 //
 // `BitSet` is **not** thread-safe!
@@ -288,8 +287,9 @@ func New(n uint64) *BitSet {
 	// if dens < 1.0 {
 	// 	dens = 1.0
 	// }
-	return &BitSet{set:make(blockAry)}
+	return &BitSet{set: make(blockAry)}
 }
+
 /*
 // Len answers the number of bytes used by this bitset.
 func (b *BitSet) Len() int {
@@ -313,6 +313,7 @@ func (b *BitSet) Set(n uint64) *BitSet {
 
 	return b
 }
+
 /*
 // Clear sets the bit at the given position to `0`.
 func (b *BitSet) Clear(n uint64) *BitSet {
@@ -446,24 +447,23 @@ func (b *BitSet) Equal(c *BitSet) bool {
 	return true
 }
 
-
 // prune removes empty blocks from this bitset.
 func (b *BitSet) prune() {
 	chg := true
 
 	for chg {
 		chg = false
-		keyToDelete := uint64(0);
-		foundToDelete := false;
-		for k,v := range b.set {
-			if v == 0  {
+		keyToDelete := uint64(0)
+		foundToDelete := false
+		for k, v := range b.set {
+			if v == 0 {
 				foundToDelete = true
 				keyToDelete = k
 				break
 			}
 		}
 		if foundToDelete {
-			delete((*b).set,keyToDelete)
+			delete((*b).set, keyToDelete)
 			chg = true
 		}
 	}
@@ -487,7 +487,6 @@ func (b *BitSet) Difference(c *BitSet) *BitSet {
 	}
 	return res
 }
-
 
 // InPlaceDifference performs a 'set minus' of the given bitset from
 // this bitset, updating this bitset itself.
@@ -537,6 +536,7 @@ func (b *BitSet) Intersection(c *BitSet) *BitSet {
 	return res
 
 }
+
 /*
 // InPlaceIntersection performs a 'set intersection' of the given
 // bitset with this bitset, updating this bitset itself.
@@ -852,6 +852,7 @@ func (b *BitSet) IsSuperSet(c *BitSet) bool {
 	}
 	return true
 }
+
 /*
 // IsStrictSuperSet answers `true` if this bitset is a superset of the
 // given bitset, and includes at least one additional element.
@@ -907,7 +908,7 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 		return 0, err
 	}
 
-	for key,val := range b.set {
+	for key, val := range b.set {
 		err = binary.Write(w, binary.BigEndian, key)
 		if err != nil {
 			return int64(binary.Size(uint32(0))), err
@@ -920,8 +921,6 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 
 	return int64(b.BinaryStorageSize()), nil
 }
-
-
 
 // ReadFrom de-serialises the data from the given `io.Reader` stream
 // into this bitset.
@@ -940,8 +939,8 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 
 	n := int(lb) / (2 * binary.Size(uint64(0)))
 	b.set = make(blockAry)
-	for i:=0; i < n; i++ {
-		var key,val uint64
+	for i := 0; i < n; i++ {
+		var key, val uint64
 		err = binary.Read(r, binary.BigEndian, &key)
 		if err != nil {
 			return int64(binary.Size(uint32(0))), err
@@ -950,26 +949,26 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 		if err != nil {
 			return int64(binary.Size(uint32(0))), err
 		}
-		b.set[key]=val
+		b.set[key] = val
 	}
 
 	return int64(b.BinaryStorageSize()), nil
 }
-func(b *BitSet) BitChan() (chan uint64){
+func (b *BitSet) BitChan() chan uint64 {
 
 	out := make(chan uint64)
 	go func() {
 		// n := uint64(1)
-		for key,val := range b.set {
+		for key, val := range b.set {
 			prod := key * wordSize
 			//fmt.Printf("%v, %v, %b",key,prod,val)
 			//fmt.Println()
-			rsh:=uint64(0)
+			rsh := uint64(0)
 			prev := uint64(0)
 			for {
 				w := val >> rsh
 				if w == 0 {
-					break;
+					break
 				}
 				result := rsh + trailingZeroes64(w) + prod
 				if result != prev {
@@ -990,6 +989,7 @@ func(b *BitSet) BitChan() (chan uint64){
 	}()
 	return out
 }
+
 /*
 func (b *BitSet) NextSet(n uint64) (uint64, bool) {
 	off, rsh := offsetBits(n)

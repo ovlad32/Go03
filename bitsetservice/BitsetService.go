@@ -1,45 +1,40 @@
 package bitsetservice
 
 import (
-	"fmt"
-	"io"
-	"math"
-	"database/sql"
-	"strconv"
-	"os"
-	"log"
 	"bufio"
-	"../sparsebitset"
 	"bytes"
-	"hash"
-	"./../metadata"
-	"hash/fnv"
-	"sync"
-	"io/ioutil"
 	"compress/gzip"
+	"database/sql"
+	"fmt"
 	"github.com/boltdb/bolt"
+	"hash"
+	"hash/fnv"
+	"io"
+	"io/ioutil"
+	"log"
+	"math"
+	"metadata"
+	"os"
+	"sparsebitset"
+	"strconv"
+	"sync"
 )
-type DumpConfigurationType struct {
-	GZIP bool
-	FieldSeparator byte
-	LineSeparator byte
-	InputBufferSize int
-}
-type PeerInfo struct{
-	LeftColumnRowsIntersection *sparsebitset.BitSet
-	RightColumnRowsIntersection *sparsebitset.BitSet
-	LeftColumnRowsIntersectionCardinality uint64
+
+type PeerInfo struct {
+	LeftColumnRowsIntersection             *sparsebitset.BitSet
+	RightColumnRowsIntersection            *sparsebitset.BitSet
+	LeftColumnRowsIntersectionCardinality  uint64
 	RightColumnRowsIntersectionCardinality uint64
-	LeftColumnRowsIsSuperSet bool
-	LeftColumnRowsIsSubSet bool
-	RightColumnRowsIsSuperSet bool
-	RightColumnRowsIsSubSet bool
+	LeftColumnRowsIsSuperSet               bool
+	LeftColumnRowsIsSubSet                 bool
+	RightColumnRowsIsSuperSet              bool
+	RightColumnRowsIsSubSet                bool
 }
 
-func(peerInfo PeerInfo) String() (string) {
-	result:= fmt.Sprintf(
+func (peerInfo PeerInfo) String() string {
+	result := fmt.Sprintf(
 		"(RIC:%v, SubSet:%v, SuperSet:%v) <-> (RIC:%v, SubSet:%v, SuperSet:%v)",
-//		"%v|%v|%v|%v|%v|%v",
+		//		"%v|%v|%v|%v|%v|%v",
 		peerInfo.LeftColumnRowsIntersectionCardinality,
 		peerInfo.LeftColumnRowsIsSubSet,
 		peerInfo.LeftColumnRowsIsSuperSet,
@@ -50,41 +45,39 @@ func(peerInfo PeerInfo) String() (string) {
 	return result
 }
 
-type ColumnToBitSet struct{
-	Column *metadata.ColumnInfoType
-	RowNumbers *sparsebitset.BitSet
+type ColumnToBitSet struct {
+	Column                *metadata.ColumnInfoType
+	RowNumbers            *sparsebitset.BitSet
 	RowNumbersCardinality uint64
 	//PeersCardinality map[*JoinBit][]uint64
 	//Cardinality uint64
 }
 type Pair struct {
-	BSConfig *BitsetServiceConfig
-	LeftColumnToRowBitSet ColumnToBitSet
-	RightColumnToRowBitSet ColumnToBitSet
-	Intersections map[string]bool
+	BSConfig                *BitsetServiceConfig
+	LeftColumnToRowBitSet   ColumnToBitSet
+	RightColumnToRowBitSet  ColumnToBitSet
+	Intersections           map[string]bool
 	IntersectionCardinality uint64
-	HashedRows *sparsebitset.BitSet
-	Peers map[*Pair] *PeerInfo
-	TruePositive bool
+	HashedRows              *sparsebitset.BitSet
+	Peers                   map[*Pair]*PeerInfo
+	TruePositive            bool
 }
 
+func (p *Pair) SaveDataIntersectionBitSet(category string, bitset *sparsebitset.BitSet) {
 
-
-func(p *Pair) SaveDataIntersectionBitSet(category string,bitset *sparsebitset.BitSet) {
-
-		path, filename := p.BSConfig.DataIntersectionBitSetFullFileName(p,category)
-		if err := os.MkdirAll(path, 0); err != nil {
-			panic(err)
-		}
-		if file, err := os.Create(path + filename); err != nil {
-			panic(err)
-		} else {
-			defer file.Close()
-			bitset.WriteTo(file)
-		}
+	path, filename := p.BSConfig.DataIntersectionBitSetFullFileName(p, category)
+	if err := os.MkdirAll(path, 0); err != nil {
+		panic(err)
+	}
+	if file, err := os.Create(path + filename); err != nil {
+		panic(err)
+	} else {
+		defer file.Close()
+		bitset.WriteTo(file)
+	}
 }
 
-func(p *Pair) LoadDataIntersectionBitSet(category string) *sparsebitset.BitSet{
+func (p *Pair) LoadDataIntersectionBitSet(category string) *sparsebitset.BitSet {
 	path, filename := p.BSConfig.DataIntersectionBitSetFullFileName(p, category)
 	if file, err := os.Open(path + filename); err != nil {
 		panic(err)
@@ -96,7 +89,7 @@ func(p *Pair) LoadDataIntersectionBitSet(category string) *sparsebitset.BitSet{
 	}
 }
 
-func(p *Pair) BuildRowsIntersectionBitSet(hashChannel chan uint64, category string) {
+func (p *Pair) BuildRowsIntersectionBitSet(hashChannel chan uint64, category string) {
 	type THRO map[uint64][]uint64
 	var rowsL, rowsR []uint64
 	hasher := fnv.New64()
@@ -127,7 +120,7 @@ func(p *Pair) BuildRowsIntersectionBitSet(hashChannel chan uint64, category stri
 		var found bool
 		key := HROKey(hash)
 		if rowsL, found = hashRowsL[hash]; !found {
-			buffer, err := ioutil.ReadFile(p.BSConfig.GetHROPath(p.LeftColumnToRowBitSet.Column) + category + "/" + key);
+			buffer, err := ioutil.ReadFile(p.BSConfig.GetHROPath(p.LeftColumnToRowBitSet.Column) + category + "/" + key)
 			if err != nil {
 				panic(err)
 			} else {
@@ -136,7 +129,7 @@ func(p *Pair) BuildRowsIntersectionBitSet(hashChannel chan uint64, category stri
 			}
 		}
 		if rowsR, found = hashRowsR[hash]; !found {
-			buffer, err := ioutil.ReadFile(p.BSConfig.GetHROPath(p.RightColumnToRowBitSet.Column) + category + "/" + key);
+			buffer, err := ioutil.ReadFile(p.BSConfig.GetHROPath(p.RightColumnToRowBitSet.Column) + category + "/" + key)
 			if err != nil {
 				panic(err)
 			} else {
@@ -149,9 +142,9 @@ func(p *Pair) BuildRowsIntersectionBitSet(hashChannel chan uint64, category stri
 				hasher.Reset()
 				if p.LeftColumnToRowBitSet.Column.Id.Int64 >
 					p.RightColumnToRowBitSet.Column.Id.Int64 {
-					 rowR, rowL = rowL, rowR
+					rowR, rowL = rowL, rowR
 				}
-				hasher.Write([]byte(fmt.Sprintf("%v:%v",rowL, rowR)))
+				hasher.Write([]byte(fmt.Sprintf("%v:%v", rowL, rowR)))
 				p.HashedRows.Set(hasher.Sum64())
 			}
 		}
@@ -160,26 +153,26 @@ func(p *Pair) BuildRowsIntersectionBitSet(hashChannel chan uint64, category stri
 
 }
 
-
-func(p *Pair) String() (string) {
+func (p *Pair) String() string {
 	var result string
-	result = fmt.Sprintf("%v",p.LeftColumnToRowBitSet.Column)
-	result = result + fmt.Sprintf(" <%v> ",p.IntersectionCardinality)
-	result = result + fmt.Sprintf("%v",p.RightColumnToRowBitSet.Column)
+	result = fmt.Sprintf("%v", p.LeftColumnToRowBitSet.Column)
+	result = result + fmt.Sprintf(" <%v> ", p.IntersectionCardinality)
+	result = result + fmt.Sprintf("%v", p.RightColumnToRowBitSet.Column)
 	return result
 }
+
 const (
-	BSMessageTable  int = 1
-	BSMessageNewBucket int  = 2
-	BSMessagePayload  int = 3
+	BSMessageTable     int = 1
+	BSMessageNewBucket int = 2
+	BSMessagePayload   int = 3
 )
 
 type DataBSMessageType struct {
-  	table *metadata.TableInfoType
-	column *metadata.ColumnInfoType
+	table      *metadata.TableInfoType
+	column     *metadata.ColumnInfoType
 	lineNumber uint64
-	dataImage *[]byte
-	command byte
+	dataImage  *[]byte
+	command    byte
 	//dataHash *[]byte
 }
 
@@ -187,7 +180,7 @@ func TableDataExtractor(
 	in chan DataBSMessageType,
 	out chan DataBSMessageType,
 	dumpConfig DumpConfigurationType,
-	) {
+) {
 	for message := range in {
 		if BSMessageTable != message.command {
 			continue
@@ -222,7 +215,7 @@ func TableDataExtractor(
 
 			//line = strings.TrimSuffix(line, string(byte(0xD)))
 
-			lineColumns := bytes.Split(line,dumpConfig.FieldSeparator)
+			lineColumns := bytes.Split(line, dumpConfig.FieldSeparator)
 
 			lineColumnCount := len(lineColumns)
 			if metadataColumnCount != lineColumnCount {
@@ -236,15 +229,15 @@ func TableDataExtractor(
 			for columnIndex := range message.table.Columns {
 				if lineNumber == 1 {
 					out <- DataBSMessageType{
-						column:message.table.Columns[columnIndex],
-						command:BSMessageNewBucket,
+						column:  message.table.Columns[columnIndex],
+						command: BSMessageNewBucket,
 					}
 				}
 				out <- DataBSMessageType{
-					column:message.table.Columns[columnIndex],
-					lineNumber:lineNumber,
-					dataImage:lineColumns[columnIndex],
-					command:BSMessagePayload,
+					column:     message.table.Columns[columnIndex],
+					lineNumber: lineNumber,
+					dataImage:  lineColumns[columnIndex],
+					command:    BSMessagePayload,
 				}
 			}
 
@@ -252,32 +245,32 @@ func TableDataExtractor(
 	}
 }
 
-func DataBitSetBuilder (
+func DataBitSetBuilder(
 	in chan DataBSMessageType,
 	out chan DataBSMessageType,
-	){
+) {
 	for message := range in {
 		switch message.command {
-		case BSMessageNewBucket: {
-			appConfig.Db.Update(func(tx *bolt.Tx) error {
-				bucketName := []byte(message.column.Id)
-				tx.DeleteBucket("")
-			})
-		}
+		case BSMessageNewBucket:
+			{
+				appConfig.Db.Update(func(tx *bolt.Tx) error {
+					bucketName := []byte(message.column.Id)
+					tx.DeleteBucket("")
+				})
+			}
 
 		}
 		message.column.Id.Int64
 	}
 
-
 }
 func TableBitSetProcessor(
-	in <- chan *metadata.TableInfoType,
-	done chan <- bool,
+	in <-chan *metadata.TableInfoType,
+	done chan<- bool,
 	bsConf *BitsetServiceConfig) {
 	var totalBytesRead uint64 = 0
 	var rowCounter uint64 = 0
-	var hasher hash.Hash64;
+	var hasher hash.Hash64
 
 	hasher = fnv.New64()
 	for tableInfo := range in {
@@ -290,80 +283,83 @@ func TableBitSetProcessor(
 		}
 		dumpBufferedReader := bufio.NewReaderSize(datFile, 4096)
 		columnAuxs := make([]ColumnAuxiliaries, 0, len(tableInfo.Columns))
-		rowCounter = uint64(0);
+		rowCounter = uint64(0)
 		//var columnWaiter  sync.WaitGroup
-		fileReading:
+	fileReading:
 		for {
 			rowBuffer, error := dumpBufferedReader.ReadSlice(lineDelimiter[0])
 
-			switch  true {
-			case error == nil: {}
-			case error == io.EOF: {
-				fmt.Println("Done building bitsets for",tableInfo.DumpFileName.String,len(rowBuffer))
-				for num, _:= range columnAuxs {
-					for category,_:= range columnAuxs[num].bitsets {
-						err := os.MkdirAll(bsConf.GetBSPath(columnAuxs[num].columnInfo), 0)
-						if err != nil {
-							panic(err)
+			switch true {
+			case error == nil:
+				{
+				}
+			case error == io.EOF:
+				{
+					fmt.Println("Done building bitsets for", tableInfo.DumpFileName.String, len(rowBuffer))
+					for num, _ := range columnAuxs {
+						for category, _ := range columnAuxs[num].bitsets {
+							err := os.MkdirAll(bsConf.GetBSPath(columnAuxs[num].columnInfo), 0)
+							if err != nil {
+								panic(err)
+							}
+
+							outputFile, err := os.Create(
+								bsConf.GetBSPathFileName(columnAuxs[num].columnInfo, category),
+							)
+
+							if err != nil {
+								panic(err)
+							}
+
+							columnAuxs[num].bitsets[category].WriteTo(outputFile)
+							columnAuxs[num].bitsets[category] = nil
 						}
+						//ToDO:save stats
+						//fmt.Println(columnAuxs[num].columnInfo.ColumnName.String)
+						/*fmt.Println(columnAuxs[num].columnInfo.MaxNumericValue.String)
+						fmt.Println(columnAuxs[num].columnInfo.MinNumericValue.String)*/
 
-						outputFile, err := os.Create(
-							bsConf.GetBSPathFileName(columnAuxs[num].columnInfo, category),
-						)
-
-						if err != nil {
-							panic(err)
-						}
-
-						columnAuxs[num].bitsets[category].WriteTo(outputFile)
-						columnAuxs[num].bitsets[category] = nil
+						//fmt.Println(columnAuxs[num].columnInfo.NullCount.Int64)
+						close(columnAuxs[num].statsChannel)
+						close(columnAuxs[num].hroChannel)
+						datFile.Close()
 					}
-					//ToDO:save stats
-					//fmt.Println(columnAuxs[num].columnInfo.ColumnName.String)
-					/*fmt.Println(columnAuxs[num].columnInfo.MaxNumericValue.String)
-					fmt.Println(columnAuxs[num].columnInfo.MinNumericValue.String)*/
 
-					//fmt.Println(columnAuxs[num].columnInfo.NullCount.Int64)
-					close(columnAuxs[num].statsChannel)
-					close(columnAuxs[num].hroChannel)
-					datFile.Close()
+					for num, _ := range columnAuxs {
+						<-columnAuxs[num].statsBackChannel
+					}
+
+					for num, _ := range columnAuxs {
+						<-columnAuxs[num].hroBackChannel
+					}
+
+					break fileReading
 				}
-
-				for num, _:= range columnAuxs {
-					<- columnAuxs[num].statsBackChannel
+			default:
+				{
+					panic(error)
+					//log.Fatal(error)
 				}
-
-				for num, _:= range columnAuxs {
-					<- columnAuxs[num].hroBackChannel
-				}
-
-				break fileReading
 			}
-			default: {
-				panic(error)
-				//log.Fatal(error)
-			}
-			}
-
 
 			if rowCounter == 0 {
-				fmt.Println("Start building bitsets for ",tableInfo.DumpFileName.String,len(rowBuffer))
+				fmt.Println("Start building bitsets for ", tableInfo.DumpFileName.String, len(rowBuffer))
 				for index := range tableInfo.Columns {
 
 					columnAux := ColumnAuxiliaries{
-						columnInfo : &tableInfo.Columns[index],
-						bitsets : make(map[string] *sparsebitset.BitSet),
+						columnInfo: &tableInfo.Columns[index],
+						bitsets:    make(map[string]*sparsebitset.BitSet),
 						//bitset: sparsebitset.New(0),
-						hroChannel: make(chan *HRO, 1024),
-						hroBackChannel: make(chan  bool),
-						statsChannel: make(chan string, 1024),
+						hroChannel:       make(chan *HRO, 1024),
+						hroBackChannel:   make(chan bool),
+						statsChannel:     make(chan string, 1024),
 						statsBackChannel: make(chan bool),
 					}
 					go StatisticsProcessor(
 						columnAux.statsChannel,
 						columnAux.statsBackChannel,
 						&tableInfo.Columns[index],
-					);
+					)
 					go HRODumpingProcessor(
 						columnAux.hroChannel,
 						columnAux.hroBackChannel,
@@ -371,19 +367,19 @@ func TableBitSetProcessor(
 						bsConf,
 					)
 
-					columnAuxs = append(columnAuxs, columnAux);
+					columnAuxs = append(columnAuxs, columnAux)
 				}
 			}
 
-			rowCounter ++
+			rowCounter++
 
 			columnDataBuffers := bytes.Split(rowBuffer, fieldDelimiter)
 
 			if len(columnDataBuffers) != len(tableInfo.Columns) {
 				panic(
 					fmt.Sprintf(
-						"Column mismatch! " +
-							"Table %v has %v columns. " +
+						"Column mismatch! "+
+							"Table %v has %v columns. "+
 							"Gotten %v colums in line %v in %v",
 						tableInfo,
 						len(tableInfo.Columns),
@@ -400,7 +396,7 @@ func TableBitSetProcessor(
 				ival := int64(0)
 				hro := new(HRO)
 				sval := string(columnDataBuffers[columnNumber])
-				hro.Category,ival = getHashCategory(&sval)
+				hro.Category, ival = getHashCategory(&sval)
 				if hro.Category == "P" {
 					hro.Hash = uint64(ival)
 				} else if hro.Category == "N" {
@@ -410,23 +406,23 @@ func TableBitSetProcessor(
 					hasher.Write(columnDataBuffers[columnNumber])
 					hro.Hash = hasher.Sum64()
 				}
-				hro.Category = fmt.Sprintf("%v%v",hro.Category,len(columnDataBuffers[columnNumber]))
-				hro.Data1    = rowCounter
-				hro.Data2    = totalBytesRead
+				hro.Category = fmt.Sprintf("%v%v", hro.Category, len(columnDataBuffers[columnNumber]))
+				hro.Data1 = rowCounter
+				hro.Data2 = totalBytesRead
 				/*hro := HRO{
 					Hash: hasher.Sum64(),
 					FileOffset: totalBytesRead,
 					RowNumber: rowCounter,
 				}*/
 
-				if bitset,bFound := columnAuxs[columnNumber].bitsets[hro.Category];!bFound {
+				if bitset, bFound := columnAuxs[columnNumber].bitsets[hro.Category]; !bFound {
 					bitset = sparsebitset.New(0)
 					bitset.Set(hro.Hash)
 					columnAuxs[columnNumber].bitsets[hro.Category] = bitset
 					if columnAuxs[columnNumber].columnInfo.HashCategories == nil {
 						columnAuxs[columnNumber].columnInfo.HashCategories = make(map[string]bool)
 					}
-					columnAuxs[columnNumber].columnInfo.HashCategories[hro.Category]=true
+					columnAuxs[columnNumber].columnInfo.HashCategories[hro.Category] = true
 				} else {
 					bitset.Set(hro.Hash)
 				}
@@ -439,9 +435,9 @@ func TableBitSetProcessor(
 
 }
 
-func getHashCategory(sval *string) (cat string,ival int64){
+func getHashCategory(sval *string) (cat string, ival int64) {
 
-	ival,ierr := strconv.ParseInt(*sval,10,64)
+	ival, ierr := strconv.ParseInt(*sval, 10, 64)
 	if ierr == nil {
 		if ival < 0 {
 			cat = "N"
@@ -450,7 +446,7 @@ func getHashCategory(sval *string) (cat string,ival int64){
 		}
 		return
 	}
-	_, ferr := strconv.ParseFloat(*sval,64)
+	_, ferr := strconv.ParseFloat(*sval, 64)
 	if ferr == nil {
 		return "F", 0
 	}
@@ -458,40 +454,40 @@ func getHashCategory(sval *string) (cat string,ival int64){
 }
 
 func HRODumpingProcessor(
-	in <- chan *HRO,
-	done  chan <- bool  ,
+	in <-chan *HRO,
+	done chan<- bool,
 	column *metadata.ColumnInfo,
 	conf *BitsetServiceConfig,
-	) {
-	files := make(map[string] *bufio.Writer)
+) {
+	files := make(map[string]*bufio.Writer)
 	//cnt:=uint32(0)
 	for hro := range in {
-	//	cnt += (*hr).RowNumber
+		//	cnt += (*hr).RowNumber
 
 		key := hro.Category + "/" + hro.getKey()
-		var writer *bufio.Writer;
+		var writer *bufio.Writer
 		if stored, found := files[key]; !found {
 			hroPath := conf.GetHROPath(column)
-			os.MkdirAll(hroPath + hro.Category + "/",0)
+			os.MkdirAll(hroPath+hro.Category+"/", 0)
 			created, error := os.Create(hroPath + key)
-//			fmt.Println(hroPath + key)
-//			cnt++
+			//			fmt.Println(hroPath + key)
+			//			cnt++
 			if error != nil {
 				log.Fatal(error)
 			}
 			defer created.Close()
-			writer = bufio.NewWriterSize(created,4096)
+			writer = bufio.NewWriterSize(created, 4096)
 			//writer = file
 			files[key] = writer
 		} else {
-			writer = stored;
+			writer = stored
 		}
-		_,err := hro.WriteTo(writer)
+		_, err := hro.WriteTo(writer)
 		if err != nil {
 			panic(err)
 		}
 	}
-	for _,w := range files {
+	for _, w := range files {
 		w.Flush()
 
 	}
@@ -499,26 +495,25 @@ func HRODumpingProcessor(
 	/*if column.ColumnName.String=="CONTRACT_ID" {
 		fmt.Println(cnt)
 	}*/
-	fmt.Println(column,"dump done")
-	done <-true
+	fmt.Println(column, "dump done")
+	done <- true
 }
-
 
 func StatisticsProcessor(
 	in <-chan string,
-	done chan <- bool,
+	done chan<- bool,
 	column *metadata.ColumnInfo,
-	) {
-	var smin,smax string
+) {
+	var smin, smax string
 
-	fmin,fmax := math.MaxFloat64,-math.MaxFloat64
-	lmin,lmax := math.MaxInt64,math.MinInt64
+	fmin, fmax := math.MaxFloat64, -math.MaxFloat64
+	lmin, lmax := math.MaxInt64, math.MinInt64
 	isNumeric, isFloat := true, false
 	isEmpty := true
-	nullCounter := uint64(0);
+	nullCounter := uint64(0)
 	for sval := range in {
 
-		isEmpty = false;
+		isEmpty = false
 
 		//sval, _ := sqlValue.Value();
 
@@ -527,14 +522,14 @@ func StatisticsProcessor(
 			nullCounter++
 		}
 
-		if  slen < lmin {
+		if slen < lmin {
 			lmin = slen
 		}
 		if slen > lmax {
 			lmax = slen
 		}
 
-		if smin == "" && sval != ""{
+		if smin == "" && sval != "" {
 			smin = sval
 		}
 		if sval < smin {
@@ -544,7 +539,7 @@ func StatisticsProcessor(
 			smax = sval
 		}
 		if isNumeric {
-			fval, err := strconv.ParseFloat(sval,64);
+			fval, err := strconv.ParseFloat(sval, 64)
 			if err != nil {
 				isNumeric = false
 			}
@@ -556,10 +551,10 @@ func StatisticsProcessor(
 			}
 
 			if isNumeric {
-				if fval<fmin {
+				if fval < fmin {
 					fmin = fval
 				}
-				if fval>fmax {
+				if fval > fmax {
 					fmax = fval
 				}
 			}
@@ -568,68 +563,67 @@ func StatisticsProcessor(
 	}
 
 	if !isEmpty {
-		column.NullCount = sql.NullInt64{Valid:false}
-		column.MinStringValue = sql.NullString{Valid:false}
-		column.MaxStringValue = sql.NullString{Valid:false}
-		column.MinStringLength = sql.NullInt64{Valid:false}
-		column.MaxStringLength = sql.NullInt64{Valid:false}
-		column.MinNumericValue = sql.NullString{Valid:false}
-		column.MaxNumericValue = sql.NullString{Valid:false}
+		column.NullCount = sql.NullInt64{Valid: false}
+		column.MinStringValue = sql.NullString{Valid: false}
+		column.MaxStringValue = sql.NullString{Valid: false}
+		column.MinStringLength = sql.NullInt64{Valid: false}
+		column.MaxStringLength = sql.NullInt64{Valid: false}
+		column.MinNumericValue = sql.NullString{Valid: false}
+		column.MaxNumericValue = sql.NullString{Valid: false}
 	} else {
-		column.NullCount = sql.NullInt64{Int64:int64(nullCounter), Valid:true}
-		column.MinStringValue = sql.NullString{String:smin, Valid:true}
-		column.MaxStringValue = sql.NullString{String:smax, Valid:true}
-		column.MinStringLength = sql.NullInt64{Int64:int64(lmin),Valid:true}
-		column.MaxStringLength = sql.NullInt64{Int64:int64(lmax),Valid:true}
+		column.NullCount = sql.NullInt64{Int64: int64(nullCounter), Valid: true}
+		column.MinStringValue = sql.NullString{String: smin, Valid: true}
+		column.MaxStringValue = sql.NullString{String: smax, Valid: true}
+		column.MinStringLength = sql.NullInt64{Int64: int64(lmin), Valid: true}
+		column.MaxStringLength = sql.NullInt64{Int64: int64(lmax), Valid: true}
 		if isNumeric {
-			column.MinNumericValue = sql.NullString{String:strconv.FormatFloat(fmin,'f',-1,32), Valid:true}
-			column.MaxNumericValue = sql.NullString{String:strconv.FormatFloat(fmax,'f',-1,32), Valid:true}
+			column.MinNumericValue = sql.NullString{String: strconv.FormatFloat(fmin, 'f', -1, 32), Valid: true}
+			column.MaxNumericValue = sql.NullString{String: strconv.FormatFloat(fmax, 'f', -1, 32), Valid: true}
 		} else {
-			column.MinNumericValue = sql.NullString{Valid:false}
-			column.MaxNumericValue = sql.NullString{Valid:false}
+			column.MinNumericValue = sql.NullString{Valid: false}
+			column.MaxNumericValue = sql.NullString{Valid: false}
 		}
 	}
 
-	done<-true
+	done <- true
 
 }
 
-func JoinRowBitSetProcessor(in <- chan *Pair, done chan <-bool, bsConf *BitsetServiceConfig) {
+func JoinRowBitSetProcessor(in <-chan *Pair, done chan<- bool, bsConf *BitsetServiceConfig) {
 
-
-	var hasher hash.Hash64;
+	var hasher hash.Hash64
 
 	hasher = fnv.New64()
 
-	pairs := make([]*Pair,0)
+	pairs := make([]*Pair, 0)
 	for pair := range in {
 		pair.LeftColumnToRowBitSet.RowNumbers = sparsebitset.New(0)
 		pair.RightColumnToRowBitSet.RowNumbers = sparsebitset.New(0)
 		pair.HashedRows = sparsebitset.New(0)
 		loadRowBitSet := func(hashChannel chan uint64,
-		//		     done chan bool,
-				     pair *Pair,
-				     category string,
-			){
+			//		     done chan bool,
+			pair *Pair,
+			category string,
+		) {
 			type THRO map[uint64][]uint64
-			var rowsL,rowsR []uint64
+			var rowsL, rowsR []uint64
 			way := pair.LeftColumnToRowBitSet.Column.Id.Int64 >
-				  pair.RightColumnToRowBitSet.Column.Id.Int64
+				pair.RightColumnToRowBitSet.Column.Id.Int64
 
 			hashRowsL := make(THRO)
 			hashRowsR := make(THRO)
-			load := func (hrox *THRO, buffer *[]byte) {
+			load := func(hrox *THRO, buffer *[]byte) {
 				//var arr64 []uint64
 				reader := bytes.NewReader(*buffer)
 				hro := &HRO{}
 				for {
 					_, err := hro.ReadFrom(reader)
 					if err == nil {
-						_,found := (*hrox)[hro.Hash]
+						_, found := (*hrox)[hro.Hash]
 						if !found {
-							(*hrox)[hro.Hash] = make([]uint64,0,100)
+							(*hrox)[hro.Hash] = make([]uint64, 0, 100)
 						}
-						(*hrox)[hro.Hash] = append((*hrox)[hro.Hash],hro.Data1)
+						(*hrox)[hro.Hash] = append((*hrox)[hro.Hash], hro.Data1)
 					} else if err == io.EOF {
 
 						return
@@ -643,8 +637,8 @@ func JoinRowBitSetProcessor(in <- chan *Pair, done chan <-bool, bsConf *BitsetSe
 				var found bool
 				key := HROKey(hash)
 				if rowsL, found = hashRowsL[hash]; !found {
-					buffer, err := ioutil.ReadFile(bsConf.GetHROPath(pair.LeftColumnToRowBitSet.Column) + category + "/" + key);
-					if  err != nil {
+					buffer, err := ioutil.ReadFile(bsConf.GetHROPath(pair.LeftColumnToRowBitSet.Column) + category + "/" + key)
+					if err != nil {
 						panic(err)
 					} else {
 						load(&hashRowsL, &buffer)
@@ -652,8 +646,8 @@ func JoinRowBitSetProcessor(in <- chan *Pair, done chan <-bool, bsConf *BitsetSe
 					}
 				}
 				if rowsR, found = hashRowsR[hash]; !found {
-					buffer, err := ioutil.ReadFile(bsConf.GetHROPath(pair.RightColumnToRowBitSet.Column) + category + "/" + key);
-					if  err != nil {
+					buffer, err := ioutil.ReadFile(bsConf.GetHROPath(pair.RightColumnToRowBitSet.Column) + category + "/" + key)
+					if err != nil {
 						panic(err)
 					} else {
 						load(&hashRowsR, &buffer)
@@ -673,14 +667,12 @@ func JoinRowBitSetProcessor(in <- chan *Pair, done chan <-bool, bsConf *BitsetSe
 				}
 
 			}
-		//	done <- true
+			//	done <- true
 		}
-
-
 
 		//log.Printf("loading rows for %v\n",pair)
 		//done := make(chan bool)
-		_=loadRowBitSet
+		_ = loadRowBitSet
 		//cnt := 0
 		//start := time.Now()
 		//fmt.Println("\n",pair," -> ")
@@ -700,36 +692,35 @@ func JoinRowBitSetProcessor(in <- chan *Pair, done chan <-bool, bsConf *BitsetSe
 		pairs = append(pairs, pair)
 	}
 
+	for pairIndex, _ := range pairs {
+		fmt.Println("", pairs[pairIndex], " -> ")
+		for peerIndex, _ := range pairs {
+			if pairIndex == peerIndex {
+				continue
+			}
+			if pairs[pairIndex].LeftColumnToRowBitSet.Column == pairs[peerIndex].LeftColumnToRowBitSet.Column ||
+				pairs[pairIndex].RightColumnToRowBitSet.Column == pairs[peerIndex].RightColumnToRowBitSet.Column {
+				continue
+			}
 
-	for pairIndex,_ := range pairs {
-		fmt.Println("",pairs[pairIndex]," -> ")
-			for peerIndex,_ := range pairs  {
-				if pairIndex == peerIndex {
-					continue
-				}
-				if pairs[pairIndex].LeftColumnToRowBitSet.Column == pairs[peerIndex].LeftColumnToRowBitSet.Column ||
-					pairs[pairIndex].RightColumnToRowBitSet.Column == pairs[peerIndex].RightColumnToRowBitSet.Column {
-					continue
-				}
+			if pairs[pairIndex].Peers == nil {
+				pairs[pairIndex].Peers = make(map[*Pair]*PeerInfo)
+			}
+			if pairs[peerIndex].Peers == nil {
+				pairs[peerIndex].Peers = make(map[*Pair]*PeerInfo)
+			}
 
-				if pairs[pairIndex].Peers == nil{
-					pairs[pairIndex].Peers = make(map[*Pair]*PeerInfo)
-				}
-				if pairs[peerIndex].Peers == nil{
-					pairs[peerIndex].Peers = make(map[*Pair]*PeerInfo)
-				}
+			if _, found := pairs[pairIndex].Peers[pairs[peerIndex]]; found {
+				continue
+			}
 
-				if _,found := pairs[pairIndex].Peers[pairs[peerIndex]];found{
-					continue
-				}
-
-				if pairs[pairIndex].HashedRows != nil {
-					IntersectionResult := pairs[pairIndex].HashedRows.Intersection(
-						pairs[peerIndex].HashedRows,
-					)
-					fmt.Println(fmt.Sprintf("  - %v hrc: %v", pairs[peerIndex], IntersectionResult.Cardinality()))
-				}
-				/*					pairs[pairIndex].LeftColumnToRowBitSet.Column.ColumnName.String,
+			if pairs[pairIndex].HashedRows != nil {
+				IntersectionResult := pairs[pairIndex].HashedRows.Intersection(
+					pairs[peerIndex].HashedRows,
+				)
+				fmt.Println(fmt.Sprintf("  - %v hrc: %v", pairs[peerIndex], IntersectionResult.Cardinality()))
+			}
+			/*					pairs[pairIndex].LeftColumnToRowBitSet.Column.ColumnName.String,
 
 
 
@@ -780,8 +771,8 @@ func JoinRowBitSetProcessor(in <- chan *Pair, done chan <-bool, bsConf *BitsetSe
 										),
 									}
 								}
-				*/
-			}
+			*/
+		}
 		//break;
 
 	}
@@ -834,62 +825,60 @@ func JoinRowBitSetProcessor(in <- chan *Pair, done chan <-bool, bsConf *BitsetSe
 		fmt.Println("----------------------------\n\n")
 
 	}
-	done <-true
+	done <- true
 }
 
-func JoinDataBitSetProcessor(in <- chan *Pair, out chan <-*Pair, bsConf *BitsetServiceConfig) {
+func JoinDataBitSetProcessor(in <-chan *Pair, out chan<- *Pair, bsConf *BitsetServiceConfig) {
 	type col2bs struct {
 		column *metadata.ColumnInfo
 		bitset *sparsebitset.BitSet
 	}
-	previousData := make([]col2bs ,2)
-	loadDataBitSet := func(cb *col2bs , pc *col2bs,category string, wg *sync.WaitGroup ) {
+	previousData := make([]col2bs, 2)
+	loadDataBitSet := func(cb *col2bs, pc *col2bs, category string, wg *sync.WaitGroup) {
 		//if pc.column != cb.column || pc.column ==nil {
-			pc.bitset = sparsebitset.New(0)
-			pc.column = cb.column
-			if file,err := os.Open(bsConf.GetBSPathFileName(cb.column, category)) ; err==nil {
-				defer file.Close()
-				pc.bitset.ReadFrom(file)
-			}else {
-				panic(err)
-			}
+		pc.bitset = sparsebitset.New(0)
+		pc.column = cb.column
+		if file, err := os.Open(bsConf.GetBSPathFileName(cb.column, category)); err == nil {
+			defer file.Close()
+			pc.bitset.ReadFrom(file)
+		} else {
+			panic(err)
+		}
 		//}
 		wg.Done()
 	}
 
 	for pair := range in {
 		//log.Printf("loading %v\n",pair)
-		for category,_ := range pair.LeftColumnToRowBitSet.Column.HashCategories {
-			if _,found := pair.RightColumnToRowBitSet.Column.HashCategories[category]; found {
-				left,right := sync.WaitGroup{},sync.WaitGroup{};
+		for category, _ := range pair.LeftColumnToRowBitSet.Column.HashCategories {
+			if _, found := pair.RightColumnToRowBitSet.Column.HashCategories[category]; found {
+				left, right := sync.WaitGroup{}, sync.WaitGroup{}
 				left.Add(1)
 				go loadDataBitSet(
-					&col2bs{column:pair.LeftColumnToRowBitSet.Column},
+					&col2bs{column: pair.LeftColumnToRowBitSet.Column},
 					&previousData[0],
 					category,
 					&left,
 				)
 				right.Add(1)
 				go loadDataBitSet(
-					&col2bs{column:pair.RightColumnToRowBitSet.Column},
+					&col2bs{column: pair.RightColumnToRowBitSet.Column},
 					&previousData[1],
 					category,
 					&right,
 				)
 				left.Wait()
 				right.Wait()
-				if pair.Intersections == nil{
+				if pair.Intersections == nil {
 					pair.Intersections = make(map[string]bool)
 				}
 				res := previousData[0].bitset.Intersection(previousData[1].bitset)
 				card := res.Cardinality()
 				if card > 0 {
-					pair.SaveDataIntersectionBitSet(category,res)
+					pair.SaveDataIntersectionBitSet(category, res)
 					pair.Intersections[category] = true
 					pair.IntersectionCardinality += card
 				}
-
-
 
 				//fmt.Println(pair.Intersections[category].Cardinality())
 			}
@@ -899,7 +888,7 @@ func JoinDataBitSetProcessor(in <- chan *Pair, out chan <-*Pair, bsConf *BitsetS
 		//log.Printf("Waited\n")
 		//log.Printf("Cardinality\n")
 
-		if pair.IntersectionCardinality>0 {
+		if pair.IntersectionCardinality > 0 {
 
 			fmt.Printf(
 				//"%v|%v|%.0f%%|%v|%.0f%%|%v|%v\n",
@@ -908,15 +897,13 @@ func JoinDataBitSetProcessor(in <- chan *Pair, out chan <-*Pair, bsConf *BitsetS
 				previousData[0].column,
 				100*float32(pair.IntersectionCardinality)/float32(previousData[0].bitset.Cardinality()),
 				pair.IntersectionCardinality,
-				100*float32(pair.IntersectionCardinality) / float32(previousData[1].bitset.Cardinality()),
+				100*float32(pair.IntersectionCardinality)/float32(previousData[1].bitset.Cardinality()),
 				previousData[1].column,
 				previousData[1].bitset.Cardinality(),
 			)
-			out<-pair
+			out <- pair
 		}
 
 	}
 	close(out)
 }
-
-

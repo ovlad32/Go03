@@ -1,4 +1,5 @@
 package main
+
 /*
 func main2() {
 	hs = fnv.New64()
@@ -307,5 +308,3 @@ fmt.Println(time.Since(start))
 }
 
 */
-
-

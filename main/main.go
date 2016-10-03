@@ -1,23 +1,22 @@
 package main
 
 import (
-	"fmt"
-
-	"../metadata"
 	"../bitsetservice"
-	"sync"
-	"runtime"
-	"time"
-	"../sparsebitset"
 	"../sb2"
-	"os"
+	"../sparsebitset"
+	"fmt"
 	"hash"
 	"hash/fnv"
+	"metadata"
+	"os"
+	"runtime"
+	"sync"
+	"time"
 	"unsafe"
 	//"strconv"
-	"strconv"
 	"math/rand"
 	_ "net/http/pprof"
+	"strconv"
 	/*"log"
 	"net/http"
 	"github.com/pkg/profile"*/
@@ -25,14 +24,15 @@ import (
 	"github.com/boltdb/bolt"
 )
 
-
 type AppConfigType struct {
-	Db *bolt.DB
-	StartTime time.Time
-	DumpConfiguration bitsetservice.DumpConfigurationType;
-//	BSConfig *bitsetservice.BitsetServiceConfig
+	Db                *bolt.DB
+	StartTime         time.Time
+	DumpConfiguration bitsetservice.DumpConfigurationType
+	//	BSConfig *bitsetservice.BitsetServiceConfig
 }
+
 var AppConfig AppConfigType = AppConfigType{}
+
 func m1ain() {
 	/*go func() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
@@ -48,8 +48,8 @@ func m1ain() {
 	start := start0
 	s1 := sb2.New(0)
 	r := rand.NewSource(30)
-	_=uint64(r.Int63())
-	_=h
+	_ = uint64(r.Int63())
+	_ = h
 	/*s1.Set(0)
 	s1.Set(15)
 	s1.Set(16)
@@ -61,7 +61,7 @@ func m1ain() {
 	//f,_ := os.Create("cprof")
 	//pprof.StartCPUProfile(f)
 	//defer pprof.StopCPUProfile()
-	for i := uint64(0); i <= 64; i+=16 {
+	for i := uint64(0); i <= 64; i += 16 {
 		h.Reset()
 		/*b:=(*[8]byte)(unsafe.Pointer(&i))
 		fmt.Println((*b),i)
@@ -69,12 +69,12 @@ func m1ain() {
 		//		h.Write([]byte(fmt.Sprintf("%v",i)))
 		h.Write([]byte(strconv.FormatUint(i, 10)))
 		//h.Sum64()
-//s1.Set(h.Sum64())
-		s1.Set(	i)
+		//s1.Set(h.Sum64())
+		s1.Set(i)
 	}
 	fmt.Println("Build BS1 :", time.Since(start))
 	//fmt.Println(" Cardinality ",s1.Cardinality())
-	return;
+	return
 }
 
 /*
@@ -84,7 +84,6 @@ func buildTableBitSets(in chan table) {
 	}
 }
 */
-
 
 func mai1n() {
 	/*a:= sparsebitset.New(0)
@@ -136,9 +135,8 @@ func mai1n() {
 	fileb.Close() */
 }
 
-
-func mainzz()  {
-	a:=uint64(0Xffff)
+func mainzz() {
+	a := uint64(0Xffff)
 	fmt.Println(*(*[8]byte)(unsafe.Pointer(&a)))
 	//return
 	var h hash.Hash64
@@ -147,77 +145,75 @@ func mainzz()  {
 	start := start0
 	s1 := sparsebitset.New(0)
 	r := rand.NewSource(30)
-	for i := uint64(0);i<100*1000*1000+0;i++{
+	for i := uint64(0); i < 100*1000*1000+0; i++ {
 		h.Reset()
 		/*b:=(*[8]byte)(unsafe.Pointer(&i))
 		fmt.Println((*b),i)
 		h.Write((*b)[:])*/
-//		h.Write([]byte(fmt.Sprintf("%v",i)))
-		h.Write([]byte(strconv.FormatUint(i,10)))
+		//		h.Write([]byte(fmt.Sprintf("%v",i)))
+		h.Write([]byte(strconv.FormatUint(i, 10)))
 		h.Sum64()
-		s1.Set(/**/uint64(r.Int63()))
+		s1.Set( /**/ uint64(r.Int63()))
 	}
-	fmt.Println("Build BS1 :",time.Since(start))
+	fmt.Println("Build BS1 :", time.Since(start))
 	//fmt.Println(" Cardinality ",s1.Cardinality())
-	return;
+	return
 	start = time.Now()
-	fileS1,_:= os.Create("S1_500M")
+	fileS1, _ := os.Create("S1_500M")
 	//s1.WriteTo(fileS1)
 	//fmt.Println("Write BS1:",time.Since(start))
 	fileS1.Close()
 
 	s2 := sparsebitset.New(0)
-	for i := uint64(0);i<500000000*0;i++{
+	for i := uint64(0); i < 500000000*0; i++ {
 		//h.Reset()
 		//h.Write([]byte(strconv.FormatUint(i,10)))
-//		h.Write([]byte(fmt.Sprintf("%v",i)))
+		//		h.Write([]byte(fmt.Sprintf("%v",i)))
 		//s2.Set(h.Sum64())
 		s2.Set(i)
 	}
-	fmt.Println("Build BS2 :",time.Since(start)," Cardinality ",s2.Cardinality())
+	fmt.Println("Build BS2 :", time.Since(start), " Cardinality ", s2.Cardinality())
 
 	start = time.Now()
-	fileS2,_:= os.Create("S2_500M")
+	fileS2, _ := os.Create("S2_500M")
 	//s2.WriteTo(fileS2)
 	//fmt.Println("Write BS2:",time.Since(start))
 	fileS2.Close()
 	start = time.Now()
 	result := s1.Intersection(s2)
-	fmt.Println("Intersection:", result.Cardinality(),time.Since(start))
+	fmt.Println("Intersection:", result.Cardinality(), time.Since(start))
 	start = time.Now()
-	fileS3,_:= os.Create("IS_500M")
+	fileS3, _ := os.Create("IS_500M")
 	//result .WriteTo(fileS3)
 	//fmt.Println("Write Intersection:",time.Since(start))
 	fileS3.Close()
-	fmt.Println("total:",time.Since(start0))
+	fmt.Println("total:", time.Since(start0))
 }
-
 
 func main() {
 	AppConfig.StartTime = time.Now()
 	AppConfig.DumpConfiguration = bitsetservice.DumpConfigurationType{
-			GZIP:true,
-			FieldSeparator:[]byte("|"),
-			LineSeparator:[]byte("\n"),
-			InputBufferSize:50*1024,
+		GZIP:            true,
+		FieldSeparator:  []byte("|"),
+		LineSeparator:   []byte("\n"),
+		InputBufferSize: 50 * 1024,
 	}
 
 	bs := &bitsetservice.BitsetServiceConfig{
-		DumpRootPath:"C:/home/",
-		BSRootPath: "C:/home/BS/",
-		HRORootPath:"C:/home/BS/",
+		DumpRootPath: "C:/home/",
+		BSRootPath:   "C:/home/BS/",
+		HRORootPath:  "C:/home/BS/",
 	}
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	//runtime.GOMAXPROCS(1)
 
-	tableChannel := make(chan * metadata.TableInfo)
+	tableChannel := make(chan *metadata.TableInfo)
 	doneBitSets := make(chan bool)
 
 	go bitsetservice.TableBitSetProcessor(
 		tableChannel,
 		doneBitSets,
 		bs,
-
 	)
 	tables := metadata.GetMetadataInfoHC()
 	for n := range tables {
@@ -225,44 +221,44 @@ func main() {
 		tableChannel <- &tables[n]
 	}
 	close(tableChannel)
-	<- doneBitSets
+	<-doneBitSets
 
 	table1 := tables[0]
 	table2 := tables[1]
 	toJoinData := make(chan *bitsetservice.Pair)
 	toJoinRows := make(chan *bitsetservice.Pair)
 	doneJoinRows := make(chan bool)
-	go bitsetservice.JoinDataBitSetProcessor(toJoinData,toJoinRows,bs)
-	go bitsetservice.JoinRowBitSetProcessor(toJoinRows,doneJoinRows,bs)
-	for n1,_ := range table1.Columns {
-		for n2,_ := range table2.Columns {
+	go bitsetservice.JoinDataBitSetProcessor(toJoinData, toJoinRows, bs)
+	go bitsetservice.JoinRowBitSetProcessor(toJoinRows, doneJoinRows, bs)
+	for n1, _ := range table1.Columns {
+		for n2, _ := range table2.Columns {
 			pair := &bitsetservice.Pair{
-				BSConfig:bs,
-				LeftColumnToRowBitSet: bitsetservice.ColumnToBitSet{Column:&table1.Columns[n1]},
-				RightColumnToRowBitSet:	bitsetservice.ColumnToBitSet{Column:&table2.Columns[n2]},
+				BSConfig:               bs,
+				LeftColumnToRowBitSet:  bitsetservice.ColumnToBitSet{Column: &table1.Columns[n1]},
+				RightColumnToRowBitSet: bitsetservice.ColumnToBitSet{Column: &table2.Columns[n2]},
 			}
 			pair.TruePositive =
 				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CONTRACT_ID" &&
-			   		pair.RightColumnToRowBitSet.Column.ColumnName.String == "INFORMER_DEAL_ID") ||
-				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CONTRACT_DATE" &&
-					pair.RightColumnToRowBitSet.Column.ColumnName.String == "LIABILITY_DATE") ||
-				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CURRENCY" &&
-					pair.RightColumnToRowBitSet.Column.ColumnName.String == "CURRENCY") ||
-				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "COLLATERAL_AMOUNT" &&
-					pair.RightColumnToRowBitSet.Column.ColumnName.String == "COLLATERAL_VALUE") ||
-				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CONTRACT_NUMBER" &&
-					pair.RightColumnToRowBitSet.Column.ColumnName.String == "LIABILITY_NUMBER") ||
-				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CURRENCY" &&
+					pair.RightColumnToRowBitSet.Column.ColumnName.String == "INFORMER_DEAL_ID") ||
+					(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CONTRACT_DATE" &&
+						pair.RightColumnToRowBitSet.Column.ColumnName.String == "LIABILITY_DATE") ||
+					(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CURRENCY" &&
+						pair.RightColumnToRowBitSet.Column.ColumnName.String == "CURRENCY") ||
+					(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "COLLATERAL_AMOUNT" &&
+						pair.RightColumnToRowBitSet.Column.ColumnName.String == "COLLATERAL_VALUE") ||
+					(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CONTRACT_NUMBER" &&
+						pair.RightColumnToRowBitSet.Column.ColumnName.String == "LIABILITY_NUMBER") ||
+					(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CURRENCY" &&
 						pair.RightColumnToRowBitSet.Column.ColumnName.String == "COLLATERAL_VALUE_CURRENCY") ||
-				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "INITIAL_AMOUNT" &&
-					pair.RightColumnToRowBitSet.Column.ColumnName.String == "ORIGINAL_AMOUNT") ||
-				(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CLOSING_DATE" &&
-					pair.RightColumnToRowBitSet.Column.ColumnName.String == "DUE_DATE")
+					(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "INITIAL_AMOUNT" &&
+						pair.RightColumnToRowBitSet.Column.ColumnName.String == "ORIGINAL_AMOUNT") ||
+					(pair.LeftColumnToRowBitSet.Column.ColumnName.String == "CLOSING_DATE" &&
+						pair.RightColumnToRowBitSet.Column.ColumnName.String == "DUE_DATE")
 			toJoinData <- pair
 		}
 	}
 	close(toJoinData)
-	<- doneJoinRows
-		fmt.Println(time.Since(start))
+	<-doneJoinRows
+	fmt.Println(time.Since(start))
 
 }

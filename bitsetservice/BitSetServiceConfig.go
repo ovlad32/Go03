@@ -1,23 +1,23 @@
 package bitsetservice
 
-import ("fmt"
+import (
 	"./../metadata"
-	)
-
+	"fmt"
+)
 
 type BitsetServiceConfig struct {
 	DumpRootPath string
-	BSRootPath string
-	HRORootPath string
+	BSRootPath   string
+	HRORootPath  string
 }
 
-func(conf BitsetServiceConfig) checkBSRootPath() {
+func (conf BitsetServiceConfig) checkBSRootPath() {
 	if conf.BSRootPath == "" {
 		panic("The path to bitset location is empty")
 	}
 }
 
-func (conf BitsetServiceConfig) GetBSPath(column *metadata.ColumnInfoType)  (string) {
+func (conf BitsetServiceConfig) GetBSPath(column *metadata.ColumnInfoType) string {
 	conf.checkBSRootPath()
 	column.СheckId()
 	column.СheckTableInfo()
@@ -30,8 +30,7 @@ func (conf BitsetServiceConfig) GetBSPath(column *metadata.ColumnInfoType)  (str
 	)
 }
 
-
-func (conf BitsetServiceConfig) GetBSPathFileName(column *metadata.ColumnInfoType, category string)  (string) {
+func (conf BitsetServiceConfig) GetBSPathFileName(column *metadata.ColumnInfoType, category string) string {
 	conf.checkBSRootPath()
 	column.СheckId()
 	column.СheckTableInfo()
@@ -46,7 +45,7 @@ func (conf BitsetServiceConfig) GetBSPathFileName(column *metadata.ColumnInfoTyp
 	)
 }
 
-func(conf BitsetServiceConfig) GetHROPath(column *metadata.ColumnInfoType) (string) {
+func (conf BitsetServiceConfig) GetHROPath(column *metadata.ColumnInfoType) string {
 	conf.checkBSRootPath()
 	column.СheckId()
 	column.СheckTableInfo()
@@ -61,7 +60,7 @@ func(conf BitsetServiceConfig) GetHROPath(column *metadata.ColumnInfoType) (stri
 
 }
 
-func AlignInt64 (x,y int64) (int64,int64) {
+func AlignInt64(x, y int64) (int64, int64) {
 	if x > y {
 		return x, y
 	} else {
@@ -69,8 +68,7 @@ func AlignInt64 (x,y int64) (int64,int64) {
 	}
 }
 
-
-func AlignUInt64 (x,y uint64) (uint64,uint64) {
+func AlignUInt64(x, y uint64) (uint64, uint64) {
 	if x > y {
 		return x, y
 	} else {
@@ -78,32 +76,31 @@ func AlignUInt64 (x,y uint64) (uint64,uint64) {
 	}
 }
 
-func(bc * BitsetServiceConfig) DataIntersectionBitSetFullFileName(p *Pair, category string) (path,filename string) {
-	return intersectionBitSetFullFileName(bc,p,"di",category)
+func (bc *BitsetServiceConfig) DataIntersectionBitSetFullFileName(p *Pair, category string) (path, filename string) {
+	return intersectionBitSetFullFileName(bc, p, "di", category)
 }
 
-func(bc * BitsetServiceConfig) RowsIntersectionBitSetFullFileName(p *Pair, category string) (path,filename string) {
-	return intersectionBitSetFullFileName(bc,p,"ri",category)
+func (bc *BitsetServiceConfig) RowsIntersectionBitSetFullFileName(p *Pair, category string) (path, filename string) {
+	return intersectionBitSetFullFileName(bc, p, "ri", category)
 }
 
-func intersectionBitSetFullFileName(bc * BitsetServiceConfig, p *Pair, suffix string, category string) (path,filename string) {
-	i1,i2 := AlignInt64(p.LeftColumnToRowBitSet.Column.TableInfo.Id.Int64,
+func intersectionBitSetFullFileName(bc *BitsetServiceConfig, p *Pair, suffix string, category string) (path, filename string) {
+	i1, i2 := AlignInt64(p.LeftColumnToRowBitSet.Column.TableInfo.Id.Int64,
 		p.RightColumnToRowBitSet.Column.TableInfo.Id.Int64,
 	)
 
 	path = fmt.Sprintf("%v/%v-%v/",
 		p.BSConfig.HRORootPath,
-		i1,i2,
+		i1, i2,
 	)
 
-	i1,i2 = AlignInt64(p.LeftColumnToRowBitSet.Column.Id.Int64,
+	i1, i2 = AlignInt64(p.LeftColumnToRowBitSet.Column.Id.Int64,
 		p.RightColumnToRowBitSet.Column.Id.Int64)
 
 	filename = fmt.Sprintf("%v-%v-%v.%v.bitset",
-		i1,i2,suffix,
+		i1, i2, suffix,
 		category,
 	)
 
 	return
 }
-

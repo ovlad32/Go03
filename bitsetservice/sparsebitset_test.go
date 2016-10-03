@@ -2,10 +2,10 @@ package bitsetservice
 
 import (
 	"fmt"
-	"time"
-	"os"
-	"math/rand"
 	"github.com/js-ojus/sparsebitset"
+	"math/rand"
+	"os"
+	"time"
 )
 
 func main212() {
@@ -14,7 +14,7 @@ func main212() {
 
 	bs := sparsebitset.New(0)
 	//start := uint64(500000000)// uint64(0x00000000FFFFFFFFFFFFFFFF)
-	start := uint64(20000)// uint64(0x00000000FFFFFFFFFFFFFFFF)
+	start := uint64(20000) // uint64(0x00000000FFFFFFFFFFFFFFFF)
 	//bs.Set(b)
 	//arr:=make([]uint64,start+1)
 	value := uint64(0)
@@ -33,9 +33,9 @@ func main212() {
 			}
 		}*/
 	}
-	fmt.Println(time.Since(startt),value)
+	fmt.Println(time.Since(startt), value)
 
-	fmt.Println("------",bs.Cardinality())
+	fmt.Println("------", bs.Cardinality())
 	startt = time.Now()
 	/*11for pos, e :=bs.NextSet(0);e; pos,e = bs.NextSet(pos+1){
 		fmt.Println(pos)
@@ -44,7 +44,7 @@ func main212() {
 	bs.WriteTo(file)
 	fmt.Println(time.Since(startt))
 	rt := sparsebitset.New(0)
-	rd,_:= os.Open("c:/1/bs.data")
+	rd, _ := os.Open("c:/1/bs.data")
 	rt.ReadFrom(rd)
 	file1, _ := os.Create("c:/1/bs2.data")
 	rt.WriteTo(file1)
@@ -54,4 +54,3 @@ func main212() {
 		fmt.Println(a,v,bs.Test(v))
 	}*/
 }
-

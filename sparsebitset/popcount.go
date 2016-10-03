@@ -43,7 +43,7 @@ func popcountSetAndNot(a, b *blockAry) uint64 {
 	c := uint64(0)
 
 	for key, aValue := range *a {
-		if bValue,found := (*b)[key]; found {
+		if bValue, found := (*b)[key]; found {
 			c += popcount(aValue &^ bValue)
 		} else {
 			c += popcount(aValue)
@@ -51,9 +51,6 @@ func popcountSetAndNot(a, b *blockAry) uint64 {
 	}
 	return c
 }
-
-
-
 
 // popcountSetAnd answers the remaining number of bits set to `1`,
 // when `and`ed with another bitset.
@@ -82,7 +79,7 @@ func popcountSetOr(a, b *blockAry) uint64 {
 		}
 	}
 	for key, bValue := range *b {
-		if _, found := (*a)[key];!found{
+		if _, found := (*a)[key]; !found {
 			c += popcount(bValue)
 		}
 	}

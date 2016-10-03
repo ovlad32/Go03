@@ -1,13 +1,13 @@
 package sb2
 
 import (
-	//"sync"
-	//"fmt"
+//"sync"
+//"fmt"
 )
 import (
 	//"fmt"
-	"sync"
 	"fmt"
+	"sync"
 )
 
 const (
@@ -23,18 +23,18 @@ const (
 	// allOnes is a word with all bits set to `1`.
 	allOnes uint64 = 0xffffffffffffffff
 
-	subWordSize = uint64(16)
-	modSubWordSize = subWordSize - 1
-	log2SubWordSize = uint64(4)
+	subWordSize        = uint64(16)
+	modSubWordSize     = subWordSize - 1
+	log2SubWordSize    = uint64(4)
 	stampSegmentIdSize = byte(2) // used both: 2 bits for Id and 2 bytes for the chunk word
 	stampSegmentIdMask = byte(3) // 00000011b
 )
 
-
 const (
-	slot5IdPosition = (0)
+	slot5IdPosition     = (0)
 	stampHeaderPosition = (1)
 )
+
 /*
 func get64Shift(n uint64) (uint64) {
 	return n & modWordSize
@@ -63,45 +63,43 @@ type stampType struct {
 */
 
 type stampConfigType struct {
-	chunkCount uint8
-	sizeInBytes  uint8
-	expander []byte
+	chunkCount  uint8
+	sizeInBytes uint8
+	expander    []byte
 }
+
 /*
 type slotType struct {
 	buffer map[uint16]map[uint16]map[uint16]map[uint8]*[]byte
 	accessing sync.Mutex
 }*/
 
-var conf4 = stampConfigType{chunkCount:4, sizeInBytes:1+8}
-var conf1 = stampConfigType{chunkCount:1, sizeInBytes:1+1+2}
-var conf2 = stampConfigType{chunkCount:2, sizeInBytes:1+1+4}
-var conf3 = stampConfigType{chunkCount:3, sizeInBytes:1+1+6}
-var backwardConfigs = [4]*stampConfigType{&conf4,&conf3,&conf2,&conf1}
-var forwardConfigs = [4]*stampConfigType{&conf1,&conf2,&conf3,&conf4}
+var conf4 = stampConfigType{chunkCount: 4, sizeInBytes: 1 + 8}
+var conf1 = stampConfigType{chunkCount: 1, sizeInBytes: 1 + 1 + 2}
+var conf2 = stampConfigType{chunkCount: 2, sizeInBytes: 1 + 1 + 4}
+var conf3 = stampConfigType{chunkCount: 3, sizeInBytes: 1 + 1 + 6}
+var backwardConfigs = [4]*stampConfigType{&conf4, &conf3, &conf2, &conf1}
+var forwardConfigs = [4]*stampConfigType{&conf1, &conf2, &conf3, &conf4}
 
-type slotStackType map[uint8]map[uint16]map[uint16]map[uint16]map[uint8][]byte;
+type slotStackType map[uint8]map[uint16]map[uint16]map[uint16]map[uint8][]byte
 
 type SB2 struct {
 	accessing sync.Mutex
-	slot slotStackType
+	slot      slotStackType
 }
 
 func New(n uint) *SB2 {
-	for index := range forwardConfigs{
+	for index := range forwardConfigs {
 		forwardConfigs[index].expander = make([]byte,
-					forwardConfigs[index].sizeInBytes,
-					forwardConfigs[index].sizeInBytes,
-			)
+			forwardConfigs[index].sizeInBytes,
+			forwardConfigs[index].sizeInBytes,
+		)
 	}
 	return &SB2{
 		slot: make(slotStackType),
 	}
 
 }
-
-
-
 
 /*
 
@@ -124,29 +122,29 @@ func convertShift64toChunk(shift64 uint64) (uint8, uint16) {
 }*/
 
 func Offset64Bits(n uint64) (
-slot1Id uint16,
-slot2Id uint16,
-slot3Id uint16,
-slot4Id uint8,
-slot5Id uint8,
-segmentId byte,
-segmentValueHigh byte,
-segmentValueLow byte,
+	slot1Id uint16,
+	slot2Id uint16,
+	slot3Id uint16,
+	slot4Id uint8,
+	slot5Id uint8,
+	segmentId byte,
+	segmentValueHigh byte,
+	segmentValueLow byte,
 ) {
-	offset64:= n >> log2WordSize
+	offset64 := n >> log2WordSize
 	shift64 := n & modWordSize
 
-	offset32Hi  := offset64 >> 32 //modSubWordSize
+	offset32Hi := offset64 >> 32 //modSubWordSize
 	offset32Low := offset64 & 0xFFFFFFFF
 
 	slot1Id = uint16(offset32Hi >> 16)
 	slot2Id = uint16(offset32Hi & 0xFFFF)
 	slot3Id = uint16(offset32Low >> 16)
-	slot4Id = uint8(offset32Low >> 8) & 0xFF
+	slot4Id = uint8(offset32Low>>8) & 0xFF
 	slot5Id = uint8(offset32Low & 0xFF)
 
-	segmentId = byte(shift64 >> log2SubWordSize) + 1
-	segmentValue := 1 << uint16(shift64 & modSubWordSize)
+	segmentId = byte(shift64>>log2SubWordSize) + 1
+	segmentValue := 1 << uint16(shift64&modSubWordSize)
 	segmentValueHigh = byte(segmentValue >> 8)
 	segmentValueLow = byte(segmentValue & 0xFF)
 	return
@@ -161,7 +159,7 @@ func (b *SB2) Set(data uint64) {
 	}
 
 	slot1Id, slot2Id, slot3Id, slot4Id, slot5Id,
-	segmentId, segmentValueHigh, segmentValueLow := Offset64Bits(data)
+		segmentId, segmentValueHigh, segmentValueLow := Offset64Bits(data)
 	//fmt.Println(Offset64Bits(data))
 	//var resultValue *searchResult
 	//resultChannel := make(map[slotIndexType]chan *searchResult);
@@ -177,10 +175,10 @@ func (b *SB2) Set(data uint64) {
 	////		}
 	//	}
 	getBuffer := func(conf *stampConfigType, toMake bool) (buff []byte, found bool) {
-		var slot0 map[uint16]map[uint16]map[uint16]map[uint8][]byte;
-		var slot1 map[uint16]map[uint16]map[uint8][]byte;
-		var slot2 map[uint16]map[uint8][]byte;
-		var slot3 map[uint8][]byte;
+		var slot0 map[uint16]map[uint16]map[uint16]map[uint8][]byte
+		var slot1 map[uint16]map[uint16]map[uint8][]byte
+		var slot2 map[uint16]map[uint8][]byte
+		var slot3 map[uint8][]byte
 		buff = nil
 		found = false
 
@@ -220,7 +218,7 @@ func (b *SB2) Set(data uint64) {
 			}
 
 			found = true
-			buff = make([]byte, 0, conf.sizeInBytes * 100)
+			buff = make([]byte, 0, conf.sizeInBytes*100)
 			slot3[slot4Id] = buff
 		}
 		return
@@ -231,20 +229,18 @@ func (b *SB2) Set(data uint64) {
 		var foundBuffer *[]byte
 		var foundBufferOffset int = -1
 		var foundStampConfig *stampConfigType
-		over:
+	over:
 		for index, conf := range forwardConfigs {
 			//			b.accessing.Lock()
 			if buff, found := getBuffer(forwardConfigs[index], false); found {
 				bufferSize := len(buff)
 				if bufferSize > 0 {
-					for bufferOffset := 0;
-						bufferOffset < bufferSize;
-							bufferOffset += int(conf.sizeInBytes) {
+					for bufferOffset := 0; bufferOffset < bufferSize; bufferOffset += int(conf.sizeInBytes) {
 						if slot5Id == (buff)[bufferOffset] {
 							foundBuffer = &buff
 							foundBufferOffset = bufferOffset
 							foundStampConfig = forwardConfigs[index]
-							break over;
+							break over
 						}
 
 					}
@@ -253,10 +249,9 @@ func (b *SB2) Set(data uint64) {
 			}
 		}
 
-
 		if foundStampConfig == nil {
 			foundStampConfig = &conf1
-			b,_ := getBuffer(foundStampConfig, true);
+			b, _ := getBuffer(foundStampConfig, true)
 			foundBuffer = &b
 			foundBufferOffset = -1
 		}
@@ -270,8 +265,8 @@ func (b *SB2) Set(data uint64) {
 			//fmt.Println(" -- ",segmentId,segmentValueHigh,segmentValueLow)
 			//value := 1 << shift64
 			//fmt.Println(foundBuffer)
-			(*foundBuffer)[foundBufferOffset + int(2 * (segmentId - 1 )) + 1] |= segmentValueHigh
-			(*foundBuffer)[foundBufferOffset + int(2 * (segmentId - 1 )) + 2] |= segmentValueLow
+			(*foundBuffer)[foundBufferOffset+int(2*(segmentId-1))+1] |= segmentValueHigh
+			(*foundBuffer)[foundBufferOffset+int(2*(segmentId-1))+2] |= segmentValueLow
 			/*for bIndex := uint64(0); bIndex < 64; bIndex +=8 {
 				bValue := byte((value >> bIndex) & 0xFF)
 				if bValue > 0 {
@@ -283,13 +278,13 @@ func (b *SB2) Set(data uint64) {
 			return
 		}
 
-		segmentIdFound := false;
+		segmentIdFound := false
 		segmentOrder := byte(0)
-		stampHeader := (*foundBuffer)[foundBufferOffset + stampHeaderPosition]
+		stampHeader := (*foundBuffer)[foundBufferOffset+stampHeaderPosition]
 
 		for ; segmentOrder < byte(foundStampConfig.chunkCount); segmentOrder++ {
 			// see stampSegmentIdSize declaration comment
-			segmentIndex :=byte(stampSegmentIdSize * segmentOrder)
+			segmentIndex := byte(stampSegmentIdSize * segmentOrder)
 			foundSegmentId := ((stampHeader >> segmentIndex) & stampSegmentIdMask)
 			segmentIdFound = segmentId == foundSegmentId
 
@@ -297,35 +292,35 @@ func (b *SB2) Set(data uint64) {
 				offset :=
 					foundBufferOffset +
 						stampHeaderPosition +
-						 int(segmentIndex);
-				(*foundBuffer)[offset + 1] |= segmentValueHigh
-				(*foundBuffer)[offset + 2] |= segmentValueLow
+						int(segmentIndex)
+				(*foundBuffer)[offset+1] |= segmentValueHigh
+				(*foundBuffer)[offset+2] |= segmentValueLow
 				return
 			}
 		}
 
-		nextConfig := forwardConfigs[foundStampConfig.chunkCount - 1 + 1]
-		nb,_ := getBuffer(nextConfig,true)
+		nextConfig := forwardConfigs[foundStampConfig.chunkCount-1+1]
+		nb, _ := getBuffer(nextConfig, true)
 		nextBuffer := &nb
 		nextBufferOffset := len(*nextBuffer)
 		(*nextBuffer) = append(*nextBuffer, nextConfig.expander...)
 
 		if nextConfig.chunkCount == conf4.chunkCount {
-			(*nextBuffer)[nextBufferOffset] = slot5Id;
-			header := (*foundBuffer)[foundBufferOffset + stampHeaderPosition]
+			(*nextBuffer)[nextBufferOffset] = slot5Id
+			header := (*foundBuffer)[foundBufferOffset+stampHeaderPosition]
 			//fmt.Println(nextBuffer)
-			for index := byte(0); index < foundStampConfig.chunkCount; index ++ {
-				foundSegmentId := (header >> (stampSegmentIdSize * index)) & stampSegmentIdMask;
-				nextSegmentBufferIndex := nextBufferOffset + int(foundSegmentId - 1) * 2
-				foundSegmentBufferIndex := foundBufferOffset + stampHeaderPosition + int(index * 2)
-				(*nextBuffer)[nextSegmentBufferIndex + 1] =
-					(*foundBuffer)[foundSegmentBufferIndex + 1]
-				(*nextBuffer)[nextSegmentBufferIndex + 2] =
-					(*foundBuffer)[foundSegmentBufferIndex + 2]
+			for index := byte(0); index < foundStampConfig.chunkCount; index++ {
+				foundSegmentId := (header >> (stampSegmentIdSize * index)) & stampSegmentIdMask
+				nextSegmentBufferIndex := nextBufferOffset + int(foundSegmentId-1)*2
+				foundSegmentBufferIndex := foundBufferOffset + stampHeaderPosition + int(index*2)
+				(*nextBuffer)[nextSegmentBufferIndex+1] =
+					(*foundBuffer)[foundSegmentBufferIndex+1]
+				(*nextBuffer)[nextSegmentBufferIndex+2] =
+					(*foundBuffer)[foundSegmentBufferIndex+2]
 
 			}
-			(*nextBuffer)[nextBufferOffset + int(segmentId - 1) * 2 + 1] = segmentValueHigh
-			(*nextBuffer)[nextBufferOffset + int(segmentId - 1) * 2 + 2] = segmentValueLow
+			(*nextBuffer)[nextBufferOffset+int(segmentId-1)*2+1] = segmentValueHigh
+			(*nextBuffer)[nextBufferOffset+int(segmentId-1)*2+2] = segmentValueLow
 			//fmt.Println(nextBuffer)
 		} else {
 			nextStart := nextBufferOffset
@@ -335,25 +330,25 @@ func (b *SB2) Set(data uint64) {
 			copy((*nextBuffer)[nextStart:nextFinish], (*foundBuffer)[foundStart:foundFinish])
 
 			/*
-			nextSlot.buffer[nextBufferOffset + stampIdHighPosition] = stampIdHigh;
-			nextSlot.buffer[nextBufferOffset + stampIdLowPosition] = stampIdLow;
+				nextSlot.buffer[nextBufferOffset + stampIdHighPosition] = stampIdHigh;
+				nextSlot.buffer[nextBufferOffset + stampIdLowPosition] = stampIdLow;
 
-			nextSlot.buffer[nextBufferOffset + stampHeaderPosition] =
-				foundSlot.buffer[foundBufferOffset + stampHeaderPosition] |
-					segmentId << ((nextConfig.chunkCount -1) * stampSegmentIdSize)
+				nextSlot.buffer[nextBufferOffset + stampHeaderPosition] =
+					foundSlot.buffer[foundBufferOffset + stampHeaderPosition] |
+						segmentId << ((nextConfig.chunkCount -1) * stampSegmentIdSize)
 
-			for index := uint64(0); index < 2 * uint64(foundStampConfig.chunkCount); index ++ {
-				nextSlot.buffer[index + nextBufferOffset + stampHeaderPosition + 1] =
-					foundSlot.buffer[index + foundBufferOffset + stampHeaderPosition + 1]
-			}
-			nextSlot.buffer[nextBufferOffset + stampHeaderPosition + uint64(segmentId -1) * 2 + 1] = segmentValueHigh
-			nextSlot.buffer[nextBufferOffset + stampHeaderPosition + uint64(segmentId -1) * 2 + 2] = segmentValueLow
-*/
-			(*nextBuffer)[nextBufferOffset + stampHeaderPosition] =
-				(*foundBuffer)[foundBufferOffset + stampHeaderPosition] |
-					segmentId << ((nextConfig.chunkCount - 1 ) * stampSegmentIdSize)
-			(*nextBuffer)[nextFinish + 0] = segmentValueHigh
-			(*nextBuffer)[nextFinish + 1] = segmentValueLow
+				for index := uint64(0); index < 2 * uint64(foundStampConfig.chunkCount); index ++ {
+					nextSlot.buffer[index + nextBufferOffset + stampHeaderPosition + 1] =
+						foundSlot.buffer[index + foundBufferOffset + stampHeaderPosition + 1]
+				}
+				nextSlot.buffer[nextBufferOffset + stampHeaderPosition + uint64(segmentId -1) * 2 + 1] = segmentValueHigh
+				nextSlot.buffer[nextBufferOffset + stampHeaderPosition + uint64(segmentId -1) * 2 + 2] = segmentValueLow
+			*/
+			(*nextBuffer)[nextBufferOffset+stampHeaderPosition] =
+				(*foundBuffer)[foundBufferOffset+stampHeaderPosition] |
+					segmentId<<((nextConfig.chunkCount-1)*stampSegmentIdSize)
+			(*nextBuffer)[nextFinish+0] = segmentValueHigh
+			(*nextBuffer)[nextFinish+1] = segmentValueLow
 		}
 		// Decreasing the buffer by copying the top stamp
 		// and truncating the buffer by size of stamp
@@ -368,14 +363,14 @@ func (b *SB2) Set(data uint64) {
 				(*foundBuffer)[int(topStampOffset) + index] = 0
 			}
 		}*/
-		(*foundBuffer) = (*foundBuffer)[0 : topStampOffset]
+		(*foundBuffer) = (*foundBuffer)[0:topStampOffset]
 	}
 }
-			//fmt.Println(" -- ",foundStampConfig.chunkCount, " ",nextConfig.chunkCount, " ", len(foundSlot.buffer), cap(foundSlot.buffer))
 
+//fmt.Println(" -- ",foundStampConfig.chunkCount, " ",nextConfig.chunkCount, " ", len(foundSlot.buffer), cap(foundSlot.buffer))
 
-			//}
-	/*	} else {
+//}
+/*	} else {
 			var slotRouter *slotRouterType
 			var found bool
 //			b.accessing.Lock()

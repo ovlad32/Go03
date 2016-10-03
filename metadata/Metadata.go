@@ -150,7 +150,7 @@ func (h2 H2Type) tableInfo(whereFunc func() string) (result []*TableInfoType, er
 		" ,PATH_TO_FILE" +
 		" ,PATH_TO_DATA_DIR" +
 		" ,METADATA_ID" +
-	" FROM TABLE_INFO "
+		" FROM TABLE_INFO "
 
 	if whereFunc != nil {
 		query = query + whereFunc()
@@ -279,7 +279,6 @@ func (h2 H2Type) columnInfo(whereFunc func() string) (result []*ColumnInfoType, 
 	}
 	return
 }
-
 
 func (h2 H2Type) ColumnInfoByTable(tableInfo *TableInfoType) (result []*ColumnInfoType, err error) {
 	whereFunc := func() string {
