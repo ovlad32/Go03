@@ -196,31 +196,10 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 
 
 
-func (da DataAccessType) SplitToBuckets(in scm.ChannelType, out scm.ChannelType) {
+func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelType) {
 	var currentTable *TableInfoType;
 	var emptyValue []byte = make([]byte,0)
 	hasher := fnv.New64()
-
-	/*type typedBucketNamesMapType map[TypedColumnBucketType] bool
-	type bucketNamesMapType map[int64]*typedBucketNamesMapType
-
-	var bucketNames bucketNamesMapType
-
-	makeColumnBuckets := func() {
-		bucketNames = make(bucketNamesMapType)
-
-		da.HashStorage.Update(func(tx *bolt.Tx) error {
-			for _,col := range currentTable.Columns{
-				bucketName := col.columnBucketName()
-				_ ,err := tx.CreateBucketIfNotExists(bucketName)
-				if err != nil {
-					return err
-				}
-				bucketNames[col.Id.Int64] = make(typedBucketNamesMapType)
-			}
-			return nil
-		})
-	}*/
 	for raw := range in {
 		switch val := raw.Get().(type) {
 			case TableInfoType:
@@ -244,31 +223,40 @@ func (da DataAccessType) SplitToBuckets(in scm.ChannelType, out scm.ChannelType)
 			bucketName := val.column.columnBucketName()
 			partition := hValue[0]
 			da.HashStorage.Update(func(tx *bolt.Tx) (err error) {
-				var bucket bolt.Bucket
-				bucket = tx.Bucket(bucketName)
-				if bucket == nil {
-					bucket,err = tx.CreateBucket(bucketName)
+				var columnIdBucket bolt.Bucket
+				columnIdBucket = tx.Bucket(bucketName)
+				if columnIdBucket == nil {
+					columnIdBucket,err = tx.CreateBucket(bucketName)
 					if err != nil{
 						panic(err)
 					}
 				}
-
-				bucket  = bucket.Bucket(category)
-				if bucket == nil {
-					bucket,err = tx.CreateBucket(category)
+				var dataCategoryBucket bolt.Bucket
+				dataCategoryBucket = columnIdBucket.Bucket(category)
+				if dataCategoryBucket == nil {
+					dataCategoryBucket,err = tx.CreateBucket(category)
 					if err != nil{
 						panic(err)
 					}
 				}
-
-				value := bucket.Get(hValue)
+				value := dataCategoryBucket.Get(hValue)
 				if value == nil {
-					bucket.Put(hValue,emptyValue)
+					dataCategoryBucket.Put(hValue,emptyValue)
 				}
 
-				bucket = bucket.Bucket(partition)
-				if bucket == nil {
-					bucket,err = tx.CreateBucket(partition)
+				var partitionBucket bolt.Bucket
+				partitionBucket = dataCategoryBucket.Bucket(partition)
+				if partitionBucket == nil {
+					partitionBucket,err = tx.CreateBucket(partition)
+					if err != nil{
+						panic(err)
+					}
+				}
+
+				var hValueBucket bolt.Bucket
+				hValueBucket = partitionBucket.Bucket(hValue)
+				if hValueBucket == nil {
+					hValueBucket,err = tx.CreateBucket(hValue)
 					if err != nil{
 						panic(err)
 					}
@@ -278,7 +266,7 @@ func (da DataAccessType) SplitToBuckets(in scm.ChannelType, out scm.ChannelType)
 				binary.PutUvarint(bRow,val.lineNumber)
 				//TODO: switch to real offset instead of lineNumber
 				binary.PutUvarint(bDumpOffset,val.lineNumber)
-				bucket.Put(bRow,bDumpOffset)
+				hValueBucket.Put(bRow,bDumpOffset)
 				return nil
 			});
 
