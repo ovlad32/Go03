@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	scm "scm"
+	scm "./../scm"
 	"strconv"
 	"strings"
 	"github.com/boltdb/bolt"
@@ -16,9 +16,11 @@ import (
 )
 
 const hashLength = 8
+
+var HashStorage *bolt.DB
+
 type DataAccessType struct {
 	DumpConfiguration DumpConfigurationType
-	HashStorage *bolt.DB
 }
 
 type columnDataType struct {
@@ -36,23 +38,23 @@ type columnDataType struct {
 type ColumnBucketNameType [8]byte
 type TypedColumnBucketType [5]byte
 
-func (c columnDataType) buildDataCategory() (result TypedColumnBucketType,bLen uint64) {
+func (c columnDataType) buildDataCategory() (result TypedColumnBucketType, bLen uint64) {
 	if c.isNumeric {
-		result[0] = 1<<3
+		result[0] = 1 << 3
 		if c.isFloat {
 			if c.isNegative {
-				result[0] = result[0] | 1 < 0
+				result[0] = result[0] | 1 << 0
 			}
 		} else {
-			result[0] = result[0] | 1 < 1
+			result[0] = result[0] | 1 << 1
 			if c.isNegative {
-				result[0] = result[0]| 1 < 0
+				result[0] = result[0]| 1 << 0
 			}
 		}
 	}
 	bLen = uint64(len(c.bValue))
 	binary.PutUvarint(result[1:],bLen)
-	return result
+	return
 }
 
 
@@ -60,13 +62,17 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 	if !c.Id.Valid {
 		panic(fmt.Sprintf("Column Id has not been initialized for table %v",c.TableInfo))
 	}
-	binary.PutUvarint(result,c.Id.Int64)
+	binary.PutUvarint(result[:],uint64(c.Id.Int64))
 	return
 }
 
 
 func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelType) {
-	const s0d []byte = (0x0D)
+//	var lineSeparatorArray []byte
+//	var fieldSeparatorArray = []
+	var s0d  = []byte{0x0D}
+
+//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
 
 	for raw := range in {
 		var source TableInfoType
@@ -106,11 +112,11 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 			}
 			lineNumber++
 
-			line = bytes.TrimSuffix(line, da.DumpConfiguration.LineSeparator)
+			line = bytes.TrimSuffix(line, []byte{da.DumpConfiguration.LineSeparator})
 			line = bytes.TrimSuffix(line, s0d)
 
 			//            fmt.Print(line)
-			lineColumns := bytes.Split(line, da.DumpConfiguration.FieldSeparator)
+			lineColumns := bytes.Split(line, []byte{da.DumpConfiguration.FieldSeparator})
 			lineColumnCount := len(lineColumns)
 			if metadataColumnCount != lineColumnCount {
 				panic(fmt.Sprintf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
@@ -150,9 +156,9 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 					continue
 				}
 
-				sValue := string(*val.bValue)
+				sValue := string(val.bValue)
 				if column.MaxStringValue.String < sValue {
-					column.MaxStringValue = sValue
+					column.MaxStringValue.String = sValue
 					column.MaxStringValue.Valid = true
 				}
 				if column.MinStringValue.String > sValue {
@@ -162,7 +168,7 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 
 				lValue := int64(len(sValue))
 				if column.MaxStringLength.Int64 < lValue {
-					column.MaxStringLength = lValue
+					column.MaxStringLength.Int64 = lValue
 					column.MaxStringLength.Valid = true
 				}
 				if column.MinStringLength.Int64 > lValue {
@@ -177,7 +183,7 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 				if val.isNumeric {
 					val.isFloat = strings.Contains(sValue, ".")
 					val.isNegative = strings.HasPrefix(sValue, "-")
-					column.NumericCount++
+					column.NumericCount.Int64++
 					if column.MaxNumericValue.Float64 < val.nValue {
 						column.MaxNumericValue.Float64 = val.nValue
 						column.MaxNumericValue.Valid = true
@@ -206,57 +212,57 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				if currentTable != nil {
 			//		makeColumnBuckets()
 				}
-				currentTable = val;
+				currentTable = &val;
 		case columnDataType:
 			category, bLen := val.buildDataCategory()
 			var hValue  [hashLength]byte
 			if bLen > hashLength {
 				hasher.Reset();
 				hasher.Write(val.bValue)
-				binary.PutUvarint(hValue,hasher.Sum64())
+				binary.PutUvarint(hValue[:],hasher.Sum64())
 			} else {
-				for index := 0; index < bLen; index++ {
+				for index := uint64(0); index < bLen; index++ {
 					hValue[index] = val.bValue[bLen - index - 1]
 				}
 			}
 			//val.column.DataCategories[category] = true
 			bucketName := val.column.columnBucketName()
 			partition := hValue[0]
-			da.HashStorage.Update(func(tx *bolt.Tx) (err error) {
-				var columnIdBucket bolt.Bucket
-				columnIdBucket = tx.Bucket(bucketName)
+			HashStorage.Update(func(tx *bolt.Tx) (err error) {
+				var columnIdBucket *bolt.Bucket
+				columnIdBucket = tx.Bucket(bucketName[:])
 				if columnIdBucket == nil {
-					columnIdBucket,err = tx.CreateBucket(bucketName)
+					columnIdBucket,err = tx.CreateBucket(bucketName[:])
 					if err != nil{
 						panic(err)
 					}
 				}
-				var dataCategoryBucket bolt.Bucket
-				dataCategoryBucket = columnIdBucket.Bucket(category)
+				var dataCategoryBucket *bolt.Bucket
+				dataCategoryBucket = columnIdBucket.Bucket(category[:])
 				if dataCategoryBucket == nil {
-					dataCategoryBucket,err = tx.CreateBucket(category)
+					dataCategoryBucket,err = tx.CreateBucket(category[:])
 					if err != nil{
 						panic(err)
 					}
 				}
-				value := dataCategoryBucket.Get(hValue)
+				value := dataCategoryBucket.Get(hValue[:])
 				if value == nil {
-					dataCategoryBucket.Put(hValue,emptyValue)
+					dataCategoryBucket.Put(hValue[:],emptyValue)
 				}
 
-				var partitionBucket bolt.Bucket
-				partitionBucket = dataCategoryBucket.Bucket(partition)
+				var partitionBucket *bolt.Bucket
+				partitionBucket = dataCategoryBucket.Bucket([]byte{partition})
 				if partitionBucket == nil {
-					partitionBucket,err = tx.CreateBucket(partition)
+					partitionBucket,err = tx.CreateBucket([]byte{partition})
 					if err != nil{
 						panic(err)
 					}
 				}
 
-				var hValueBucket bolt.Bucket
-				hValueBucket = partitionBucket.Bucket(hValue)
+				var hValueBucket *bolt.Bucket
+				hValueBucket = partitionBucket.Bucket(hValue[:])
 				if hValueBucket == nil {
-					hValueBucket,err = tx.CreateBucket(hValue)
+					hValueBucket,err = tx.CreateBucket(hValue[:])
 					if err != nil{
 						panic(err)
 					}

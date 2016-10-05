@@ -1,25 +1,32 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/urfave/negroni"
 	"github.com/gorilla/mux"
+	"./metadata"
+	"./webapp/controller"
 )
 
+func init() {
+	metadata.H2 = metadata.H2Type{
+		Login:"edm",
+		DatabaseName:"edm",
+		Host:"localhost",
+		Password:"edmedm",
+		Port:"5435",
+	}
+	metadata.H2.InitDb();
+
+
+}
 func main() {
-	//mux := http.NewServeMux()
-//	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-//		fmt.Fprintf(w, "Welcome to the home page!")
-	//})
 	router := mux.NewRouter()
-	router.HandleFunc("/databaseConfigurations/",databaseConfigurations)
+	router.HandleFunc("/databaseConfigurations/",controller.GetDC)
 
 	n := negroni.Classic() // Includes some default middlewares
 	n.Use(negroni.Wrap(router))
 	http.ListenAndServe(":3000", n)
 }
-func databaseConfigurations(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(w, "Welcome to the home page!")
-}
+
