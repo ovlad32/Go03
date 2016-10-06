@@ -28,14 +28,14 @@ func (h2 *H2Type) InitDb() (idb *sql.DB) {
 	return idb
 }
 
-func (h2 H2Type) databaseConfig(whereFunc func() string) (result []*DatabaseConfigType, err error) {
+func (h2 H2Type) databaseConfig(whereFunc func() string) (result []DatabaseConfigType, err error) {
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
 
-	result = make([]*DatabaseConfigType, 0)
+	result = make([]DatabaseConfigType, 0)
 	query := "SELECT " +
 		" ID" +
 		" ,DATABASE_NAME" +
@@ -75,16 +75,17 @@ func (h2 H2Type) databaseConfig(whereFunc func() string) (result []*DatabaseConf
 		if err != nil {
 			return
 		}
-		result = append(result, &row)
+		result = append(result, row)
 	}
 	return
 }
 
-func (h2 H2Type) DatabaseConfigAll() (result []*DatabaseConfigType, err error) {
+
+func (h2 H2Type) DatabaseConfigAll() (result []DatabaseConfigType, err error) {
 	return h2.databaseConfig(nil)
 }
 
-func (h2 H2Type) DatabaseConfigById(Id jsnull.NullInt64) (result *DatabaseConfigType, err error) {
+func (h2 H2Type) DatabaseConfigById(Id sql.NullInt64) (result DatabaseConfigType, err error) {
 	whereFunc := func() string {
 		if Id.Valid {
 			return fmt.Sprintf(" WHERE ID = %v", Id.Int64)
@@ -100,14 +101,14 @@ func (h2 H2Type) DatabaseConfigById(Id jsnull.NullInt64) (result *DatabaseConfig
 	return
 }
 
-func (h2 H2Type) metadata(whereFunc func() string) (result []*MetadataType, err error) {
+func (h2 H2Type) metadata(whereFunc func() string) (result []MetadataType, err error) {
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
 
-	result = make([]*MetadataType, 0)
+	result = make([]MetadataType, 0)
 	query := "SELECT " +
 		" ID" +
 		" ,INDEX" +
@@ -139,7 +140,7 @@ func (h2 H2Type) metadata(whereFunc func() string) (result []*MetadataType, err 
 		if err != nil {
 			return
 		}
-		result = append(result, &row)
+		result = append(result, row)
 	}
 	return
 }
@@ -230,12 +231,16 @@ func (h2 H2Type) TableInfoById(Id jsnull.NullInt64) (result *TableInfoType, err 
 		return ""
 	}
 	res, err := h2.tableInfo(whereFunc)
-
+	if err == nil {
+		_,err = h2.ColumnInfoByTable(res[0])
+	}
 	if len(res) > 0 {
 		result = res[0]
 	}
 	return
 }
+
+
 
 func (h2 H2Type) columnInfo(whereFunc func() string) (result []*ColumnInfoType, err error) {
 
@@ -301,7 +306,14 @@ func (h2 H2Type) ColumnInfoByTable(tableInfo *TableInfoType) (result []*ColumnIn
 		}
 		return ""
 	}
-	return h2.columnInfo(whereFunc)
+	result, err = h2.columnInfo(whereFunc)
+	if err == nil {
+		for index := range result {
+			result[index].TableInfo = tableInfo
+		}
+	}
+	tableInfo.Columns = result
+	return
 }
 
 func (h2 H2Type) ColumnInfoById(Id jsnull.NullInt64) (result *ColumnInfoType, err error) {
@@ -454,7 +466,7 @@ type TableInfoType struct {
 	PathToFile    jsnull.NullString `json:"path-to-file"`
 	PathToDataDir jsnull.NullString `json:"path-to-data-dir"`
 	Metadata      *MetadataType
-	Columns       []ColumnInfoType `json:"columns"`
+	Columns       []*ColumnInfoType `json:"columns"`
 }
 
 type ColumnInfoType struct {

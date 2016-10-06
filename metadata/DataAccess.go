@@ -75,9 +75,9 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 //	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
 
 	for raw := range in {
-		var source TableInfoType
+		var source *TableInfoType
 		switch val := raw.Get().(type) {
-		case TableInfoType:
+		case *TableInfoType:
 			source = val
 		default:
 			panic(fmt.Sprintf("Type is not expected %T", raw.Get()))
@@ -133,7 +133,7 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 				}
 				out <- scm.NewMessage().Put(
 					columnDataType{
-						column:     &source.Columns[columnIndex],
+						column:     source.Columns[columnIndex],
 						bValue:     lineColumns[columnIndex],
 						lineNumber: lineNumber,
 					},
@@ -141,6 +141,7 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 			}
 		}
 	}
+	close(out)
 }
 
 func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelType) {
@@ -215,11 +216,12 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				currentTable = &val;
 		case columnDataType:
 			category, bLen := val.buildDataCategory()
-			var hValue  [hashLength]byte
+			hValue := make([]byte,hashLength)
 			if bLen > hashLength {
 				hasher.Reset();
 				hasher.Write(val.bValue)
-				binary.PutUvarint(hValue[:],hasher.Sum64())
+				binary.BigEndian.PutUint64(hValue,hasher.Sum64())
+				fmt.Println("len:",hValue,hasher.Sum64())
 			} else {
 				for index := uint64(0); index < bLen; index++ {
 					hValue[index] = val.bValue[bLen - index - 1]
@@ -240,7 +242,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				var dataCategoryBucket *bolt.Bucket
 				dataCategoryBucket = columnIdBucket.Bucket(category[:])
 				if dataCategoryBucket == nil {
-					dataCategoryBucket,err = tx.CreateBucket(category[:])
+					dataCategoryBucket,err = columnIdBucket.CreateBucket(category[:])
 					if err != nil{
 						panic(err)
 					}
@@ -253,7 +255,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				var partitionBucket *bolt.Bucket
 				partitionBucket = dataCategoryBucket.Bucket([]byte{partition})
 				if partitionBucket == nil {
-					partitionBucket,err = tx.CreateBucket([]byte{partition})
+					partitionBucket,err = dataCategoryBucket.CreateBucket([]byte{partition})
 					if err != nil{
 						panic(err)
 					}
@@ -262,7 +264,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				var hValueBucket *bolt.Bucket
 				hValueBucket = partitionBucket.Bucket(hValue[:])
 				if hValueBucket == nil {
-					hValueBucket,err = tx.CreateBucket(hValue[:])
+					hValueBucket,err = partitionBucket.CreateBucket(hValue[:])
 					if err != nil{
 						panic(err)
 					}
@@ -279,5 +281,6 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 		}
 	}
+	close(out)
 
 }
