@@ -13,11 +13,60 @@ import (
 	"bytes"
 	"encoding/binary"
 	"hash/fnv"
+	"github.com/constabulary/gb/testdata/src/c"
 )
 
 const hashLength = 8
+type ColumnBucketNameType [8]byte
+type TableBucketNameType [8]byte
+type TypedColumnBucketType [5]byte
 
 var HashStorage *bolt.DB
+var columns = []byte("columns")
+
+func tableBucket(tx * bolt.Tx, table *TableInfoType) (result *bolt.Bucket,err error) {
+	var tableBucketName TableBucketNameType
+	var tables = []byte("tables")
+	binary.BigEndian.PutUint64(tableBucketName[:],table.Id.Int64)
+	tablesBucket := tx.Bucket(tables)
+	if tablesBucket == nil {
+		tablesBucket,err = tx.CreateBucket(tables)
+		if err != nil {
+			return
+		}
+	}
+
+	result = tablesBucket.Bucket(tableBucketName[:])
+	if result == nil {
+		result,err = tablesBucket.CreateBucket(tableBucketName[:])
+		if err != nil {
+			return
+		}
+	}
+	return result, nil
+}
+
+func columnBucket(tableIdBucket * bolt.Bucket, column *TableInfoType) (result *bolt.Bucket,err error) {
+	var columnBucketName ColumnBucketNameType
+	var columns = []byte("columns")
+	binary.BigEndian.PutUint64(columnBucketName[:],column.Id.Int64)
+	columnsBucket := tableIdBucket.Bucket(columns)
+	if columnsBucket == nil {
+		columnsBucket,err = tableIdBucket.CreateBucket(columns)
+		if err != nil {
+			return
+		}
+	}
+
+	result = columnsBucket.Bucket(columnBucketName[:])
+	if result == nil {
+		result,err = columnsBucket.CreateBucket(columnBucketName[:])
+		if err != nil {
+			return
+		}
+	}
+	return result, nil
+}
 
 type DataAccessType struct {
 	DumpConfiguration DumpConfigurationType
@@ -35,8 +84,6 @@ type columnDataType struct {
 
 
 
-type ColumnBucketNameType [8]byte
-type TypedColumnBucketType [5]byte
 
 func (c columnDataType) buildDataCategory() (result TypedColumnBucketType, bLen uint64) {
 	if c.isNumeric {
@@ -57,14 +104,14 @@ func (c columnDataType) buildDataCategory() (result TypedColumnBucketType, bLen 
 	return
 }
 
-
+/*
 func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 	if !c.Id.Valid {
 		panic(fmt.Sprintf("Column Id has not been initialized for table %v",c.TableInfo))
 	}
 	binary.PutUvarint(result[:],uint64(c.Id.Int64))
 	return
-}
+}*/
 
 
 func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelType) {
@@ -199,7 +246,20 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 	close(out)
 }
 
-
+/*
+  +hashStorageRoot
+   -"tables"  (+)
+    -tableId (+)
+     -"columns" (+)
+      -columnId (b)
+       -category (b)
+        - partition(byte) (b)
+         - "bitset" (+b)
+           -offset/bit(k/v)
+         - "hash" (+b)
+           - hash/value (b)
+            - row#/position (k/v)
+*/
 
 func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelType) {
 	var currentTable *TableInfoType;
@@ -218,7 +278,6 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			}
 			currentTable = &val;
 		case columnDataType:
-			var err error
 			category, bLen := val.buildDataCategory()
 			hValue := make([]byte, hashLength)
 			if bLen > hashLength {
@@ -231,37 +290,41 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				}
 			}
 			//val.column.DataCategories[category] = true
-			bucketName := val.column.columnBucketName()
-			partition := hValue[0]
+			var err error
+
 			if storageTx == nil {
 				storageTx, err = HashStorage.Begin(true)
 				if err != nil {
 					panic(err)
-				}
 
-		}
-
-			var columnIdBucket *bolt.Bucket
-			columnIdBucket = storageTx.Bucket(bucketName[:])
-			if columnIdBucket == nil {
-				columnIdBucket, err = storageTx.CreateBucket(bucketName[:])
-				if err != nil {
-					panic(err)
 				}
 			}
+			tableBucket,err  := tableBucket(storageTx,val.column.TableInfo)
+			if err != nil {
+				panic(err)
+			}
+			columnBucket,err  := columnBucket(tableBucket,val.column)
+			if err != nil {
+				panic(err)
+			}
+
+
 			var dataCategoryBucket *bolt.Bucket
-			dataCategoryBucket = columnIdBucket.Bucket(category[:])
+			dataCategoryBucket = columnBucket.Bucket(category[:])
 			if dataCategoryBucket == nil {
-				dataCategoryBucket, err = columnIdBucket.CreateBucket(category[:])
+				dataCategoryBucket, err = columnBucket.CreateBucket(category[:])
 				if err != nil {
 					panic(err)
 				}
 			}
+
 
 			value := dataCategoryBucket.Get(hValue[:])
 			if value == nil {
 				dataCategoryBucket.Put(hValue[:], emptyValue)
 			}
+
+			partition := hValue[0]
 
 			var partitionBucket *bolt.Bucket
 			partitionBucket = dataCategoryBucket.Bucket([]byte{partition})
@@ -311,3 +374,32 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 	close(out)
 
 }
+/*
+func (da DataAccessType) makePairs(in,out scm.ChannelType) {
+	for raw := range in {
+		switch val := raw.Get().(type) {
+		case string:
+			if val == "2MD" {
+				md1 := raw.GetN(0).(MetadataType)
+				md2 := raw.GetN(1).(MetadataType)
+				tables1, err := H2.TableInfoByMetadata(md1)
+				if err != nil {
+
+				}
+				tables2, err := H2.TableInfoByMetadata(md2)
+				if err != nil {
+
+				}
+				for tables1Index := range tables1 {
+					for tables2Index := range tables2 {
+
+					}
+				}
+			}
+
+		}
+	}
+	close(out)
+
+}
+*/

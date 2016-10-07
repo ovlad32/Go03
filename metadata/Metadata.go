@@ -220,7 +220,18 @@ func (h2 H2Type) TableInfoByMetadata(metadata *MetadataType) (result []*TableInf
 		}
 		return ""
 	}
-	return h2.tableInfo(whereFunc)
+	result,err = h2.tableInfo(whereFunc)
+	if err != nil {
+		return
+	}
+	for tableIndex := range result{
+		result[tableIndex].Metadata = metadata
+		_, err = h2.ColumnInfoByTable(result[tableIndex])
+		if err != nil {
+			return
+		}
+	}
+	return
 }
 
 func (h2 H2Type) TableInfoById(Id jsnull.NullInt64) (result *TableInfoType, err error) {
