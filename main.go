@@ -54,17 +54,21 @@ func main() {
 			LineSeparator:10,
 		},
 	}
-	ti,err := metadata.H2.TableInfoById(jsnull.NullInt64{sql.NullInt64 {Int64:272,Valid:true}})
-	fmt.Println(ti)
-	if err!=nil{
-		panic(err)
-	}
+
 
 	go da.ReadTableDumpData(table,TableData);
 	go da.CollectMinMaxStats(TableData,TableCalculatedData)
 	go da.SplitDataToBuckets(TableCalculatedData,done)
 
-	table <- scm.NewMessage().Put(ti)
+	for _,id := range []int{261,262,263,264,265,266,267,268,269,270,271,272,273} {
+		ti,err := metadata.H2.TableInfoById(jsnull.NullInt64{sql.NullInt64 {Int64:int64(id),Valid:true}})
+		fmt.Println(ti)
+		if err!=nil{
+			panic(err)
+		}
+		table <- scm.NewMessage().Put(ti)
+
+	}
 	close(table)
 
 	<- done

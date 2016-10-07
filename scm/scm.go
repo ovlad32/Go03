@@ -16,7 +16,7 @@ func NewMessage() *MessageType {
 
 func NewMessageSize(size int) *MessageType {
 	return &MessageType{
-		arrayInfoType:make(arrayInfoType, 0, size),
+		arrayInfoType:make(arrayInfoType, size, size),
 	}
 
 }

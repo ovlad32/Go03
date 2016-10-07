@@ -105,7 +105,6 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 			//line, err := rawData.ReadString(byte(da.DumpConfiguration.LineSeparator))
 			line, err := rawData.ReadSlice(da.DumpConfiguration.LineSeparator)
 			if err == io.EOF {
-				close(out)
 				break
 			} else if err != nil {
 				panic(err)
@@ -127,7 +126,6 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 			}
 
 			for columnIndex := range source.Columns {
-
 				if columnIndex == 0 && lineNumber == 1 {
 					out <- scm.NewMessage().Put(source)
 				}
@@ -205,23 +203,28 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 
 func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelType) {
 	var currentTable *TableInfoType;
+	const transactionLimit = 10000;
+	var transactionLength int = 0;
 	var emptyValue []byte = make([]byte,0)
 	hasher := fnv.New64()
+	var storageTx *bolt.Tx = nil;
+
+
 	for raw := range in {
 		switch val := raw.Get().(type) {
-			case TableInfoType:
-				if currentTable != nil {
-			//		makeColumnBuckets()
-				}
-				currentTable = &val;
+		case TableInfoType:
+			if currentTable != nil {
+				//		makeColumnBuckets()
+			}
+			currentTable = &val;
 		case columnDataType:
+			var err error
 			category, bLen := val.buildDataCategory()
-			hValue := make([]byte,hashLength)
+			hValue := make([]byte, hashLength)
 			if bLen > hashLength {
 				hasher.Reset();
 				hasher.Write(val.bValue)
-				binary.BigEndian.PutUint64(hValue,hasher.Sum64())
-				fmt.Println("len:",hValue,hasher.Sum64())
+				binary.BigEndian.PutUint64(hValue, hasher.Sum64())
 			} else {
 				for index := uint64(0); index < bLen; index++ {
 					hValue[index] = val.bValue[bLen - index - 1]
@@ -230,57 +233,81 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			//val.column.DataCategories[category] = true
 			bucketName := val.column.columnBucketName()
 			partition := hValue[0]
-			HashStorage.Update(func(tx *bolt.Tx) (err error) {
-				var columnIdBucket *bolt.Bucket
-				columnIdBucket = tx.Bucket(bucketName[:])
-				if columnIdBucket == nil {
-					columnIdBucket,err = tx.CreateBucket(bucketName[:])
-					if err != nil{
-						panic(err)
-					}
+			if storageTx == nil {
+				storageTx, err = HashStorage.Begin(true)
+				if err != nil {
+					panic(err)
 				}
-				var dataCategoryBucket *bolt.Bucket
-				dataCategoryBucket = columnIdBucket.Bucket(category[:])
-				if dataCategoryBucket == nil {
-					dataCategoryBucket,err = columnIdBucket.CreateBucket(category[:])
-					if err != nil{
-						panic(err)
-					}
-				}
-				value := dataCategoryBucket.Get(hValue[:])
-				if value == nil {
-					dataCategoryBucket.Put(hValue[:],emptyValue)
-				}
-
-				var partitionBucket *bolt.Bucket
-				partitionBucket = dataCategoryBucket.Bucket([]byte{partition})
-				if partitionBucket == nil {
-					partitionBucket,err = dataCategoryBucket.CreateBucket([]byte{partition})
-					if err != nil{
-						panic(err)
-					}
-				}
-
-				var hValueBucket *bolt.Bucket
-				hValueBucket = partitionBucket.Bucket(hValue[:])
-				if hValueBucket == nil {
-					hValueBucket,err = partitionBucket.CreateBucket(hValue[:])
-					if err != nil{
-						panic(err)
-					}
-				}
-				bRow := make([]byte,8)
-				bDumpOffset := make([]byte,8)
-				binary.PutUvarint(bRow,val.lineNumber)
-				//TODO: switch to real offset instead of lineNumber
-				binary.PutUvarint(bDumpOffset,val.lineNumber)
-				hValueBucket.Put(bRow,bDumpOffset)
-				return nil
-			});
-
 
 		}
+
+			var columnIdBucket *bolt.Bucket
+			columnIdBucket = storageTx.Bucket(bucketName[:])
+			if columnIdBucket == nil {
+				columnIdBucket, err = storageTx.CreateBucket(bucketName[:])
+				if err != nil {
+					panic(err)
+				}
+			}
+			var dataCategoryBucket *bolt.Bucket
+			dataCategoryBucket = columnIdBucket.Bucket(category[:])
+			if dataCategoryBucket == nil {
+				dataCategoryBucket, err = columnIdBucket.CreateBucket(category[:])
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			value := dataCategoryBucket.Get(hValue[:])
+			if value == nil {
+				dataCategoryBucket.Put(hValue[:], emptyValue)
+			}
+
+			var partitionBucket *bolt.Bucket
+			partitionBucket = dataCategoryBucket.Bucket([]byte{partition})
+			if partitionBucket == nil {
+				partitionBucket, err = dataCategoryBucket.CreateBucket([]byte{partition})
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			var hValueBucket *bolt.Bucket
+			hValueBucket = partitionBucket.Bucket(hValue[:])
+			if hValueBucket == nil {
+				hValueBucket, err = partitionBucket.CreateBucket(hValue[:])
+				if err != nil {
+					panic(err)
+				}
+			}
+			bRow := make([]byte, 8)
+			bDumpOffset := make([]byte, 8)
+			binary.BigEndian.PutUint64(bRow, val.lineNumber)
+			//TODO: switch to real offset instead of lineNumber
+			binary.BigEndian.PutUint64(bDumpOffset, val.lineNumber)
+			hValueBucket.Put(bRow, bDumpOffset)
+
+			transactionLength ++
+			if transactionLength >= transactionLimit {
+				//println("commit 1")
+				err = storageTx.Commit();
+				if err != nil {
+					panic(err)
+				}
+				storageTx = nil;
+				transactionLength = 0
+			}
+		}
 	}
+	if storageTx != nil {
+		println("commit 2")
+		err := storageTx.Commit();
+		if err != nil {
+			panic(err)
+		}
+		storageTx = nil;
+	}
+
 	close(out)
 
 }
