@@ -9,7 +9,7 @@
       <root url="file://C:/Go/GoPath/src/gopkg.in" />
       <root url="file://C:/Go/src/context" />
       <root url="file://C:/Go/src/time" />
-      <root url="file://C:/Go/GoPath/src/github.com" />
+      <root url="file://C:/Go/GOPATH/src/github.com" />
       <root url="file://C:/Go/src/bytes" />
       <root url="file://C:/Go/src/runtime" />
       <root url="file://C:/Go/src/go" />
@@ -59,7 +59,7 @@
       <root url="file://C:/Go/GoPath/src/gopkg.in" />
       <root url="file://C:/Go/src/context" />
       <root url="file://C:/Go/src/time" />
-      <root url="file://C:/Go/GoPath/src/github.com" />
+      <root url="file://C:/Go/GOPATH/src/github.com" />
       <root url="file://C:/Go/src/bytes" />
       <root url="file://C:/Go/src/runtime" />
       <root url="file://C:/Go/src/go" />
