@@ -95,20 +95,20 @@ func (h2 H2Type) DatabaseConfigById(Id sql.NullInt64) (result DatabaseConfigType
 
 	res, err := h2.databaseConfig(whereFunc)
 
-	if len(res) > 0 {
+	if err == nil && len(res) > 0 {
 		result = res[0]
 	}
 	return
 }
 
-func (h2 H2Type) metadata(whereFunc func() string) (result []MetadataType, err error) {
+func (h2 H2Type) metadata(whereFunc func() string) (result []*MetadataType, err error) {
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
 
-	result = make([]MetadataType, 0)
+	result = make([]*MetadataType, 0)
 	query := "SELECT " +
 		" ID" +
 		" ,INDEX" +
@@ -121,7 +121,7 @@ func (h2 H2Type) metadata(whereFunc func() string) (result []MetadataType, err e
 	if whereFunc != nil {
 		query = query + whereFunc()
 	}
-	query = query + " ORDER ID"
+	query = query + " ORDER BY ID"
 	rws, err := tx.Query(query)
 	if err != nil {
 		return
@@ -140,7 +140,7 @@ func (h2 H2Type) metadata(whereFunc func() string) (result []MetadataType, err e
 		if err != nil {
 			return
 		}
-		result = append(result, row)
+		result = append(result, &row)
 	}
 	return
 }
@@ -148,7 +148,7 @@ func (h2 H2Type) metadata(whereFunc func() string) (result []MetadataType, err e
 func (h2 H2Type) HighestDatabaseConfigVersion(DatabaseConfigId jsnull.NullInt64) (result jsnull.NullInt64, err error) {
 
 	if !DatabaseConfigId.Valid {
-		err = errors.New("DatabaseConfigId is invalid")
+		err = errors.New("DatabaseConfigId is not valid")
 		return
 	}
 
@@ -156,10 +156,44 @@ func (h2 H2Type) HighestDatabaseConfigVersion(DatabaseConfigId jsnull.NullInt64)
 	if err != nil {
 		return
 	}
+	defer tx.Rollback()
 	err = tx.QueryRow(fmt.Sprintf("SELECT MAX(VERSION) FROM METADATA WHERE DATABASE_CONFIG_ID = %v", DatabaseConfigId.Int64)).Scan(result)
 	return
 }
 
+func (h2 H2Type) LastMetadata(DatabaseConfigId jsnull.NullInt64) (result *MetadataType, err error) {
+	version,err := h2.HighestDatabaseConfigVersion(DatabaseConfigId)
+
+
+	tx, err := h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	results,err  := h2.metadata(func ()string {
+		return fmt.Sprintf(" WHERE DATABASE_CONFIG_ID = %v and VERSION = %v ",
+			DatabaseConfigId.Int64,
+			version,
+		)
+	})
+	if err == nil && len(results)>0 {
+		result = results[0]
+	}
+	return;
+}
+func (h2 H2Type) MetadataById(MetadataId jsnull.NullInt64) (result *MetadataType, err error) {
+	if !MetadataId.Valid {
+		err = errors.New("MetadataId is not valid")
+		return
+	}
+	results,err := h2.metadata(func() string{
+		return fmt.Sprintf(" WHERE ID = %v",MetadataId.Int64)
+	})
+	if err == nil && len(results)>0 {
+		result = results[0]
+	}
+	return
+}
 func (h2 H2Type) tableInfo(whereFunc func() string) (result []*TableInfoType, err error) {
 
 	tx, err := h2.IDb.Begin()
@@ -245,7 +279,7 @@ func (h2 H2Type) TableInfoById(Id jsnull.NullInt64) (result *TableInfoType, err 
 	if err == nil {
 		_,err = h2.ColumnInfoByTable(res[0])
 	}
-	if len(res) > 0 {
+	if err == nil && len(res) > 0 {
 		result = res[0]
 	}
 	return
@@ -336,7 +370,7 @@ func (h2 H2Type) ColumnInfoById(Id jsnull.NullInt64) (result *ColumnInfoType, er
 	}
 	res, err := h2.columnInfo(whereFunc)
 
-	if len(res) > 0 {
+	if err == nil && len(res) > 0 {
 		result = res[0]
 	}
 	return

@@ -1,44 +1,42 @@
 package metadata
 
 import (
+	scm "./../scm"
+	utils "./../utils"
+	sparsebitset "./../sparsebitset"
 	"bufio"
+	"bytes"
 	"compress/gzip"
+	"encoding/binary"
 	"fmt"
+	"github.com/boltdb/bolt"
+	"hash/fnv"
 	"io"
 	"os"
-	scm "./../scm"
 	"strconv"
 	"strings"
-	"github.com/boltdb/bolt"
-	"bytes"
-	"encoding/binary"
-	"hash/fnv"
-	"github.com/constabulary/gb/testdata/src/c"
 )
 
 const hashLength = 8
-type ColumnBucketNameType [8]byte
-type TableBucketNameType [8]byte
-type TypedColumnBucketType [5]byte
+
+type B5Type [5]byte
 
 var HashStorage *bolt.DB
-var columns = []byte("columns")
 
-func tableBucket(tx * bolt.Tx, table *TableInfoType) (result *bolt.Bucket,err error) {
-	var tableBucketName TableBucketNameType
-	var tables = []byte("tables")
-	binary.BigEndian.PutUint64(tableBucketName[:],table.Id.Int64)
-	tablesBucket := tx.Bucket(tables)
-	if tablesBucket == nil {
-		tablesBucket,err = tx.CreateBucket(tables)
+func tableBucket(tx *bolt.Tx, table *TableInfoType) (result *bolt.Bucket, err error) {
+	var tablesLabel = []byte("tables")
+	tableBucketName  := utils.Int64ToB8(table.Id.Int64)
+	tablesLabelBucket := tx.Bucket(tablesLabel)
+	if tablesLabelBucket == nil {
+		tablesLabelBucket, err = tx.CreateBucket(tablesLabel)
 		if err != nil {
 			return
 		}
 	}
 
-	result = tablesBucket.Bucket(tableBucketName[:])
+	result = tablesLabelBucket.Bucket(tableBucketName[:])
 	if result == nil {
-		result,err = tablesBucket.CreateBucket(tableBucketName[:])
+		result, err = tablesLabelBucket.CreateBucket(tableBucketName[:])
 		if err != nil {
 			return
 		}
@@ -46,30 +44,35 @@ func tableBucket(tx * bolt.Tx, table *TableInfoType) (result *bolt.Bucket,err er
 	return result, nil
 }
 
-func columnBucket(tableIdBucket * bolt.Bucket, column *TableInfoType) (result *bolt.Bucket,err error) {
-	var columnBucketName ColumnBucketNameType
-	var columns = []byte("columns")
-	binary.BigEndian.PutUint64(columnBucketName[:],column.Id.Int64)
-	columnsBucket := tableIdBucket.Bucket(columns)
-	if columnsBucket == nil {
-		columnsBucket,err = tableIdBucket.CreateBucket(columns)
+func columnBucket(tx *bolt.Tx, column *ColumnInfoType) (tableBucketResult, columnBucketResult *bolt.Bucket, err error) {
+	tableBucketResult,err = tableBucket(tx,column.TableInfo)
+	if err != nil {
+		return
+	}
+	var columnsLabel = []byte("columns")
+	columnBucketName := utils.Int64ToB8(column.Id.Int64)
+	columnsLabelBucket := tableBucketResult.Bucket(columnsLabel)
+	if columnsLabelBucket == nil {
+		columnsLabelBucket, err = tableBucketResult.CreateBucket(columnsLabel)
 		if err != nil {
 			return
 		}
 	}
 
-	result = columnsBucket.Bucket(columnBucketName[:])
-	if result == nil {
-		result,err = columnsBucket.CreateBucket(columnBucketName[:])
+	columnBucketResult = columnsLabelBucket.Bucket(columnBucketName[:])
+	if columnBucketResult == nil {
+		columnBucketResult, err = columnsLabelBucket.CreateBucket(columnBucketName[:])
 		if err != nil {
 			return
 		}
 	}
-	return result, nil
+	return
 }
+
 
 type DataAccessType struct {
 	DumpConfiguration DumpConfigurationType
+	TransactionCountLimit uint64
 }
 
 type columnDataType struct {
@@ -82,25 +85,22 @@ type columnDataType struct {
 	isNegative bool
 }
 
-
-
-
-func (c columnDataType) buildDataCategory() (result TypedColumnBucketType, bLen uint64) {
+func (c columnDataType) buildDataCategory() (result B5Type, bLen uint64) {
 	if c.isNumeric {
 		result[0] = 1 << 3
 		if c.isFloat {
 			if c.isNegative {
-				result[0] = result[0] | 1 << 0
+				result[0] = result[0] | 1<<0
 			}
 		} else {
-			result[0] = result[0] | 1 << 1
+			result[0] = result[0] | 1<<1
 			if c.isNegative {
-				result[0] = result[0]| 1 << 0
+				result[0] = result[0] | 1<<0
 			}
 		}
 	}
 	bLen = uint64(len(c.bValue))
-	binary.PutUvarint(result[1:],bLen)
+	binary.PutUvarint(result[1:], bLen)
 	return
 }
 
@@ -113,13 +113,12 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 	return
 }*/
 
-
 func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelType) {
-//	var lineSeparatorArray []byte
-//	var fieldSeparatorArray = []
-	var s0d  = []byte{0x0D}
+	//	var lineSeparatorArray []byte
+	//	var fieldSeparatorArray = []
+	var s0d = []byte{0x0D}
 
-//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
+	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
 
 	for raw := range in {
 		var source *TableInfoType
@@ -253,41 +252,45 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
      -"columns" (+)
       -columnId (b)
        -category (b)
-        - partition(byte) (b)
+        - partition#(byte) (b)
+         - "hashStats" (b)
+            - "uniqueCount" / int64
          - "bitset" (+b)
-           -offset/bit(k/v)
-         - "hash" (+b)
+            -offset/bit(k/v)
+         - "hashValues" (+b)
            - hash/value (b)
             - row#/position (k/v)
 */
 
 func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelType) {
-	var currentTable *TableInfoType;
-	const transactionLimit = 10000;
-	var transactionLength int = 0;
-	var emptyValue []byte = make([]byte,0)
+	//var currentTable *TableInfoType;
+	var transactionCount uint64 = 0
+//	var emptyValue []byte = make([]byte, 0)
 	hasher := fnv.New64()
-	var storageTx *bolt.Tx = nil;
-
+	var storageTx *bolt.Tx = nil
 
 	for raw := range in {
 		switch val := raw.Get().(type) {
 		case TableInfoType:
-			if currentTable != nil {
+			/*if currentTable != nil {
 				//		makeColumnBuckets()
 			}
-			currentTable = &val;
+			currentTable = &val;*/
 		case columnDataType:
+			var hashUIntValue uint64;
 			category, bLen := val.buildDataCategory()
-			hValue := make([]byte, hashLength)
+			var hValue []byte
 			if bLen > hashLength {
-				hasher.Reset();
+				hasher.Reset()
 				hasher.Write(val.bValue)
-				binary.BigEndian.PutUint64(hValue, hasher.Sum64())
+				hashUIntValue = hasher.Sum64()
+				hValue = utils.UInt64ToB8(hashUIntValue)
 			} else {
+				hValue = make([]byte,hashLength)
 				for index := uint64(0); index < bLen; index++ {
-					hValue[index] = val.bValue[bLen - index - 1]
+					hValue[index] = val.bValue[bLen-index-1]
 				}
+				hashUIntValue,_ = utils.B8ToUInt64(hValue)
 			}
 			//val.column.DataCategories[category] = true
 			var err error
@@ -299,100 +302,156 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 				}
 			}
-			tableBucket,err  := tableBucket(storageTx,val.column.TableInfo)
-			if err != nil {
-				panic(err)
-			}
-			columnBucket,err  := columnBucket(tableBucket,val.column)
+			// -"tables"  (+)
+			//  -tableId (+)
+			// -"columns" (+)
+			//  -columnId (b)
+			_, columnBucket, err := columnBucket(storageTx, val.column)
 			if err != nil {
 				panic(err)
 			}
 
+			var bitsetBucketName = []byte("bitset")
+			var hashValuesBucketName = []byte("hashValues")
+
+			var hashStatsName = []byte("hashStats")
+			var hashStatsUnqiueCountName = []byte("uniqueCount")
 
 			var dataCategoryBucket *bolt.Bucket
+			var bitsetBucket *bolt.Bucket
+			var hashValuesBucket *bolt.Bucket
+			var hashStatsBucket *bolt.Bucket
+			_ = bitsetBucket
 			dataCategoryBucket = columnBucket.Bucket(category[:])
 			if dataCategoryBucket == nil {
 				dataCategoryBucket, err = columnBucket.CreateBucket(category[:])
 				if err != nil {
 					panic(err)
 				}
-			}
-
-
-			value := dataCategoryBucket.Get(hValue[:])
-			if value == nil {
-				dataCategoryBucket.Put(hValue[:], emptyValue)
-			}
-
-			partition := hValue[0]
-
-			var partitionBucket *bolt.Bucket
-			partitionBucket = dataCategoryBucket.Bucket([]byte{partition})
-			if partitionBucket == nil {
-				partitionBucket, err = dataCategoryBucket.CreateBucket([]byte{partition})
+				bitsetBucket, err = dataCategoryBucket.CreateBucket(bitsetBucketName)
 				if err != nil {
 					panic(err)
 				}
-			}
-
-			var hValueBucket *bolt.Bucket
-			hValueBucket = partitionBucket.Bucket(hValue[:])
-			if hValueBucket == nil {
-				hValueBucket, err = partitionBucket.CreateBucket(hValue[:])
+				hashValuesBucket, err = dataCategoryBucket.CreateBucket(hashValuesBucketName)
 				if err != nil {
 					panic(err)
 				}
-			}
-			bRow := make([]byte, 8)
-			bDumpOffset := make([]byte, 8)
-			binary.BigEndian.PutUint64(bRow, val.lineNumber)
-			//TODO: switch to real offset instead of lineNumber
-			binary.BigEndian.PutUint64(bDumpOffset, val.lineNumber)
-			hValueBucket.Put(bRow, bDumpOffset)
-
-			transactionLength ++
-			if transactionLength >= transactionLimit {
-				//println("commit 1")
-				err = storageTx.Commit();
+				hashStatsBucket, err = dataCategoryBucket.CreateBucket(hashStatsName)
 				if err != nil {
 					panic(err)
 				}
-				storageTx = nil;
-				transactionLength = 0
+			} else {
+				bitsetBucket = dataCategoryBucket.Bucket(bitsetBucketName)
+				hashValuesBucket = dataCategoryBucket.Bucket(hashValuesBucketName)
+				hashStatsBucket = dataCategoryBucket.Bucket(hashStatsName)
+			}
+
+			var hashBucket *bolt.Bucket
+			hashBucket = hashValuesBucket.Bucket(hValue[:])
+			if hashBucket == nil {
+				hashBucket, err = hashValuesBucket.CreateBucket(hValue[:])
+				if err != nil {
+					panic(err)
+				}
+				hashStatsBucket.Put(
+					hashStatsUnqiueCountName,
+					utils.UInt64ToB8(1),
+				)
+			} else {
+
+				if value, found := utils.B8ToUInt64(
+					hashStatsBucket.Get(
+						hashStatsUnqiueCountName,
+					),
+				); !found {
+					hashStatsBucket.Put(
+						hashStatsUnqiueCountName,
+						utils.UInt64ToB8(1),
+					)
+				} else {
+					value++
+					//fmt.Println(hValue,value)
+					hashStatsBucket.Put(
+						hashStatsUnqiueCountName,
+						utils.UInt64ToB8(value),
+					)
+				}
+			}
+
+			//bitsetBucket.Get()
+
+
+			baseUIntValue,offsetUIntValue := sparsebitset.OffsetBits(hashUIntValue)
+			baseB8Value := utils.UInt64ToB8(baseUIntValue)
+			//offsetB8Value := utils.UInt64ToB8(offsetUIntValue)
+			bits,_ := utils.B8ToUInt64(bitsetBucket.Get(baseB8Value))
+			bits = bits | 1 << offsetUIntValue
+			bitsetBucket.Put(baseB8Value,utils.UInt64ToB8(bits))
+
+			hashBucket.Put(
+				utils.UInt64ToB8(val.lineNumber),
+				//TODO: switch to real file offset to column value instead of lineNumber
+				utils.UInt64ToB8(val.lineNumber),
+			)
+
+			transactionCount++
+			if transactionCount >= da.TransactionCountLimit {
+				println("commit 1")
+				err = storageTx.Commit()
+				if err != nil {
+					panic(err)
+				}
+				storageTx = nil
+				transactionCount = 0
 			}
 		}
 	}
 	if storageTx != nil {
 		println("commit 2")
-		err := storageTx.Commit();
+		err := storageTx.Commit()
 		if err != nil {
 			panic(err)
 		}
-		storageTx = nil;
+		storageTx = nil
 	}
 
 	close(out)
 
 }
-/*
-func (da DataAccessType) makePairs(in,out scm.ChannelType) {
+
+
+func (da DataAccessType) MakePairs(in,out scm.ChannelType) {
 	for raw := range in {
+		fmt.Println(raw.Get())
 		switch val := raw.Get().(type) {
 		case string:
 			if val == "2MD" {
-				md1 := raw.GetN(0).(MetadataType)
-				md2 := raw.GetN(1).(MetadataType)
+				md1 := raw.GetN(0).(*MetadataType)
+				md2 := raw.GetN(1).(*MetadataType)
 				tables1, err := H2.TableInfoByMetadata(md1)
-				if err != nil {
+				fmt.Println(md1)
+				fmt.Println(md2)
 
+				if err != nil {
+					panic(err)
 				}
 				tables2, err := H2.TableInfoByMetadata(md2)
 				if err != nil {
-
+					panic(err)
 				}
 				for tables1Index := range tables1 {
 					for tables2Index := range tables2 {
-
+						for _,column1 := range tables1[tables1Index].Columns {
+							for _,column2 := range tables1[tables2Index].Columns {
+								if column1.Id.Int64 == column2.Id.Int64 {
+									continue
+								}
+								out<-scm.NewMessageSize(2).
+									Put("2CL").
+									PutN(0,column1).
+									PutN(1,column2)
+							}
+						}
 					}
 				}
 			}
@@ -400,6 +459,38 @@ func (da DataAccessType) makePairs(in,out scm.ChannelType) {
 		}
 	}
 	close(out)
-
 }
-*/
+
+func (da DataAccessType) NarrowPairCategories(in,out scm.ChannelType) {
+	for raw := range in {
+		switch val := raw.Get().(type) {
+		case string:
+			if val == "2CL" {
+				cl1 := raw.GetN(0).(*ColumnInfoType)
+				cl2 := raw.GetN(1).(*ColumnInfoType)
+				HashStorage.View(func(tx *bolt.Tx) error{
+					_,c1Bucket,_:= columnBucket(tx,cl1)
+					if c1Bucket == nil {
+						return 	nil
+					}
+					_,c2Bucket,_ := columnBucket(tx,cl2)
+					if c2Bucket == nil {
+						return nil
+					}
+
+					c1Bucket.ForEach(func(key,value []byte) error {
+						bucket := c2Bucket.Bucket(key)
+						if bucket != nil {
+							fmt.Println(cl1,cl2,key)
+						}
+						return nil
+					})
+					return nil
+				})
+
+			}
+
+		}
+	}
+	close(out)
+}
