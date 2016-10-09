@@ -19,7 +19,7 @@ import (
 
 const hashLength = 8
 
-type B5Type [5]byte
+type B9Type [9]byte
 
 var HashStorage *bolt.DB
 
@@ -85,22 +85,22 @@ type columnDataType struct {
 	isNegative bool
 }
 
-func (c columnDataType) buildDataCategory() (result B5Type, bLen uint64) {
+func (c columnDataType) buildDataCategory() (result B9Type, bLen uint64) {
 	if c.isNumeric {
-		result[0] = 1 << 3
+		result[0] = (1 << 2)
 		if c.isFloat {
 			if c.isNegative {
-				result[0] = result[0] | 1<<0
+				result[0] = result[0] | (1 << 0)
 			}
 		} else {
-			result[0] = result[0] | 1<<1
+			result[0] = result[0] | (1 << 1)
 			if c.isNegative {
-				result[0] = result[0] | 1<<0
+				result[0] = result[0] | (1 << 0)
 			}
 		}
 	}
 	bLen = uint64(len(c.bValue))
-	binary.PutUvarint(result[1:], bLen)
+	binary.LittleEndian.PutUint64(result[1:], bLen)
 	return
 }
 

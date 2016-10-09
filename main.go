@@ -24,7 +24,7 @@ func init() {
 	}
 	metadata.H2.InitDb();
 	boltDbName := "./hashStorage.bolt.db"
-	if false {
+	if true {
 		os.Remove(boltDbName)
 	}
 	var err error
@@ -52,7 +52,7 @@ func main() {
 		},
 		TransactionCountLimit:100000,
 	}
-	//loadStorage()
+	loadStorage(da)
 	fetchPairs(da);
 
 }
