@@ -1,11 +1,12 @@
 package metadata
 
 import (
+	jsnull "./../jsnull"
 	"database/sql"
 	"errors"
 	"fmt"
 	_ "github.com/lib/pq"
-	jsnull "./../jsnull"
+	//_ "github.com/lxn/go-pgsql"
 )
 
 var H2 H2Type
@@ -14,7 +15,9 @@ func (h2 *H2Type) InitDb() (idb *sql.DB) {
 	if idb == nil {
 		var err error
 		idb, err = sql.Open("postgres",
-			fmt.Sprintf("user=%v password=%v dbname=%v host=%v port=%v sslmode=disable",
+			//fmt.Sprintf("user=%v password=%v dbname=%v host=%v port=%v  sslmode=disable",
+			fmt.Sprintf("user=%v password=%v dbname=%v host=%v port=%v  timeout=10 sslmode=disable",
+
 				h2.Login, h2.Password, h2.DatabaseName, h2.Host, h2.Port),
 		)
 		//idb, err = sql.Open("monetdb", "monetdb:monetdb@localhost:52000/test")
@@ -79,7 +82,6 @@ func (h2 H2Type) databaseConfig(whereFunc func() string) (result []DatabaseConfi
 	}
 	return
 }
-
 
 func (h2 H2Type) DatabaseConfigAll() (result []DatabaseConfigType, err error) {
 	return h2.databaseConfig(nil)
@@ -162,34 +164,33 @@ func (h2 H2Type) HighestDatabaseConfigVersion(DatabaseConfigId jsnull.NullInt64)
 }
 
 func (h2 H2Type) LastMetadata(DatabaseConfigId jsnull.NullInt64) (result *MetadataType, err error) {
-	version,err := h2.HighestDatabaseConfigVersion(DatabaseConfigId)
-
+	version, err := h2.HighestDatabaseConfigVersion(DatabaseConfigId)
 
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
-	results,err  := h2.metadata(func ()string {
+	results, err := h2.metadata(func() string {
 		return fmt.Sprintf(" WHERE DATABASE_CONFIG_ID = %v and VERSION = %v ",
 			DatabaseConfigId.Int64,
 			version,
 		)
 	})
-	if err == nil && len(results)>0 {
+	if err == nil && len(results) > 0 {
 		result = results[0]
 	}
-	return;
+	return
 }
 func (h2 H2Type) MetadataById(MetadataId jsnull.NullInt64) (result *MetadataType, err error) {
 	if !MetadataId.Valid {
 		err = errors.New("MetadataId is not valid")
 		return
 	}
-	results,err := h2.metadata(func() string{
-		return fmt.Sprintf(" WHERE ID = %v",MetadataId.Int64)
+	results, err := h2.metadata(func() string {
+		return fmt.Sprintf(" WHERE ID = %v", MetadataId.Int64)
 	})
-	if err == nil && len(results)>0 {
+	if err == nil && len(results) > 0 {
 		result = results[0]
 	}
 	return
@@ -254,11 +255,11 @@ func (h2 H2Type) TableInfoByMetadata(metadata *MetadataType) (result []*TableInf
 		}
 		return ""
 	}
-	result,err = h2.tableInfo(whereFunc)
+	result, err = h2.tableInfo(whereFunc)
 	if err != nil {
 		return
 	}
-	for tableIndex := range result{
+	for tableIndex := range result {
 		result[tableIndex].Metadata = metadata
 		_, err = h2.ColumnInfoByTable(result[tableIndex])
 		if err != nil {
@@ -277,15 +278,13 @@ func (h2 H2Type) TableInfoById(Id jsnull.NullInt64) (result *TableInfoType, err 
 	}
 	res, err := h2.tableInfo(whereFunc)
 	if err == nil {
-		_,err = h2.ColumnInfoByTable(res[0])
+		_, err = h2.ColumnInfoByTable(res[0])
 	}
 	if err == nil && len(res) > 0 {
 		result = res[0]
 	}
 	return
 }
-
-
 
 func (h2 H2Type) columnInfo(whereFunc func() string) (result []*ColumnInfoType, err error) {
 
@@ -540,8 +539,106 @@ type ColumnInfoType struct {
 	NullCount       jsnull.NullInt64
 	DistinctCount   jsnull.NullInt64
 	TableInfo       *TableInfoType
-	DataCategories  map[string]bool
+	DataCategories  []*ColumnDataCategoryStatsType
 	NumericCount    jsnull.NullInt64
 }
 
+type ColumnDataCategoryStatsType struct {
+	Column          *ColumnInfoType
+	ByteLength      jsnull.NullInt64
+	isNumeric       jsnull.NullBool
+	isFloat         jsnull.NullBool
+	isNegative      jsnull.NullBool
+	NonNullCount    jsnull.NullInt64
+	HashUniqueCount jsnull.NullInt64
+//	MinStringLength jsnull.NullInt64
+//	MaxStringLength jsnull.NullInt64
+	MinStringValue  jsnull.NullString `json:"min-string-value"`
+	MaxStringValue  jsnull.NullString `json:"max-string-value"`
+	MinNumericValue jsnull.NullFloat64
+	MaxNumericValue jsnull.NullFloat64
+}
 
+func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
+	tx,err := h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	/*stmt,err := tx.Prepare("merge into column_datacategory_stats(" +
+		" id" +
+		", byte_length" +
+		", is_numeric" +
+		", is_float" +
+		", is_negative" +
+		", non_null_count" +
+		", hash_unique_count" +
+		", min_sval" +
+		", max_sval" +
+		", min_fval" +
+		", max_fval) " +
+		" key(id,byte_length,is_numeric,is_float,is_negative) " +
+		" values(%v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v) ")
+	if err != nil {
+		return
+	}*/
+
+	for _,c := range(column.DataCategories) {
+		_, err = tx.Exec(
+			fmt.Sprintf("merge into column_datacategory_stats(" +
+				" id" +
+				", byte_length" +
+				", is_numeric" +
+				", is_float" +
+				", is_negative" +
+				", non_null_count" +
+				", hash_unique_count" +
+				", min_sval" +
+				", max_sval" +
+				", min_fval" +
+				", max_fval) " +
+				" key(id,byte_length,is_numeric,is_float,is_negative) " +
+				" values(%v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v) ",
+				column.Id,
+				c.ByteLength,
+				c.isNumeric,
+				c.isFloat,
+				c.isNegative,
+				c.NonNullCount,
+				c.HashUniqueCount,
+				c.MinStringValue,
+				c.MaxStringValue,
+				c.MinNumericValue,
+				c.MaxNumericValue,
+			),
+		)
+		if err != nil {
+			return
+		}
+	}
+	tx.Commit()
+	return
+}
+func (h2 H2Type) CreateDataCategoryTable() (err error) {
+	tx,err := h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	_,err = tx.Exec("create table if not exists column_datacategory_stats(" +
+		" id bigint not null " +
+		", byte_length int not null " +
+		", is_numeric bool not null " +
+		", is_float bool not null " +
+		", is_negative bool not null " +
+		", non_null_count bigint" +
+		", hash_unique_count bigint" +
+		", min_sval varchar(4000)" +
+		", max_sval varchar(4000)" +
+		", min_fval float" +
+		", max_fval float" +
+		", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_float, is_negative) " +
+		" ) ")
+	tx.Commit()
+	return
+}

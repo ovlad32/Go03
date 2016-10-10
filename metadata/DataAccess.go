@@ -1,9 +1,10 @@
 package metadata
 
 import (
+	jsnull "./../jsnull"
 	scm "./../scm"
-	utils "./../utils"
 	sparsebitset "./../sparsebitset"
+	utils "./../utils"
 	"bufio"
 	"bytes"
 	"compress/gzip"
@@ -12,6 +13,7 @@ import (
 	"github.com/boltdb/bolt"
 	"hash/fnv"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -25,7 +27,7 @@ var HashStorage *bolt.DB
 
 func tableBucket(tx *bolt.Tx, table *TableInfoType) (result *bolt.Bucket, err error) {
 	var tablesLabel = []byte("tables")
-	tableBucketName  := utils.Int64ToB8(table.Id.Int64)
+	tableBucketName := utils.Int64ToB8(table.Id.Int64)
 	tablesLabelBucket := tx.Bucket(tablesLabel)
 	if tablesLabelBucket == nil {
 		tablesLabelBucket, err = tx.CreateBucket(tablesLabel)
@@ -45,7 +47,7 @@ func tableBucket(tx *bolt.Tx, table *TableInfoType) (result *bolt.Bucket, err er
 }
 
 func columnBucket(tx *bolt.Tx, column *ColumnInfoType) (tableBucketResult, columnBucketResult *bolt.Bucket, err error) {
-	tableBucketResult,err = tableBucket(tx,column.TableInfo)
+	tableBucketResult, err = tableBucket(tx, column.TableInfo)
 	if err != nil {
 		return
 	}
@@ -69,9 +71,8 @@ func columnBucket(tx *bolt.Tx, column *ColumnInfoType) (tableBucketResult, colum
 	return
 }
 
-
 type DataAccessType struct {
-	DumpConfiguration DumpConfigurationType
+	DumpConfiguration     DumpConfigurationType
 	TransactionCountLimit uint64
 }
 
@@ -128,7 +129,7 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 		default:
 			panic(fmt.Sprintf("Type is not expected %T", raw.Get()))
 		}
-		gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + source.PathToFile.String)
+		gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + source.String())
 		if err != nil {
 			panic(err)
 		}
@@ -197,28 +198,28 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 			{
 				column := val.column
 
-				if len(val.bValue) == 0 {
+				byteLength := len(val.bValue)
+				if byteLength == 0 {
+					column.NullCount.Valid = true
+					column.NullCount.Int64++
 					continue
 				}
 
 				sValue := string(val.bValue)
-				if column.MaxStringValue.String < sValue {
-					column.MaxStringValue.String = sValue
-					column.MaxStringValue.Valid = true
+
+				if column.MaxStringValue.String < sValue || !column.MaxStringValue.Valid {
+					column.MaxStringValue = jsnull.NewNullString(sValue)
 				}
-				if column.MinStringValue.String > sValue {
-					column.MinStringValue.String = sValue
-					column.MinStringValue.Valid = true
+				if column.MinStringValue.String > sValue || !column.MinStringValue.Valid {
+					column.MinStringValue = jsnull.NewNullString(sValue)
 				}
 
 				lValue := int64(len(sValue))
 				if column.MaxStringLength.Int64 < lValue {
-					column.MaxStringLength.Int64 = lValue
-					column.MaxStringLength.Valid = true
+					column.MaxStringLength = jsnull.NewNullInt64(lValue)
 				}
 				if column.MinStringLength.Int64 > lValue {
-					column.MinStringLength.Int64 = lValue
-					column.MinStringLength.Valid = true
+					column.MinStringLength = jsnull.NewNullInt64(lValue)
 				}
 				var err error
 				val.nValue, err = strconv.ParseFloat(sValue, 64)
@@ -230,12 +231,63 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 					val.isNegative = strings.HasPrefix(sValue, "-")
 					column.NumericCount.Int64++
 					if column.MaxNumericValue.Float64 < val.nValue {
-						column.MaxNumericValue.Float64 = val.nValue
-						column.MaxNumericValue.Valid = true
+						column.MaxNumericValue = jsnull.NewNullFloat64(val.nValue)
 					}
 					if column.MinNumericValue.Float64 > val.nValue {
-						column.MinNumericValue.Float64 = val.nValue
-						column.MinNumericValue.Valid = true
+						column.MinNumericValue = jsnull.NewNullFloat64(val.nValue)
+					}
+				}
+
+				var found *ColumnDataCategoryStatsType
+				for _, category := range column.DataCategories {
+					if category.ByteLength.Int64 != int64(byteLength) {
+						continue
+					}
+					if !category.isNumeric.Bool && !val.isNumeric {
+						found = category
+						break
+					}
+					if category.isNumeric.Bool == val.isNumeric &&
+						category.isFloat.Bool == val.isFloat &&
+						category.isNegative.Bool == val.isNegative {
+						found = category
+						break
+					}
+				}
+				if found == nil {
+					found = &ColumnDataCategoryStatsType{
+						Column:          val.column,
+						isNumeric:       jsnull.NewNullBool(val.isNumeric),
+						isFloat:         jsnull.NewNullBool(val.isFloat),
+						isNegative:      jsnull.NewNullBool(val.isNegative),
+						ByteLength:jsnull.NewNullInt64(int64(byteLength)),
+						NonNullCount : jsnull.NewNullInt64(int64(0)),
+						HashUniqueCount: jsnull.NewNullInt64(int64(0)),
+						MaxNumericValue: jsnull.NewNullFloat64(-math.MaxFloat64),
+						MinNumericValue: jsnull.NewNullFloat64(math.MaxFloat64),
+					}
+
+					if column.DataCategories == nil {
+						column.DataCategories = make([]*ColumnDataCategoryStatsType, 0, 2)
+					}
+					column.DataCategories = append(column.DataCategories, found)
+				}
+
+				found.NonNullCount.Int64++
+				if found.MaxStringValue.String < sValue || !found.MaxStringValue.Valid {
+					found.MaxStringValue = jsnull.NewNullString(sValue)
+				}
+
+				if found.MinStringValue.String > sValue || !found.MinStringValue.Valid {
+					found.MinStringValue = jsnull.NewNullString(sValue)
+				}
+
+				if found.isNumeric.Bool {
+					if found.MaxNumericValue.Float64 < val.nValue {
+						found.MaxNumericValue = jsnull.NewNullFloat64(val.nValue)
+					}
+					if column.MinNumericValue.Float64 > val.nValue {
+						found.MinNumericValue = jsnull.NewNullFloat64(val.nValue)
 					}
 				}
 				out <- scm.NewMessage().Put(val)
@@ -265,7 +317,7 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelType) {
 	//var currentTable *TableInfoType;
 	var transactionCount uint64 = 0
-//	var emptyValue []byte = make([]byte, 0)
+	//	var emptyValue []byte = make([]byte, 0)
 	hasher := fnv.New64()
 	var storageTx *bolt.Tx = nil
 
@@ -277,7 +329,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			}
 			currentTable = &val;*/
 		case columnDataType:
-			var hashUIntValue uint64;
+			var hashUIntValue uint64
 			category, bLen := val.buildDataCategory()
 			var hValue []byte
 			if bLen > hashLength {
@@ -286,11 +338,11 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				hashUIntValue = hasher.Sum64()
 				hValue = utils.UInt64ToB8(hashUIntValue)
 			} else {
-				hValue = make([]byte,hashLength)
+				hValue = make([]byte, hashLength)
 				for index := uint64(0); index < bLen; index++ {
 					hValue[index] = val.bValue[bLen-index-1]
 				}
-				hashUIntValue,_ = utils.B8ToUInt64(hValue)
+				hashUIntValue, _ = utils.B8ToUInt64(hValue)
 			}
 			//val.column.DataCategories[category] = true
 			var err error
@@ -380,13 +432,12 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 			//bitsetBucket.Get()
 
-
-			baseUIntValue,offsetUIntValue := sparsebitset.OffsetBits(hashUIntValue)
+			baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(hashUIntValue)
 			baseB8Value := utils.UInt64ToB8(baseUIntValue)
 			//offsetB8Value := utils.UInt64ToB8(offsetUIntValue)
-			bits,_ := utils.B8ToUInt64(bitsetBucket.Get(baseB8Value))
-			bits = bits | 1 << offsetUIntValue
-			bitsetBucket.Put(baseB8Value,utils.UInt64ToB8(bits))
+			bits, _ := utils.B8ToUInt64(bitsetBucket.Get(baseB8Value))
+			bits = bits | 1<<offsetUIntValue
+			bitsetBucket.Put(baseB8Value, utils.UInt64ToB8(bits))
 
 			hashBucket.Put(
 				utils.UInt64ToB8(val.lineNumber),
@@ -419,8 +470,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 }
 
-
-func (da DataAccessType) MakePairs(in,out scm.ChannelType) {
+func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 	for raw := range in {
 		fmt.Println(raw.Get())
 		switch val := raw.Get().(type) {
@@ -441,15 +491,15 @@ func (da DataAccessType) MakePairs(in,out scm.ChannelType) {
 				}
 				for tables1Index := range tables1 {
 					for tables2Index := range tables2 {
-						for _,column1 := range tables1[tables1Index].Columns {
-							for _,column2 := range tables1[tables2Index].Columns {
+						for _, column1 := range tables1[tables1Index].Columns {
+							for _, column2 := range tables1[tables2Index].Columns {
 								if column1.Id.Int64 == column2.Id.Int64 {
 									continue
 								}
-								out<-scm.NewMessageSize(2).
+								out <- scm.NewMessageSize(2).
 									Put("2CL").
-									PutN(0,column1).
-									PutN(1,column2)
+									PutN(0, column1).
+									PutN(1, column2)
 							}
 						}
 					}
@@ -461,27 +511,27 @@ func (da DataAccessType) MakePairs(in,out scm.ChannelType) {
 	close(out)
 }
 
-func (da DataAccessType) NarrowPairCategories(in,out scm.ChannelType) {
+func (da DataAccessType) NarrowPairCategories(in, out scm.ChannelType) {
 	for raw := range in {
 		switch val := raw.Get().(type) {
 		case string:
 			if val == "2CL" {
 				cl1 := raw.GetN(0).(*ColumnInfoType)
 				cl2 := raw.GetN(1).(*ColumnInfoType)
-				HashStorage.View(func(tx *bolt.Tx) error{
-					_,c1Bucket,_:= columnBucket(tx,cl1)
+				HashStorage.View(func(tx *bolt.Tx) error {
+					_, c1Bucket, _ := columnBucket(tx, cl1)
 					if c1Bucket == nil {
-						return 	nil
+						return nil
 					}
-					_,c2Bucket,_ := columnBucket(tx,cl2)
+					_, c2Bucket, _ := columnBucket(tx, cl2)
 					if c2Bucket == nil {
 						return nil
 					}
 
-					c1Bucket.ForEach(func(key,value []byte) error {
+					c1Bucket.ForEach(func(key, value []byte) error {
 						bucket := c2Bucket.Bucket(key)
 						if bucket != nil {
-							fmt.Println(cl1,cl2,key)
+							fmt.Println(cl1, cl2, key)
 						}
 						return nil
 					})
@@ -494,4 +544,3 @@ func (da DataAccessType) NarrowPairCategories(in,out scm.ChannelType) {
 	}
 	close(out)
 }
-
