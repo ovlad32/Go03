@@ -11,7 +11,6 @@ import (
 	jsnull "./jsnull"
 	"database/sql"
 	"fmt"
-	"os"
 )
 
 func init() {
@@ -24,7 +23,7 @@ func init() {
 	}
 	metadata.H2.InitDb();
 	boltDbName := "./hashStorage.bolt.db"
-	os.Remove(boltDbName)
+	//os.Remove(boltDbName)
 
 	var err error
 	metadata.HashStorage, err = bolt.Open(boltDbName,0600,nil)
@@ -60,15 +59,18 @@ func main() {
 	go da.CollectMinMaxStats(TableData,TableCalculatedData)
 	go da.SplitDataToBuckets(TableCalculatedData,done)
 
-	for _,id := range []int{261,262,263,264,265,266,267,268,269,270,271,272,273} {
+	///for _,id := range []int{261,262,263,264,265,266,267,268,269,270,271,272,273} {
+	for _,id := range []int{274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291}{
 		ti,err := metadata.H2.TableInfoById(jsnull.NullInt64{sql.NullInt64 {Int64:int64(id),Valid:true}})
 		fmt.Println(ti)
-		if err!=nil{
+		if err != nil{
 			panic(err)
 		}
 		table <- scm.NewMessage().Put(ti)
 
 	}
+
+
 	close(table)
 
 	<- done

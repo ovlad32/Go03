@@ -311,3 +311,8 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 	close(out)
 
 }
+
+
+func (da DataAccessType) Proc(table1,table2 *TableInfoType) {
+
+}
