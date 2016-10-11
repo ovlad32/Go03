@@ -87,10 +87,10 @@ func (h2 H2Type) DatabaseConfigAll() (result []DatabaseConfigType, err error) {
 	return h2.databaseConfig(nil)
 }
 
-func (h2 H2Type) DatabaseConfigById(Id sql.NullInt64) (result DatabaseConfigType, err error) {
+func (h2 H2Type) DatabaseConfigById(Id jsnull.NullInt64) (result DatabaseConfigType, err error) {
 	whereFunc := func() string {
-		if Id.Valid {
-			return fmt.Sprintf(" WHERE ID = %v", Id.Int64)
+		if Id.Valid() {
+			return fmt.Sprintf(" WHERE ID = %v", Id)
 		}
 		return ""
 	}
@@ -149,7 +149,7 @@ func (h2 H2Type) metadata(whereFunc func() string) (result []*MetadataType, err 
 
 func (h2 H2Type) HighestDatabaseConfigVersion(DatabaseConfigId jsnull.NullInt64) (result jsnull.NullInt64, err error) {
 
-	if !DatabaseConfigId.Valid {
+	if !DatabaseConfigId.Valid() {
 		err = errors.New("DatabaseConfigId is not valid")
 		return
 	}
@@ -159,7 +159,7 @@ func (h2 H2Type) HighestDatabaseConfigVersion(DatabaseConfigId jsnull.NullInt64)
 		return
 	}
 	defer tx.Rollback()
-	err = tx.QueryRow(fmt.Sprintf("SELECT MAX(VERSION) FROM METADATA WHERE DATABASE_CONFIG_ID = %v", DatabaseConfigId.Int64)).Scan(result)
+	err = tx.QueryRow(fmt.Sprintf("SELECT MAX(VERSION) FROM METADATA WHERE DATABASE_CONFIG_ID = %v", DatabaseConfigId)).Scan(result)
 	return
 }
 
@@ -173,7 +173,7 @@ func (h2 H2Type) LastMetadata(DatabaseConfigId jsnull.NullInt64) (result *Metada
 	defer tx.Rollback()
 	results, err := h2.metadata(func() string {
 		return fmt.Sprintf(" WHERE DATABASE_CONFIG_ID = %v and VERSION = %v ",
-			DatabaseConfigId.Int64,
+			DatabaseConfigId,
 			version,
 		)
 	})
@@ -183,12 +183,12 @@ func (h2 H2Type) LastMetadata(DatabaseConfigId jsnull.NullInt64) (result *Metada
 	return
 }
 func (h2 H2Type) MetadataById(MetadataId jsnull.NullInt64) (result *MetadataType, err error) {
-	if !MetadataId.Valid {
+	if !MetadataId.Valid() {
 		err = errors.New("MetadataId is not valid")
 		return
 	}
 	results, err := h2.metadata(func() string {
-		return fmt.Sprintf(" WHERE ID = %v", MetadataId.Int64)
+		return fmt.Sprintf(" WHERE ID = %v", MetadataId)
 	})
 	if err == nil && len(results) > 0 {
 		result = results[0]
@@ -250,8 +250,8 @@ func (h2 H2Type) tableInfo(whereFunc func() string) (result []*TableInfoType, er
 
 func (h2 H2Type) TableInfoByMetadata(metadata *MetadataType) (result []*TableInfoType, err error) {
 	whereFunc := func() string {
-		if metadata != nil && metadata.Id.Valid {
-			return fmt.Sprintf(" WHERE METADATA_ID = %v", metadata.Id.Int64)
+		if metadata != nil && metadata.Id.Valid() {
+			return fmt.Sprintf(" WHERE METADATA_ID = %v", metadata.Id)
 		}
 		return ""
 	}
@@ -271,8 +271,8 @@ func (h2 H2Type) TableInfoByMetadata(metadata *MetadataType) (result []*TableInf
 
 func (h2 H2Type) TableInfoById(Id jsnull.NullInt64) (result *TableInfoType, err error) {
 	whereFunc := func() string {
-		if Id.Valid {
-			return fmt.Sprintf(" WHERE ID = %v", Id.Int64)
+		if Id.Valid() {
+			return fmt.Sprintf(" WHERE ID = %v", Id)
 		}
 		return ""
 	}
@@ -345,8 +345,9 @@ func (h2 H2Type) columnInfo(whereFunc func() string) (result []*ColumnInfoType, 
 
 func (h2 H2Type) ColumnInfoByTable(tableInfo *TableInfoType) (result []*ColumnInfoType, err error) {
 	whereFunc := func() string {
-		if tableInfo != nil && tableInfo.Id.Valid {
-			return fmt.Sprintf(" WHERE TABLE_INFO_ID = %v", tableInfo.Id.Int64)
+		if tableInfo != nil && tableInfo.Id.Valid() {
+
+			return fmt.Sprintf(" WHERE TABLE_INFO_ID = %v", tableInfo.Id)
 		}
 		return ""
 	}
@@ -362,8 +363,8 @@ func (h2 H2Type) ColumnInfoByTable(tableInfo *TableInfoType) (result []*ColumnIn
 
 func (h2 H2Type) ColumnInfoById(Id jsnull.NullInt64) (result *ColumnInfoType, err error) {
 	whereFunc := func() string {
-		if Id.Valid {
-			return fmt.Sprintf(" WHERE ID = %v", Id.Int64)
+		if Id.Valid() {
+			return fmt.Sprintf(" WHERE ID = %v", Id)
 		}
 		return ""
 	}
@@ -377,17 +378,17 @@ func (h2 H2Type) ColumnInfoById(Id jsnull.NullInt64) (result *ColumnInfoType, er
 
 func (t TableInfoType) СheckId() {
 
-	if !t.Id.Valid {
+	if !t.Id.Valid() {
 		panic("Table Id is not initialized!")
 	}
 }
 
 func (t TableInfoType) СheckTableName() {
-	if !t.TableName.Valid {
+	if !t.TableName.Valid() {
 		panic("Table Name is not initialized!")
 	}
 
-	if t.TableName.String == "" {
+	if t.TableName.Value() == "" {
 		panic("Table Name is empty!")
 	}
 }
@@ -408,30 +409,30 @@ func (t TableInfoType) СheckColumns() {
 func (t TableInfoType) String() string {
 	var result string
 
-	if t.SchemaName.String != "" {
-		result = t.SchemaName.String + "."
+	if t.SchemaName.Value() != "" {
+		result = t.SchemaName.Value() + "."
 	}
 
-	if t.TableName.String == "" {
+	if t.TableName.Value() == "" {
 		result += "Table name is not defined"
 	} else {
-		result += t.TableName.String
+		result += t.TableName.Value()
 	}
 
 	return result
 }
 
 func (t TableInfoType) СheckDumpFileName() {
-	if !t.PathToFile.Valid {
+	if !t.PathToFile.Valid() {
 		panic("Dump File Name is not initialized!")
 	}
-	if t.PathToFile.String == "" {
+	if t.PathToFile.Value() == "" {
 		panic("Dump File Name is empty!")
 	}
 }
 
 func (c ColumnInfoType) СheckId() {
-	if !c.Id.Valid {
+	if !c.Id.Valid() {
 		panic("Column Id is not initialized!")
 	}
 }
@@ -446,9 +447,9 @@ func (c ColumnInfoType) String() string {
 	var result string
 
 	if c.TableInfo != nil {
-		return fmt.Sprintf("%v.%v", c.TableInfo, c.ColumnName.String)
+		return fmt.Sprintf("%v.%v", c.TableInfo, c.ColumnName)
 	} else {
-		return fmt.Sprintf("%%v", c.TableInfo, c.ColumnName.String)
+		return fmt.Sprintf("%v", c.ColumnName)
 	}
 	return result
 }
@@ -543,24 +544,25 @@ type ColumnInfoType struct {
 	NumericCount    jsnull.NullInt64
 }
 
-type ColumnDataCategoryStatsType struct {
-	Column          *ColumnInfoType
-	ByteLength      jsnull.NullInt64
-	isNumeric       jsnull.NullBool
-	isFloat         jsnull.NullBool
-	isNegative      jsnull.NullBool
-	NonNullCount    jsnull.NullInt64
-	HashUniqueCount jsnull.NullInt64
 //	MinStringLength jsnull.NullInt64
 //	MaxStringLength jsnull.NullInt64
-	MinStringValue  jsnull.NullString `json:"min-string-value"`
-	MaxStringValue  jsnull.NullString `json:"max-string-value"`
-	MinNumericValue jsnull.NullFloat64
-	MaxNumericValue jsnull.NullFloat64
+
+type ColumnDataCategoryStatsType struct {
+	Column             *ColumnInfoType
+	ByteLength         jsnull.NullInt64
+	IsNumeric          jsnull.NullBool
+	IsNegative         jsnull.NullBool
+	FloatingPointScale jsnull.NullInt64
+	NonNullCount       jsnull.NullInt64
+	HashUniqueCount    jsnull.NullInt64
+	MinStringValue     jsnull.NullString `json:"min-string-value"`
+	MaxStringValue     jsnull.NullString `json:"max-string-value"`
+	MinNumericValue    jsnull.NullFloat64
+	MaxNumericValue    jsnull.NullFloat64
 }
 
 func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
-	tx,err := h2.IDb.Begin()
+	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
@@ -583,27 +585,27 @@ func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
 		return
 	}*/
 
-	for _,c := range(column.DataCategories) {
+	for _, c := range column.DataCategories {
 		_, err = tx.Exec(
-			fmt.Sprintf("merge into column_datacategory_stats(" +
-				" id" +
-				", byte_length" +
-				", is_numeric" +
-				", is_float" +
-				", is_negative" +
-				", non_null_count" +
-				", hash_unique_count" +
-				", min_sval" +
-				", max_sval" +
-				", min_fval" +
-				", max_fval) " +
-				" key(id,byte_length,is_numeric,is_float,is_negative) " +
+			fmt.Sprintf("merge into column_datacategory_stats("+
+				" id"+
+				", byte_length"+
+				", is_numeric"+
+				", is_negative"+
+				", fp_scale"+
+				", non_null_count"+
+				", hash_unique_count"+
+				", min_sval"+
+				", max_sval"+
+				", min_fval"+
+				", max_fval) "+
+				" key(id, byte_length, is_numeric, is_negative, fp_scale) "+
 				" values(%v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v) ",
 				column.Id,
 				c.ByteLength,
-				c.isNumeric,
-				c.isFloat,
-				c.isNegative,
+				c.IsNumeric,
+				c.IsNegative,
+				c.FloatingPointScale,
 				c.NonNullCount,
 				c.HashUniqueCount,
 				c.MinStringValue,
@@ -620,24 +622,24 @@ func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
 	return
 }
 func (h2 H2Type) CreateDataCategoryTable() (err error) {
-	tx,err := h2.IDb.Begin()
+	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
-	_,err = tx.Exec("create table if not exists column_datacategory_stats(" +
+	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
 		" id bigint not null " +
 		", byte_length int not null " +
 		", is_numeric bool not null " +
-		", is_float bool not null " +
 		", is_negative bool not null " +
+		", fp_scale int not null " +
 		", non_null_count bigint" +
 		", hash_unique_count bigint" +
 		", min_sval varchar(4000)" +
 		", max_sval varchar(4000)" +
 		", min_fval float" +
 		", max_fval float" +
-		", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_float, is_negative) " +
+		", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_negative, fp_scale) " +
 		" ) ")
 	tx.Commit()
 	return

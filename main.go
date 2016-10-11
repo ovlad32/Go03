@@ -10,6 +10,7 @@ import (
 	scm "./scm"
 	jsnull "./jsnull"
 	"os"
+	"runtime"
 )
 
 func init() {
@@ -33,6 +34,7 @@ func init() {
 
 }
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	/*router := mux.NewRouter()
 	router.HandleFunc("/databaseConfigurations/",controller.GetDC)
 
@@ -65,9 +67,7 @@ func loadStorage(da metadata.DataAccessType) {
 	go da.CollectMinMaxStats(TableData, TableCalculatedData)
 	go da.SplitDataToBuckets(TableCalculatedData, done)
 
-	id := jsnull.NullInt64{}
-	id.Int64 = int64(10)
-	id.Valid = true
+	id := jsnull.NewNullInt64(10)
 
 	err := metadata.H2.CreateDataCategoryTable()
 	if err != nil {
@@ -81,7 +81,10 @@ func loadStorage(da metadata.DataAccessType) {
 
 	tables,err := metadata.H2.TableInfoByMetadata(mtd1)
 	for _,tableInfo := range tables {
-		table <- scm.NewMessage().Put(tableInfo)
+		//fmt.Println(tableInfo.Id.Value())
+		//if tableInfo.Id.Value() == int64(268) {
+			table <- scm.NewMessage().Put(tableInfo)
+		//}
 	}
 
 	close(table)
@@ -104,9 +107,8 @@ func fetchPairs(da metadata.DataAccessType) {
 	go da.MakePairs(mtd, pairs);
 	go da.NarrowPairCategories(pairs,done)
 
-	id := jsnull.NullInt64{}
-	id.Int64 = int64(10)
-	id.Valid = true
+	id := jsnull.NewNullInt64(10)
+
 	mtd1,err:= metadata.H2.MetadataById(id)
 	if err !=nil {
 		panic(err)

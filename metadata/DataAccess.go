@@ -13,7 +13,6 @@ import (
 	"github.com/boltdb/bolt"
 	"hash/fnv"
 	"io"
-	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -27,7 +26,7 @@ var HashStorage *bolt.DB
 
 func tableBucket(tx *bolt.Tx, table *TableInfoType) (result *bolt.Bucket, err error) {
 	var tablesLabel = []byte("tables")
-	tableBucketName := utils.Int64ToB8(table.Id.Int64)
+	tableBucketName := utils.Int64ToB8(table.Id.Value())
 	tablesLabelBucket := tx.Bucket(tablesLabel)
 	if tablesLabelBucket == nil {
 		tablesLabelBucket, err = tx.CreateBucket(tablesLabel)
@@ -52,7 +51,7 @@ func columnBucket(tx *bolt.Tx, column *ColumnInfoType) (tableBucketResult, colum
 		return
 	}
 	var columnsLabel = []byte("columns")
-	columnBucketName := utils.Int64ToB8(column.Id.Int64)
+	columnBucketName := utils.Int64ToB8(column.Id.Value())
 	columnsLabelBucket := tableBucketResult.Bucket(columnsLabel)
 	if columnsLabelBucket == nil {
 		columnsLabelBucket, err = tableBucketResult.CreateBucket(columnsLabel)
@@ -82,14 +81,15 @@ type columnDataType struct {
 	bValue     []byte
 	nValue     float64
 	isNumeric  bool
-	isFloat    bool
+	fpScale    int8
 	isNegative bool
 }
 
-func (c columnDataType) buildDataCategory() (result B9Type, bLen uint64) {
+func (c columnDataType) buildDataCategory() (result []byte, bLen uint64) {
+	result = make([]byte, 9, 9)
 	if c.isNumeric {
 		result[0] = (1 << 2)
-		if c.isFloat {
+		if c.fpScale != -1 {
 			if c.isNegative {
 				result[0] = result[0] | (1 << 0)
 			}
@@ -102,6 +102,9 @@ func (c columnDataType) buildDataCategory() (result B9Type, bLen uint64) {
 	}
 	bLen = uint64(len(c.bValue))
 	binary.LittleEndian.PutUint64(result[1:], bLen)
+	if c.fpScale != -1 {
+		result = append(result, byte(c.fpScale))
+	}
 	return
 }
 
@@ -117,7 +120,7 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelType) {
 	//	var lineSeparatorArray []byte
 	//	var fieldSeparatorArray = []
-	var s0d = []byte{0x0D}
+	var x0D = []byte{0x0D}
 
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
 
@@ -128,8 +131,9 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 			source = val
 		default:
 			panic(fmt.Sprintf("Type is not expected %T", raw.Get()))
+
 		}
-		gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + source.String())
+		gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + source.PathToFile.Value())
 		if err != nil {
 			panic(err)
 		}
@@ -149,19 +153,22 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 		lineNumber := uint64(0)
 
 		for {
-			//line, err := rawData.ReadString(byte(da.DumpConfiguration.LineSeparator))
-			line, err := rawData.ReadSlice(da.DumpConfiguration.LineSeparator)
+			lineImage, err := rawData.ReadSlice(da.DumpConfiguration.LineSeparator)
+
 			if err == io.EOF {
 				break
 			} else if err != nil {
 				panic(err)
 			}
+			lineImage = bytes.TrimSuffix(lineImage, []byte{da.DumpConfiguration.LineSeparator})
+			lineImage = bytes.TrimSuffix(lineImage, x0D)
+			lineImageLen := len(lineImage)
+
+			line := make([]byte, lineImageLen, lineImageLen)
+			copy(line, lineImage)
+
 			lineNumber++
 
-			line = bytes.TrimSuffix(line, []byte{da.DumpConfiguration.LineSeparator})
-			line = bytes.TrimSuffix(line, s0d)
-
-			//            fmt.Print(line)
 			lineColumns := bytes.Split(line, []byte{da.DumpConfiguration.FieldSeparator})
 			lineColumnCount := len(lineColumns)
 			if metadataColumnCount != lineColumnCount {
@@ -200,94 +207,130 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 
 				byteLength := len(val.bValue)
 				if byteLength == 0 {
-					column.NullCount.Valid = true
-					column.NullCount.Int64++
+					if !column.NullCount.Valid() {
+						column.NullCount = jsnull.NewNullInt64(1)
+					} else {
+						(*column.NullCount.Reference())++
+					}
 					continue
 				}
 
 				sValue := string(val.bValue)
+				var err error
+				val.nValue, err = strconv.ParseFloat(sValue, 64)
+				//if val.column.ColumnName.Value() == "COMMISSION_AMOUNT" {
+				//	fmt.Println(sValue,val.bValue,val.nValue)
+				//}
+				val.isNumeric = err == nil
 
-				if column.MaxStringValue.String < sValue || !column.MaxStringValue.Valid {
+				if val.isNumeric {
+					var lengthChanged bool
+					if strings.Index(sValue, ".") != -1 {
+						trimmedValue := strings.TrimRight(sValue, "0")
+						lengthChanged = len(sValue) != len(trimmedValue)
+						if lengthChanged {
+							sValue = trimmedValue
+						}
+						val.fpScale = int8(len(sValue) - (strings.Index(sValue, ".") + 1))
+					} else {
+						val.fpScale = -1
+					}
+
+					val.isNegative = strings.HasPrefix(sValue, "-")
+					(*column.NumericCount.Reference())++
+					if !column.MaxNumericValue.Valid() {
+						column.MaxNumericValue = jsnull.NewNullFloat64(val.nValue)
+					} else if column.MaxNumericValue.Value() < val.nValue {
+						(*column.MaxNumericValue.Reference()) = val.nValue
+					}
+
+					if !column.MinNumericValue.Valid() {
+						column.MinNumericValue = jsnull.NewNullFloat64(val.nValue)
+					} else if column.MinNumericValue.Value() > val.nValue {
+						(*column.MinNumericValue.Reference()) = val.nValue
+					}
+					if val.fpScale != -1 && lengthChanged {
+						sValue = strings.TrimRight(fmt.Sprintf("%f", val.nValue), "0")
+						val.bValue = []byte(sValue)
+						byteLength = len(val.bValue)
+					}
+				}
+
+				if !column.MaxStringValue.Valid() || column.MaxStringValue.Value() < sValue {
 					column.MaxStringValue = jsnull.NewNullString(sValue)
 				}
-				if column.MinStringValue.String > sValue || !column.MinStringValue.Valid {
+				if !column.MinStringValue.Valid() || column.MinStringValue.Value() > sValue {
 					column.MinStringValue = jsnull.NewNullString(sValue)
 				}
 
 				lValue := int64(len(sValue))
-				if column.MaxStringLength.Int64 < lValue {
+				if !column.MaxStringLength.Valid() {
 					column.MaxStringLength = jsnull.NewNullInt64(lValue)
+				} else if column.MaxStringLength.Value() < lValue {
+					(*column.MaxStringLength.Reference()) = lValue
+
 				}
-				if column.MinStringLength.Int64 > lValue {
+				if !column.MinStringLength.Valid() {
 					column.MinStringLength = jsnull.NewNullInt64(lValue)
-				}
-				var err error
-				val.nValue, err = strconv.ParseFloat(sValue, 64)
+				} else if column.MinStringLength.Value() > lValue {
+					(*column.MinStringLength.Reference()) = lValue
 
-				val.isNumeric = err == nil
-
-				if val.isNumeric {
-					val.isFloat = strings.Contains(sValue, ".")
-					val.isNegative = strings.HasPrefix(sValue, "-")
-					column.NumericCount.Int64++
-					if column.MaxNumericValue.Float64 < val.nValue {
-						column.MaxNumericValue = jsnull.NewNullFloat64(val.nValue)
-					}
-					if column.MinNumericValue.Float64 > val.nValue {
-						column.MinNumericValue = jsnull.NewNullFloat64(val.nValue)
-					}
 				}
 
 				var found *ColumnDataCategoryStatsType
 				for _, category := range column.DataCategories {
-					if category.ByteLength.Int64 != int64(byteLength) {
+					if category.ByteLength.Value() != int64(byteLength) {
 						continue
 					}
-					if !category.isNumeric.Bool && !val.isNumeric {
+					if !category.IsNumeric.Value() && !val.isNumeric {
 						found = category
 						break
 					}
-					if category.isNumeric.Bool == val.isNumeric &&
-						category.isFloat.Bool == val.isFloat &&
-						category.isNegative.Bool == val.isNegative {
+					if category.IsNumeric.Value() == val.isNumeric &&
+						int8(category.FloatingPointScale.Value()) == val.fpScale &&
+						category.IsNegative.Value() == val.isNegative {
 						found = category
 						break
 					}
 				}
 				if found == nil {
 					found = &ColumnDataCategoryStatsType{
-						Column:          val.column,
-						isNumeric:       jsnull.NewNullBool(val.isNumeric),
-						isFloat:         jsnull.NewNullBool(val.isFloat),
-						isNegative:      jsnull.NewNullBool(val.isNegative),
-						ByteLength:jsnull.NewNullInt64(int64(byteLength)),
-						NonNullCount : jsnull.NewNullInt64(int64(0)),
-						HashUniqueCount: jsnull.NewNullInt64(int64(0)),
-						MaxNumericValue: jsnull.NewNullFloat64(-math.MaxFloat64),
-						MinNumericValue: jsnull.NewNullFloat64(math.MaxFloat64),
+						Column:             val.column,
+						IsNumeric:          jsnull.NewNullBool(val.isNumeric),
+						FloatingPointScale: jsnull.NewNullInt64(int64(val.fpScale)),
+						IsNegative:         jsnull.NewNullBool(val.isNegative),
+						ByteLength:         jsnull.NewNullInt64(int64(byteLength)),
+						NonNullCount:       jsnull.NewNullInt64(int64(0)),
+						HashUniqueCount:    jsnull.NewNullInt64(int64(0)),
 					}
 
 					if column.DataCategories == nil {
 						column.DataCategories = make([]*ColumnDataCategoryStatsType, 0, 2)
 					}
 					column.DataCategories = append(column.DataCategories, found)
+
 				}
 
-				found.NonNullCount.Int64++
-				if found.MaxStringValue.String < sValue || !found.MaxStringValue.Valid {
+				(*found.NonNullCount.Reference())++
+				if found.MaxStringValue.Value() < sValue || !found.MaxStringValue.Valid() {
 					found.MaxStringValue = jsnull.NewNullString(sValue)
 				}
 
-				if found.MinStringValue.String > sValue || !found.MinStringValue.Valid {
+				if found.MinStringValue.Value() > sValue || !found.MinStringValue.Valid() {
 					found.MinStringValue = jsnull.NewNullString(sValue)
 				}
 
-				if found.isNumeric.Bool {
-					if found.MaxNumericValue.Float64 < val.nValue {
+				if found.IsNumeric.Value() {
+					if !found.MaxNumericValue.Valid() {
 						found.MaxNumericValue = jsnull.NewNullFloat64(val.nValue)
+
+					} else if found.MaxNumericValue.Value() < val.nValue {
+						(*found.MaxNumericValue.Reference()) = val.nValue
 					}
-					if column.MinNumericValue.Float64 > val.nValue {
+					if !column.MinNumericValue.Valid() {
 						found.MinNumericValue = jsnull.NewNullFloat64(val.nValue)
+					} else if column.MinNumericValue.Value() > val.nValue {
+						(*found.MinNumericValue.Reference()) = val.nValue
 					}
 				}
 				out <- scm.NewMessage().Put(val)
@@ -373,8 +416,9 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			var bitsetBucket *bolt.Bucket
 			var hashValuesBucket *bolt.Bucket
 			var hashStatsBucket *bolt.Bucket
-			_ = bitsetBucket
+
 			dataCategoryBucket = columnBucket.Bucket(category[:])
+
 			if dataCategoryBucket == nil {
 				dataCategoryBucket, err = columnBucket.CreateBucket(category[:])
 				if err != nil {
@@ -447,7 +491,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 			transactionCount++
 			if transactionCount >= da.TransactionCountLimit {
-				println("commit 1")
+				println("commit... ")
 				err = storageTx.Commit()
 				if err != nil {
 					panic(err)
@@ -458,7 +502,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 		}
 	}
 	if storageTx != nil {
-		println("commit 2")
+		println("final commit")
 		err := storageTx.Commit()
 		if err != nil {
 			panic(err)
@@ -489,21 +533,45 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 				if err != nil {
 					panic(err)
 				}
-				for tables1Index := range tables1 {
-					for tables2Index := range tables2 {
-						for _, column1 := range tables1[tables1Index].Columns {
-							for _, column2 := range tables1[tables2Index].Columns {
-								if column1.Id.Int64 == column2.Id.Int64 {
-									continue
+
+				HashStorage.View(func(tx *bolt.Tx) error {
+					for tables1Index := range tables1 {
+						for tables2Index := range tables2 {
+							for _, column1 := range tables1[tables1Index].Columns {
+								for _, column2 := range tables1[tables2Index].Columns {
+									if column1.Id.Value() == column2.Id.Value() {
+										continue
+									}
+
+									_, bucket1, _ := columnBucket(tx, column1)
+									if bucket1 == nil {
+										return nil
+									}
+									_, bucket2, _ := columnBucket(tx, column2)
+									if bucket2 == nil {
+										return nil
+									}
+
+									bucket1.ForEach(func(key, value []byte) error {
+										bucket := bucket2.Bucket(key)
+										if bucket != nil {
+											fmt.Println(column1, column2, key, bucket)
+											out <- scm.NewMessageSize(2).
+												Put("2CL").
+												PutN(0, key).
+												PutN(1, column1).
+												PutN(2, column2)
+										}
+
+										return nil
+									})
 								}
-								out <- scm.NewMessageSize(2).
-									Put("2CL").
-									PutN(0, column1).
-									PutN(1, column2)
 							}
 						}
 					}
-				}
+					return nil
+				})
+
 			}
 
 		}
@@ -516,31 +584,13 @@ func (da DataAccessType) NarrowPairCategories(in, out scm.ChannelType) {
 		switch val := raw.Get().(type) {
 		case string:
 			if val == "2CL" {
-				cl1 := raw.GetN(0).(*ColumnInfoType)
+				key := raw.GetN(0).([]byte)
+				cl1 := raw.GetN(1).(*ColumnInfoType)
 				cl2 := raw.GetN(1).(*ColumnInfoType)
-				HashStorage.View(func(tx *bolt.Tx) error {
-					_, c1Bucket, _ := columnBucket(tx, cl1)
-					if c1Bucket == nil {
-						return nil
-					}
-					_, c2Bucket, _ := columnBucket(tx, cl2)
-					if c2Bucket == nil {
-						return nil
-					}
-
-					c1Bucket.ForEach(func(key, value []byte) error {
-						bucket := c2Bucket.Bucket(key)
-						if bucket != nil {
-							fmt.Println(cl1, cl2, key)
-						}
-						return nil
-					})
-					return nil
-				})
-
+				fmt.Println(cl1, cl2, key)
 			}
-
 		}
+
 	}
 	close(out)
 }
