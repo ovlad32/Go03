@@ -7,9 +7,22 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	//_ "github.com/lxn/go-pgsql"
+	"strings"
 )
 
 var H2 H2Type
+
+
+var (
+	DatabaseInfoNotInitialized = errors.New("Database reference is not initialized")
+	DatabaseIdNotInitialized = errors.New("Database ID is not initialized")
+	MetadataInfoNotInitialized = errors.New("Metadata reference is not initialized")
+	MetadataIdNotInitialized = errors.New("Metadata ID is not initialized")
+	TableInfoNotInitialized = errors.New("Table reference is not initialized")
+	ColumnInfoNotInitialized = errors.New("Column reference is not initialized")
+	TableIdNotInitialized = errors.New("Table ID is not initialized")
+	ColumnIdNotInitialized = errors.New("Column ID is not initialized")
+)
 
 func (h2 *H2Type) InitDb() (idb *sql.DB) {
 	if idb == nil {
@@ -600,7 +613,7 @@ func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
 				", min_fval"+
 				", max_fval) "+
 				" key(id, byte_length, is_numeric, is_negative, fp_scale) "+
-				" values(%v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v) ",
+				" values(%v, %v, %v, %v, %v, %v, %v, '%v', '%v', %v, %v) ",
 				column.Id,
 				c.ByteLength,
 				c.IsNumeric,
@@ -608,8 +621,8 @@ func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
 				c.FloatingPointScale,
 				c.NonNullCount,
 				c.HashUniqueCount,
-				c.MinStringValue,
-				c.MaxStringValue,
+				strings.Replace(c.MinStringValue.Value(),"'","''",-1),
+				strings.Replace(c.MaxStringValue.Value(),"'","''",-1),
 				c.MinNumericValue,
 				c.MaxNumericValue,
 			),

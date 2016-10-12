@@ -11,10 +11,10 @@ import (
 	jsnull "./jsnull"
 	"os"
 	"runtime"
-	_"fmt"
 )
 
 var recreate bool = false
+
 func init() {
 	metadata.H2 = metadata.H2Type{
 		Login:"edm",
@@ -52,7 +52,7 @@ func main() {
 			FieldSeparator:124,
 			LineSeparator:10,
 		},
-		TransactionCountLimit:1000000,
+		TransactionCountLimit:300000,
 	}
 	if recreate {
 		loadStorage(da)
@@ -71,36 +71,33 @@ func loadStorage(da metadata.DataAccessType) {
 	go da.CollectMinMaxStats(TableData, TableCalculatedData)
 	go da.SplitDataToBuckets(TableCalculatedData, done)
 
-	id := jsnull.NewNullInt64(10)
 
 	err := metadata.H2.CreateDataCategoryTable()
 	if err != nil {
 		panic(err)
 	}
 
-	mtd1,err := metadata.H2.MetadataById(id)
+	mtd1,err := metadata.H2.MetadataById(jsnull.NewNullInt64(10))
 	if err != nil {
 		panic(err)
 	}
 
-	mtd2,err := metadata.H2.MetadataById(id)
+	mtd2,err := metadata.H2.MetadataById(jsnull.NewNullInt64(11))
 	if err != nil {
 		panic(err)
 	}
 
 	tables,err := metadata.H2.TableInfoByMetadata(mtd1)
 	for _,tableInfo := range tables {
-		//fmt.Println(tableInfo.Id.Value())
-	//	if tableInfo.Id.Value() == int64(268) {
+		//if tableInfo.Id.Value() == int64(268) {
 			table <- scm.NewMessage().Put(tableInfo)
-	//	}
+		//}
 	}
 	tables,err = metadata.H2.TableInfoByMetadata(mtd2)
 	for _,tableInfo := range tables {
-		//fmt.Println(tableInfo.Id.Value())
-		//	if tableInfo.Id.Value() == int64(268) {
-		table <- scm.NewMessage().Put(tableInfo)
-		//	}
+		//if tableInfo.Id.Value() == int64(291) {
+			table <- scm.NewMessage().Put(tableInfo)
+		//}
 	}
 
 	close(table)
