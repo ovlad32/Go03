@@ -11,8 +11,10 @@ import (
 	jsnull "./jsnull"
 	"os"
 	"runtime"
+	_"fmt"
 )
 
+var recreate bool = false
 func init() {
 	metadata.H2 = metadata.H2Type{
 		Login:"edm",
@@ -23,7 +25,7 @@ func init() {
 	}
 	metadata.H2.InitDb();
 	boltDbName := "./hashStorage.bolt.db"
-	if true {
+	if recreate {
 		os.Remove(boltDbName)
 	}
 	var err error
@@ -50,17 +52,19 @@ func main() {
 			FieldSeparator:124,
 			LineSeparator:10,
 		},
-		TransactionCountLimit:100000,
+		TransactionCountLimit:1000000,
 	}
-	loadStorage(da)
+	if recreate {
+		loadStorage(da)
+	}
 	fetchPairs(da);
 
 }
 
 func loadStorage(da metadata.DataAccessType) {
 	table := scm.NewChannel();
-	TableData := scm.NewChannel();
-	TableCalculatedData := scm.NewChannel();
+	TableData := scm.NewChannelSize(1024*100);
+	TableCalculatedData := scm.NewChannelSize(1024*100);
 	done := scm.NewChannel();
 
 	go da.ReadTableDumpData(table, TableData);
@@ -79,12 +83,24 @@ func loadStorage(da metadata.DataAccessType) {
 		panic(err)
 	}
 
+	mtd2,err := metadata.H2.MetadataById(id)
+	if err != nil {
+		panic(err)
+	}
+
 	tables,err := metadata.H2.TableInfoByMetadata(mtd1)
 	for _,tableInfo := range tables {
 		//fmt.Println(tableInfo.Id.Value())
-		//if tableInfo.Id.Value() == int64(268) {
+	//	if tableInfo.Id.Value() == int64(268) {
 			table <- scm.NewMessage().Put(tableInfo)
-		//}
+	//	}
+	}
+	tables,err = metadata.H2.TableInfoByMetadata(mtd2)
+	for _,tableInfo := range tables {
+		//fmt.Println(tableInfo.Id.Value())
+		//	if tableInfo.Id.Value() == int64(268) {
+		table <- scm.NewMessage().Put(tableInfo)
+		//	}
 	}
 
 	close(table)
@@ -107,17 +123,15 @@ func fetchPairs(da metadata.DataAccessType) {
 	go da.MakePairs(mtd, pairs);
 	go da.NarrowPairCategories(pairs,done)
 
-	id := jsnull.NewNullInt64(10)
-
-	mtd1,err:= metadata.H2.MetadataById(id)
+	mtd1,err:= metadata.H2.MetadataById(jsnull.NewNullInt64(10))
 	if err !=nil {
 		panic(err)
 	}
-	mtd2,err:= metadata.H2.MetadataById(id)
+	mtd2,err:= metadata.H2.MetadataById(jsnull.NewNullInt64(11))
 	if err !=nil {
 		panic(err)
 	}
-	mtd <-scm.NewMessageSize(2).Put("2MD").PutN(0,mtd1).PutN(1,mtd2)
+	mtd <-scm.NewMessageSize(3).Put("2MD").PutN(0,mtd1).PutN(1,mtd2)
 	close(mtd)
 
 	<-done

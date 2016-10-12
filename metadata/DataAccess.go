@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"math"
 )
 
 const hashLength = 8
@@ -83,10 +84,16 @@ type columnDataType struct {
 	isNumeric  bool
 	fpScale    int8
 	isNegative bool
+	bStatsMean uint8
+	bStatsStdv uint8
+	bStatsMin uint8
+	bStatsMax uint8
 }
 
-func (c columnDataType) buildDataCategory() (result []byte, bLen uint64) {
-	result = make([]byte, 9, 9)
+
+
+func (c columnDataType) buildDataCategory() (result []byte, bLen uint16) {
+	result = make([]byte, 3, 4)
 	if c.isNumeric {
 		result[0] = (1 << 2)
 		if c.fpScale != -1 {
@@ -100,10 +107,24 @@ func (c columnDataType) buildDataCategory() (result []byte, bLen uint64) {
 			}
 		}
 	}
-	bLen = uint64(len(c.bValue))
-	binary.LittleEndian.PutUint64(result[1:], bLen)
-	if c.fpScale != -1 {
-		result = append(result, byte(c.fpScale))
+	bLen = uint16(len(c.bValue))
+	binary.LittleEndian.PutUint16(result[1:], bLen)
+	if c.isNumeric {
+		if c.fpScale != -1 {
+			result = append(
+				result,
+				byte(c.fpScale),
+			)
+		}
+	} else {
+		result = append(
+			result,
+			byte(c.bStatsStdv),
+		)/*,
+			byte(c.bStatsMean),
+			byte(c.bStatsMax),
+			byte(c.bStatsMin),
+		)*/
 	}
 	return
 }
@@ -218,9 +239,7 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 				sValue := string(val.bValue)
 				var err error
 				val.nValue, err = strconv.ParseFloat(sValue, 64)
-				//if val.column.ColumnName.Value() == "COMMISSION_AMOUNT" {
-				//	fmt.Println(sValue,val.bValue,val.nValue)
-				//}
+
 				val.isNumeric = err == nil
 
 				if val.isNumeric {
@@ -254,6 +273,28 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 						val.bValue = []byte(sValue)
 						byteLength = len(val.bValue)
 					}
+				} else {
+					val.bStatsMax = 1
+					val.bStatsMin = 0xFF
+					var bSum float64 = 0
+					var bCount int = 0
+					for _,bChar := range val.bValue{
+						if bChar>0 {
+							bSum = bSum + float64(bChar)
+							bCount ++
+						}
+					}
+					fStatsMean := bSum/float64(bCount)
+					val.bStatsMean = uint8(fStatsMean)
+
+					bSum = 0
+					for _,bChar := range val.bValue{
+						if bChar>0 {
+							res := fStatsMean - float64(bChar)
+							bSum = bSum + res*res
+						}
+					}
+					val.bStatsStdv = uint8(math.Sqrt(bSum))
 				}
 
 				if !column.MaxStringValue.Valid() || column.MaxStringValue.Value() < sValue {
@@ -382,7 +423,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				hValue = utils.UInt64ToB8(hashUIntValue)
 			} else {
 				hValue = make([]byte, hashLength)
-				for index := uint64(0); index < bLen; index++ {
+				for index := uint16(0); index < bLen; index++ {
 					hValue[index] = val.bValue[bLen-index-1]
 				}
 				hashUIntValue, _ = utils.B8ToUInt64(hValue)
@@ -420,6 +461,9 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			dataCategoryBucket = columnBucket.Bucket(category[:])
 
 			if dataCategoryBucket == nil {
+				if val.column.ColumnName.Value() == "COMMISSION_CURRENCY" {
+					fmt.Println(val.bValue,category[:])
+				}
 				dataCategoryBucket, err = columnBucket.CreateBucket(category[:])
 				if err != nil {
 					panic(err)
@@ -523,8 +567,7 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 				md1 := raw.GetN(0).(*MetadataType)
 				md2 := raw.GetN(1).(*MetadataType)
 				tables1, err := H2.TableInfoByMetadata(md1)
-				fmt.Println(md1)
-				fmt.Println(md2)
+
 
 				if err != nil {
 					panic(err)
@@ -533,30 +576,33 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 				if err != nil {
 					panic(err)
 				}
-
+				fmt.Println(md1)
+				fmt.Println(md2)
 				HashStorage.View(func(tx *bolt.Tx) error {
 					for tables1Index := range tables1 {
 						for tables2Index := range tables2 {
 							for _, column1 := range tables1[tables1Index].Columns {
-								for _, column2 := range tables1[tables2Index].Columns {
+								for _, column2 := range tables2[tables2Index].Columns {
 									if column1.Id.Value() == column2.Id.Value() {
 										continue
 									}
+									//fmt.Println(column1, column2)
 
 									_, bucket1, _ := columnBucket(tx, column1)
 									if bucket1 == nil {
-										return nil
+										continue
 									}
 									_, bucket2, _ := columnBucket(tx, column2)
 									if bucket2 == nil {
-										return nil
+										continue
 									}
 
 									bucket1.ForEach(func(key, value []byte) error {
 										bucket := bucket2.Bucket(key)
+
 										if bucket != nil {
 											fmt.Println(column1, column2, key, bucket)
-											out <- scm.NewMessageSize(2).
+											out <- scm.NewMessageSize(3).
 												Put("2CL").
 												PutN(0, key).
 												PutN(1, column1).

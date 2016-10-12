@@ -627,6 +627,8 @@ func (h2 H2Type) CreateDataCategoryTable() (err error) {
 		return
 	}
 	defer tx.Rollback()
+	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
+
 	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
 		" id bigint not null " +
 		", byte_length int not null " +
