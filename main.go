@@ -6,14 +6,14 @@ import (
 	//"github.com/urfave/negroni"
 	//"github.com/gorilla/mux"
 	"./metadata"
-//	"./webapp/controller"
 	scm "./scm"
+	utils "./utils"
 	jsnull "./jsnull"
 	"os"
 	"runtime"
 )
 
-var recreate bool = false
+var recreate bool = true
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -53,6 +53,8 @@ func main() {
 			LineSeparator:10,
 		},
 		TransactionCountLimit:300000,
+		ColumnBucketsCache:utils.New(50),
+
 	}
 	if recreate {
 		loadStorage(da)

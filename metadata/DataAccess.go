@@ -26,125 +26,13 @@ type B9Type [9]byte
 
 var HashStorage *bolt.DB
 
-func tableBucket(tx *bolt.Tx, table *TableInfoType) (result *bolt.Bucket, err error) {
-	if table == nil {
-		err = TableInfoNotInitialized
-		return
-	}
-	if !table.Id.Valid() {
-		err = TableIdNotInitialized
-		return
-	}
-	var tablesLabel = []byte("tables")
-	tableBucketName := utils.Int64ToB8(table.Id.Value())
-	tablesLabelBucket := tx.Bucket(tablesLabel)
-
-	if tablesLabelBucket == nil {
-		if tx.Writable() {
-			tablesLabelBucket, err = tx.CreateBucket(tablesLabel)
-			if err != nil {
-				return
-			}
-			if tablesLabelBucket == nil {
-				err = errors.New("Could not create predefined buclet \"tables\". Got empty value")
-				return
-			} else {
-				log.Println("Bucket \"tables\" created")
-			}
-		} else {
-			err = errors.New("Predefined bucket \"tables\" does not exist")
-			return
-		}
-	}
-
-	result = tablesLabelBucket.Bucket(tableBucketName[:])
-	if result == nil {
-		if tx.Writable() {
-			result, err = tablesLabelBucket.CreateBucket(tableBucketName[:])
-			if err != nil {
-				return
-			}
-			if tableBucket == nil {
-				err = errors.New(fmt.Sprintf("Could not create buclet for table id %v. Got empty value",table.Id))
-				return
-			} else {
-				log.Println(fmt.Sprintf("Bucket for table id %v created",table.Id))
-			}
-		} else {
-//			err = errors.New(fmt.Sprintf("Bucket for table id %v does not exist",table.Id))
-			return
-		}
-	}
-
-	return result, nil
-}
-
-func columnBucket(tx *bolt.Tx, column *ColumnInfoType) (tableBucketResult, columnBucketResult *bolt.Bucket, err error) {
-	if column == nil {
-		err = ColumnInfoNotInitialized
-		return
-	}
-	if !column.Id.Valid() {
-		err = ColumnIdNotInitialized
-		return
-	}
-
-	tableBucketResult, err = tableBucket(tx, column.TableInfo)
-	if err != nil {
-		return
-	}
-	if tableBucketResult == nil {
-		return
-	}
-
-	var columnsLabel = []byte("columns")
-	columnBucketName := utils.Int64ToB8(column.Id.Value())
-	columnsLabelBucket := tableBucketResult.Bucket(columnsLabel)
-	if columnsLabelBucket == nil {
-		if tx.Writable() {
-			columnsLabelBucket, err = tableBucketResult.CreateBucket(columnsLabel)
-			if err != nil {
-				return
-			}
-			if columnsLabelBucket == nil {
-				err = errors.New("Could not create predefined buclet \"columns\". Got empty value")
-				return
-			} else {
-				log.Println("Bucket \"columns\" created")
-			}
-		} else {
-			err = errors.New(fmt.Sprintf("Predefined bucket \"columns\" does not exist for table id %v ",column.TableInfo.Id))
-			return
-		}
-	}
-
-	columnBucketResult = columnsLabelBucket.Bucket(columnBucketName[:])
-	if columnBucketResult == nil  {
-		if tx.Writable() {
-			columnBucketResult, err = columnsLabelBucket.CreateBucket(columnBucketName[:])
-			if err != nil {
-				return
-			}
-			if tableBucket == nil {
-				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value",column.Id))
-				return
-			} else {
-				log.Println(fmt.Sprintf("Bucket for column id %v created",column.Id))
-			}
-		} else {
-			//err = errors.New(fmt.Sprintf("Bucket for column id %v does not exist",column.Id))
-			return
-		}
-
-	}
-	return
-}
-
 
 
 type DataAccessType struct {
 	DumpConfiguration     DumpConfigurationType
+	ColumnBucketsCache *utils.Cache
 	TransactionCountLimit uint64
+
 }
 
 type columnDataType struct {
@@ -209,12 +97,14 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 	return
 }*/
 
+
 func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelType) {
 	//	var lineSeparatorArray []byte
 	//	var fieldSeparatorArray = []
 	var x0D = []byte{0x0D}
 
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
+
 
 	for raw := range in {
 		var source *TableInfoType
@@ -469,15 +359,212 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
            - hash/value (b)
             - row#/position (k/v)
 */
-const (
 
-)
+
+type columnSupplementaryBucketsType struct {
+	bitsetBucket *bolt.Bucket
+	hashValuesBucket *bolt.Bucket
+	hashStatsBucket *bolt.Bucket
+	dataCategoryBucket *bolt.Bucket
+}
+
+var tablesLabel = []byte("tables")
+var columnsLabel = []byte("columns")
+
+var bitsetBucketName = []byte("bitset")
+var hashValuesBucketName = []byte("hashValues")
+
+var hashStatsName = []byte("hashStats")
+var hashStatsUnqiueCountName = []byte("uniqueCount")
+
+func (da DataAccessType) tableBucket(tx *bolt.Tx, table *TableInfoType) (result *bolt.Bucket, err error) {
+	if table == nil {
+		err = TableInfoNotInitialized
+		return
+	}
+	if !table.Id.Valid() {
+		err = TableIdNotInitialized
+		return
+	}
+	tableBucketName := utils.Int64ToB8(table.Id.Value())
+	tablesLabelBucket := tx.Bucket(tablesLabel)
+
+	if tablesLabelBucket == nil {
+		if tx.Writable() {
+			tablesLabelBucket, err = tx.CreateBucket(tablesLabel)
+			if err != nil {
+				return
+			}
+			if tablesLabelBucket == nil {
+				err = errors.New("Could not create predefined buclet \"tables\". Got empty value")
+				return
+			} else {
+				log.Println("Bucket \"tables\" created")
+			}
+		} else {
+			err = errors.New("Predefined bucket \"tables\" does not exist")
+			return
+		}
+	}
+
+	result = tablesLabelBucket.Bucket(tableBucketName[:])
+	if result == nil {
+		if tx.Writable() {
+			result, err = tablesLabelBucket.CreateBucket(tableBucketName[:])
+			if err != nil {
+				return
+			}
+			if result == nil {
+				err = errors.New(fmt.Sprintf("Could not create buclet for table id %v. Got empty value",table.Id))
+				return
+			} else {
+				log.Println(fmt.Sprintf("Bucket for table id %v created",table.Id))
+			}
+		} else {
+			//			err = errors.New(fmt.Sprintf("Bucket for table id %v does not exist",table.Id))
+			return
+		}
+	}
+
+	return result, nil
+}
+
+func (da DataAccessType)columnBucket(tx *bolt.Tx, column *ColumnInfoType) (tableBucketResult, columnBucketResult *bolt.Bucket, err error) {
+	if column == nil {
+		err = ColumnInfoNotInitialized
+		return
+	}
+	if !column.Id.Valid() {
+		err = ColumnIdNotInitialized
+		return
+	}
+
+	tableBucketResult, err = da.tableBucket(tx, column.TableInfo)
+	if err != nil {
+		return
+	}
+	if tableBucketResult == nil {
+		return
+	}
+
+	columnBucketName := utils.Int64ToB8(column.Id.Value())
+	columnsLabelBucket := tableBucketResult.Bucket(columnsLabel)
+	if columnsLabelBucket == nil {
+		if tx.Writable() {
+			columnsLabelBucket, err = tableBucketResult.CreateBucket(columnsLabel)
+			if err != nil {
+				return
+			}
+			if columnsLabelBucket == nil {
+				err = errors.New("Could not create predefined buclet \"columns\". Got empty value")
+				return
+			} else {
+				log.Println("Bucket \"columns\" created")
+			}
+		} else {
+			err = errors.New(fmt.Sprintf("Predefined bucket \"columns\" does not exist for table id %v ",column.TableInfo.Id))
+			return
+		}
+	}
+
+	columnBucketResult = columnsLabelBucket.Bucket(columnBucketName[:])
+	if columnBucketResult == nil  {
+		if tx.Writable() {
+			columnBucketResult, err = columnsLabelBucket.CreateBucket(columnBucketName[:])
+			if err != nil {
+				return
+			}
+			if columnBucketResult == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value",column.Id))
+				return
+			} else {
+				log.Println(fmt.Sprintf("Bucket for column id %v created",column.Id))
+			}
+		} else {
+			//err = errors.New(fmt.Sprintf("Bucket for column id %v does not exist",column.Id))
+			return
+		}
+
+	}
+	return
+}
+
+
+type columnBucketsType struct {
+	loaded bool
+	columnBucket *bolt.Bucket
+	supplementaryBucketCache *utils.Cache
+}
+func (da *DataAccessType) GetOrCreateColumnBuckets(tx *bolt.Tx, column *ColumnInfoType) (result *columnBucketsType){
+	if raw, found := da.ColumnBucketsCache.Get(column.Id.Value()); !found {
+		_, bucket, err := da.columnBucket(tx, column)
+		if err != nil {
+			panic(err)
+		}
+		result = &columnBucketsType{
+			supplementaryBucketCache:utils.New(50),
+			columnBucket: bucket,
+		}
+		da.ColumnBucketsCache.Add(column.Id.Value(),result)
+		log.Println(fmt.Sprintf("append to cache bucket for column id %v",column.Id.Value()))
+	} else {
+		result = raw.(*columnBucketsType)
+		result.loaded = true
+	}
+	return
+}
+
+func (cbs *columnBucketsType) GetOrCreateByCategory(dataCategory []byte) (result *columnSupplementaryBucketsType){
+	if cbs.loaded {
+		if raw,found := cbs.supplementaryBucketCache.Get(string(dataCategory)); found{
+			result = raw.(*columnSupplementaryBucketsType)
+		}
+	}
+	if result == nil{
+		result = &columnSupplementaryBucketsType {}
+		cbs.supplementaryBucketCache.Add(string(dataCategory), result)
+	}
+
+	if result.dataCategoryBucket == nil{
+		categoryBucket := cbs.columnBucket.Bucket(dataCategory)
+		if categoryBucket != nil {
+			result.dataCategoryBucket = categoryBucket
+			result.bitsetBucket = categoryBucket.Bucket(bitsetBucketName)
+			result.hashValuesBucket = categoryBucket.Bucket(hashValuesBucketName)
+			result.hashStatsBucket = categoryBucket.Bucket(hashStatsName)
+		} else {
+			var err error
+			categoryBucket, err = cbs.columnBucket.CreateBucket(dataCategory)
+			if err != nil {
+				panic(err)
+			}
+			result.dataCategoryBucket = categoryBucket
+			result.bitsetBucket, err = categoryBucket.CreateBucket(bitsetBucketName)
+			if err != nil {
+				panic(err)
+			}
+			result.hashValuesBucket, err = categoryBucket.CreateBucket(hashValuesBucketName)
+			if err != nil {
+				panic(err)
+			}
+			result.hashStatsBucket, err = categoryBucket.CreateBucket(hashStatsName)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	return
+}
+
 func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelType) {
 	//var currentTable *TableInfoType;
 	var transactionCount uint64 = 0
 	//	var emptyValue []byte = make([]byte, 0)
 	hasher := fnv.New64()
 	var storageTx *bolt.Tx = nil
+
+
+
 
 	for raw := range in {
 		switch val := raw.Get().(type) {
@@ -516,73 +603,36 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			//  -tableId (+)
 			// -"columns" (+)
 			//  -columnId (b)
-			_, columnBucket, err := columnBucket(storageTx, val.column)
-			if err != nil {
-				panic(err)
-			}
+			colunmBuckets := da.GetOrCreateColumnBuckets(storageTx,val.column)
+			supplementary := colunmBuckets.GetOrCreateByCategory(category[:])
 
-			var bitsetBucketName = []byte("bitset")
-			var hashValuesBucketName = []byte("hashValues")
-
-			var hashStatsName = []byte("hashStats")
-			var hashStatsUnqiueCountName = []byte("uniqueCount")
-
-			var dataCategoryBucket *bolt.Bucket
-			var bitsetBucket *bolt.Bucket
-			var hashValuesBucket *bolt.Bucket
-			var hashStatsBucket *bolt.Bucket
-
-			dataCategoryBucket = columnBucket.Bucket(category[:])
-
-			if dataCategoryBucket == nil {
-				dataCategoryBucket, err = columnBucket.CreateBucket(category[:])
-				if err != nil {
-					panic(err)
-				}
-				bitsetBucket, err = dataCategoryBucket.CreateBucket(bitsetBucketName)
-				if err != nil {
-					panic(err)
-				}
-				hashValuesBucket, err = dataCategoryBucket.CreateBucket(hashValuesBucketName)
-				if err != nil {
-					panic(err)
-				}
-				hashStatsBucket, err = dataCategoryBucket.CreateBucket(hashStatsName)
-				if err != nil {
-					panic(err)
-				}
-			} else {
-				bitsetBucket = dataCategoryBucket.Bucket(bitsetBucketName)
-				hashValuesBucket = dataCategoryBucket.Bucket(hashValuesBucketName)
-				hashStatsBucket = dataCategoryBucket.Bucket(hashStatsName)
-			}
 
 			var hashBucket *bolt.Bucket
-			hashBucket = hashValuesBucket.Bucket(hValue[:])
+			hashBucket = supplementary.hashValuesBucket.Bucket(hValue[:])
 			if hashBucket == nil {
-				hashBucket, err = hashValuesBucket.CreateBucket(hValue[:])
+				hashBucket, err = supplementary.hashValuesBucket.CreateBucket(hValue[:])
 				if err != nil {
 					panic(err)
 				}
-				hashStatsBucket.Put(
+				supplementary.hashStatsBucket.Put(
 					hashStatsUnqiueCountName,
 					utils.UInt64ToB8(1),
 				)
 			} else {
 
 				if value, found := utils.B8ToUInt64(
-					hashStatsBucket.Get(
+					supplementary.hashStatsBucket.Get(
 						hashStatsUnqiueCountName,
 					),
 				); !found {
-					hashStatsBucket.Put(
+					supplementary.hashStatsBucket.Put(
 						hashStatsUnqiueCountName,
 						utils.UInt64ToB8(1),
 					)
 				} else {
 					value++
 					//fmt.Println(hValue,value)
-					hashStatsBucket.Put(
+					supplementary.hashStatsBucket.Put(
 						hashStatsUnqiueCountName,
 						utils.UInt64ToB8(value),
 					)
@@ -594,9 +644,9 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(hashUIntValue)
 			baseB8Value := utils.UInt64ToB8(baseUIntValue)
 			//offsetB8Value := utils.UInt64ToB8(offsetUIntValue)
-			bits, _ := utils.B8ToUInt64(bitsetBucket.Get(baseB8Value))
+			bits, _ := utils.B8ToUInt64(supplementary.bitsetBucket.Get(baseB8Value))
 			bits = bits | 1<<offsetUIntValue
-			bitsetBucket.Put(baseB8Value, utils.UInt64ToB8(bits))
+			supplementary.bitsetBucket.Put(baseB8Value, utils.UInt64ToB8(bits))
 
 			hashBucket.Put(
 				utils.UInt64ToB8(val.lineNumber),
@@ -605,13 +655,15 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			)
 			transactionCount++
 			if transactionCount >= da.TransactionCountLimit {
-				println("commit... ")
+				log.Println("commit... ")
 				err = storageTx.Commit()
 				if err != nil {
 					panic(err)
 				}
 				storageTx = nil
 				transactionCount = 0
+				log.Println("Clear buckets cache...")
+				da.ColumnBucketsCache.Clear()
 			}
 		}
 	}
@@ -658,14 +710,14 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 									}
 									//fmt.Println(column1, column2)
 
-									_, bucket1, err := columnBucket(tx, column1)
+									_, bucket1, err := da.columnBucket(tx, column1)
 									if err != nil {
 										panic(err)
 									}
 									if bucket1 == nil {
 										continue
 									}
-									_, bucket2, err := columnBucket(tx, column2)
+									_, bucket2, err := da.columnBucket(tx, column2)
 									if err != nil {
 										panic(err)
 									}
