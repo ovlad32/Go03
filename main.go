@@ -6,8 +6,8 @@ import (
 	//"github.com/urfave/negroni"
 	//"github.com/gorilla/mux"
 	"./metadata"
-//	"./webapp/controller"
 	scm "./scm"
+	utils "./utils"
 	jsnull "./jsnull"
 	"os"
 	"runtime"
@@ -56,6 +56,8 @@ func main() {
 			LineSeparator:10,
 		},
 		TransactionCountLimit:300000,
+		ColumnBucketsCache:utils.New(50),
+
 	}
 	if recreate {
 		loadStorage(da)
