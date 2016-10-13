@@ -21,12 +21,34 @@ import (
 )
 
 const hashLength = 8
+const wordSize = uint64(64)
 
 type B9Type [9]byte
 
 var HashStorage *bolt.DB
 
+var deBruijn = [...]byte{
+	0, 1, 56, 2, 57, 49, 28, 3, 61, 58, 42, 50, 38, 29, 17, 4,
+	62, 47, 59, 36, 45, 43, 51, 22, 53, 39, 33, 30, 24, 18, 12, 5,
+	63, 55, 48, 27, 60, 41, 37, 16, 46, 35, 44, 21, 52, 32, 23, 11,
+	54, 26, 40, 15, 34, 20, 31, 10, 25, 14, 19, 9, 13, 8, 7, 6,
+}
+var (
+	// ErrInvalidIndex is answered when an invalid index is given.
+	ErrInvalidIndex = errors.New("invalid index given")
 
+	// ErrItemNotFound is answered when a requested item could not be
+	// found.
+	ErrItemNotFound = errors.New("requested item not found")
+
+	// ErrNilArgument is answered when an unexpected `nil` is
+	// encountered as an argument.
+	ErrNilArgument = errors.New("nil input given")
+)
+
+func trailingZeroes64(v uint64) uint64 {
+	return uint64(deBruijn[((v&-v)*0x03f79d71b4ca8b09)>>58])
+}
 
 type DataAccessType struct {
 	DumpConfiguration     DumpConfigurationType
@@ -495,6 +517,7 @@ type columnBucketsType struct {
 	columnBucket *bolt.Bucket
 	supplementaryBucketCache *utils.Cache
 }
+
 func (da *DataAccessType) GetOrCreateColumnBuckets(tx *bolt.Tx, column *ColumnInfoType) (result *columnBucketsType){
 	if raw, found := da.ColumnBucketsCache.Get(column.Id.Value()); !found {
 		_, bucket, err := da.columnBucket(tx, column)
@@ -680,6 +703,14 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 }
 
+type columnPairType struct{
+	dataCategory []byte
+	column1 *ColumnInfoType
+	column2 *ColumnInfoType
+	IntersectionCount uint64
+	dataBucketName string
+}
+
 func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 	for raw := range in {
 		fmt.Println(raw.Get())
@@ -730,11 +761,21 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 
 										if bucket != nil {
 											//fmt.Println(column1, column2, key, bucket)
-											out <- scm.NewMessageSize(3).
-												Put("2CL").
-												PutN(0, dataCategory).
-												PutN(1, column1).
-												PutN(2, column2)
+
+											var pair = &columnPairType{}
+
+											if column1.Id.Value() < column2.Id.Value() {
+												pair.column1 = column1
+												pair.column2 = column2
+											} else {
+												pair.column2 = column1
+												pair.column1 = column2
+											}
+
+											pair.dataBucketName = fmt.Sprintf("%v-%v",pair.column1.Id.Value(),pair.column2.Id.Value())
+											pair.dataCategory = dataCategory
+
+											out <- scm.NewMessage().Put(pair)
 										}
 
 										return nil
@@ -754,22 +795,114 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 }
 
 func (da DataAccessType) NarrowPairCategories(in, out scm.ChannelType) {
+	var storageTx *bolt.Tx
+	var err error
 	for raw := range in {
 		switch val := raw.Get().(type) {
-		case string:
-			if val == "2CL" {
-				dataCategory := raw.GetN(0).([]byte)
-				cl1 := raw.GetN(1).(*ColumnInfoType)
-				cl2 := raw.GetN(2).(*ColumnInfoType)
-				fmt.Println(cl1, cl2, dataCategory)
+		case *columnPairType:
+				fmt.Println(val.column1,val.column2,val.dataCategory)
+				if storageTx == nil {
+					storageTx,err = HashStorage.Begin(false)
+					if err != nil {
+						panic(err)
+					}
 
+				}
+
+				buckets1 := da.GetOrCreateColumnBuckets(storageTx, val.column1)
+				dcBucket1 := buckets1.columnBucket.Bucket(val.dataCategory);
+				bsBucket1 := dcBucket1.Bucket(bitsetBucketName)
+
+				buckets2 := da.GetOrCreateColumnBuckets(storageTx, val.column1)
+				dcBucket2 := buckets2.columnBucket.Bucket(val.dataCategory);
+				bsBucket2 := dcBucket2.Bucket(bitsetBucketName)
+
+				bsBucket1.ForEach(func (keyBytes,valueBytes1 []byte) (error) {
+					keyUInt,_ := utils.B8ToUInt64(keyBytes)
+					valueBytes2 := bsBucket2.Get(keyBytes)
+					if valueBytes2 == nil {
+						return nil
+					}
+					var result utils.B8Type
+					for index := range valueBytes1 {
+						result[index] = valueBytes1[index] & valueBytes2[index]
+					}
+					intersection,_ := utils.B8ToUInt64(result[:])
+					prod := keyUInt * wordSize
+					rsh := uint64(0)
+					prev := uint64(0)
+					for {
+						w := intersection >> rsh
+						if w == 0 {
+							break
+						}
+						result := rsh + trailingZeroes64(w) + prod
+						if result != prev {
+							val.IntersectionCount++
+							out <- scm.NewMessageSize(2).Put("DH").PutN(0,val).PutN(result)
+							prev = result
+						}
+						rsh++
+					}
+					out <- scm.NewMessageSize(2).Put("PAIR").PutN(0,val).PutN(result)
+					return nil
+				})
+			}
+		}
+
+	if storageTx != nil {
+		storageTx.Rollback()
+	}
+
+	close(out)
+}
+
+var  dataIntersectionLabel []byte = []byte("dataIntersection")
+var  dataIntersectionStatsLabel []byte = []byte("stats")
+
+
+func (da DataAccessType) WriteDataBitset(in, out scm.ChannelType) {
+	var storateTx *bolt.Tx
+	var err error
+	for raw := range in {
+		if storateTx == nil{
+			storateTx,err = HashStorage.Begin(true)
+			if err != nil {
+				panic(err)
+			}
+		}
+		switch sVal := raw.Get().(type) {
+		case string:
+			switch sVal {
+			case "DH":
+				var columnPair = raw.GetN(0).(*columnPairType)
+				var hValue uint64 = raw.GetN(0).(uint64)
+
+				labelBucket,err := storateTx.CreateBucketIfNotExists(dataIntersectionLabel)
+				if err != nil {
+					panic(err)
+				}
+
+				pairBucket,err := labelBucket.CreateBucketIfNotExists([]byte(columnPair.dataBucketName))
+				if err != nil {
+					panic(err)
+				}
+
+				categoryBucket, err := pairBucket.CreateBucketIfNotExists([]byte(columnPair.dataCategory))
+				if err != nil {
+					panic(err)
+				}
+
+				hValueBucket,err := categoryBucket.CreateBucketIfNotExists(hValue)
+				if err != nil {
+					panic(err)
+				}
+
+				_ = hValueBucket
+
+
+			case "PAIR":
 
 
 			}
 		}
-
-	}
-	close(out)
-}
-
-
