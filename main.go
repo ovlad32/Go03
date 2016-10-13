@@ -11,9 +11,11 @@ import (
 	jsnull "./jsnull"
 	"os"
 	"runtime"
+	"time"
+	"log"
 )
 
-var recreate bool = false
+var recreate bool = true
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -36,6 +38,7 @@ func init() {
 
 }
 func main() {
+	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	/*router := mux.NewRouter()
 	router.HandleFunc("/databaseConfigurations/",controller.GetDC)
@@ -58,7 +61,7 @@ func main() {
 		loadStorage(da)
 	}
 	fetchPairs(da);
-
+	log.Printf("%v",time.Since(start))
 }
 
 func loadStorage(da metadata.DataAccessType) {
