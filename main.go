@@ -13,9 +13,10 @@ import (
 	"runtime"
 	"time"
 	"log"
+
 )
 
-var recreate bool = true
+var recreate bool = false
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -123,7 +124,7 @@ func fetchPairs(da metadata.DataAccessType) {
 	done := scm.NewChannel();
 
 	go da.MakePairs(mtd, pairs);
-	go da.NarrowPairCategories(pairs,done)
+	go da.BuildDataBitsets(pairs,done)
 
 	mtd1,err:= metadata.H2.MetadataById(jsnull.NewNullInt64(10))
 	if err !=nil {
@@ -133,8 +134,7 @@ func fetchPairs(da metadata.DataAccessType) {
 	if err !=nil {
 		panic(err)
 	}
-	mtd <-scm.NewMessageSize(3).Put("2MD").PutN(0,mtd1).PutN(1,mtd2)
+	mtd <-scm.NewMessageSize(2).Put("2MD").PutN(0,mtd1).PutN(1,mtd2)
 	close(mtd)
-
 	<-done
 }

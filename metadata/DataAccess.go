@@ -637,12 +637,6 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				if err != nil {
 					panic(err)
 				}
-				supplementary.hashStatsBucket.Put(
-					hashStatsUnqiueCountName,
-					utils.UInt64ToB8(1),
-				)
-			} else {
-
 				if value, found := utils.B8ToUInt64(
 					supplementary.hashStatsBucket.Get(
 						hashStatsUnqiueCountName,
@@ -708,10 +702,104 @@ type columnPairType struct{
 	column1 *ColumnInfoType
 	column2 *ColumnInfoType
 	IntersectionCount uint64
-	dataBucketName string
+	dataBucketName []byte
 }
 
 func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
+
+	pushPairs := func (metadata1, metadata2 *MetadataType, stage string) {
+		tables1, err := H2.TableInfoByMetadata(metadata1)
+
+
+		if err != nil {
+			panic(err)
+		}
+		tables2, err := H2.TableInfoByMetadata(metadata2)
+		if err != nil {
+			panic(err)
+		}
+		for tables1Index := range tables1 {
+			for tables2Index := range tables2 {
+				// TODO: get number of categories
+				pairs := make([]*columnPairType,0, len(tables1[tables1Index].Columns)*len(tables2[tables2Index].Columns))
+
+				for _, column1 := range tables1[tables1Index].Columns {
+					for _, column2 := range tables2[tables2Index].Columns {
+						if column1.Id.Value() == column2.Id.Value() {
+							continue
+						}
+						//fmt.Println(column1, column2)
+
+						HashStorage.View(func(tx *bolt.Tx) error {
+							_, bucket1, err := da.columnBucket(tx, column1)
+							if err != nil {
+								panic(err)
+							}
+							if bucket1 == nil {
+								return nil
+							}
+							_, bucket2, err := da.columnBucket(tx, column2)
+							if err != nil {
+								panic(err)
+							}
+							if bucket2 == nil {
+								return nil
+							}
+
+							bucket1.ForEach(func(dataCategory, value []byte) error {
+								if stage == "CHAR" && dataCategory[0] == 0 {
+								} else if stage == "NUMBER" && dataCategory[0] != 0 {
+								} else {
+									return nil
+								}
+
+								bucket := bucket2.Bucket(dataCategory)
+
+								if bucket != nil {
+									//fmt.Println("!",column1, column2, dataCategory, bucket)
+
+									var pair = &columnPairType{}
+
+									if column1.Id.Value() < column2.Id.Value() {
+										pair.column1 = column1
+										pair.column2 = column2
+									} else {
+										pair.column2 = column1
+										pair.column1 = column2
+									}
+
+									pair.dataBucketName = make([]byte,8*2,8*2)
+									b81 := utils.Int64ToB8(pair.column1.Id.Value())
+									b82 := utils.Int64ToB8(pair.column2.Id.Value())
+									copy(pair.dataBucketName,b81)
+									copy(pair.dataBucketName[8:],b82)
+									//fmt.Println(b81,b82)
+									//fmt.Println(pair.dataBucketName)
+									//fmt.Println()
+									pair.dataCategory = dataCategory
+									pairs = append(pairs, pair)
+								}
+
+								return nil
+							})
+							//fmt.Println("!")
+							return nil
+						})
+					}
+				}
+				for _,pair := range pairs {
+					out <- scm.NewMessageSize(1).Put("PAIR").PutN(0,pair)
+					if pair.IntersectionCount>0 {
+						fmt.Println(pair.column1, pair.column2, pair.dataCategory, pair.IntersectionCount)
+					}
+
+
+				}
+			}
+		}
+
+	}
+
 	for raw := range in {
 		fmt.Println(raw.Get())
 		switch val := raw.Get().(type) {
@@ -719,190 +807,170 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 			if val == "2MD" {
 				md1 := raw.GetN(0).(*MetadataType)
 				md2 := raw.GetN(1).(*MetadataType)
-				tables1, err := H2.TableInfoByMetadata(md1)
 
-
-				if err != nil {
-					panic(err)
-				}
-				tables2, err := H2.TableInfoByMetadata(md2)
-				if err != nil {
-					panic(err)
-				}
-				fmt.Println(md1)
-				fmt.Println(md2)
-				HashStorage.View(func(tx *bolt.Tx) error {
-					for tables1Index := range tables1 {
-						for tables2Index := range tables2 {
-							for _, column1 := range tables1[tables1Index].Columns {
-								for _, column2 := range tables2[tables2Index].Columns {
-									if column1.Id.Value() == column2.Id.Value() {
-										continue
-									}
-									//fmt.Println(column1, column2)
-
-									_, bucket1, err := da.columnBucket(tx, column1)
-									if err != nil {
-										panic(err)
-									}
-									if bucket1 == nil {
-										continue
-									}
-									_, bucket2, err := da.columnBucket(tx, column2)
-									if err != nil {
-										panic(err)
-									}
-									if bucket2 == nil {
-										continue
-									}
-
-									bucket1.ForEach(func(dataCategory, value []byte) error {
-										bucket := bucket2.Bucket(dataCategory)
-
-										if bucket != nil {
-											//fmt.Println(column1, column2, key, bucket)
-
-											var pair = &columnPairType{}
-
-											if column1.Id.Value() < column2.Id.Value() {
-												pair.column1 = column1
-												pair.column2 = column2
-											} else {
-												pair.column2 = column1
-												pair.column1 = column2
-											}
-
-											pair.dataBucketName = fmt.Sprintf("%v-%v",pair.column1.Id.Value(),pair.column2.Id.Value())
-											pair.dataCategory = dataCategory
-
-											out <- scm.NewMessage().Put(pair)
-										}
-
-										return nil
-									})
-								}
-							}
-						}
-					}
-					return nil
-				})
+				//fmt.Println(md1)
+				//fmt.Println(md2)
+				pushPairs(md1,md2,"CHAR")
+				pushPairs(md1,md2,"NUMBER")
 
 			}
 
 		}
 	}
-	close(out)
-}
-
-func (da DataAccessType) NarrowPairCategories(in, out scm.ChannelType) {
-	var storageTx *bolt.Tx
-	var err error
-	for raw := range in {
-		switch val := raw.Get().(type) {
-		case *columnPairType:
-				fmt.Println(val.column1,val.column2,val.dataCategory)
-				if storageTx == nil {
-					storageTx,err = HashStorage.Begin(false)
-					if err != nil {
-						panic(err)
-					}
-
-				}
-
-				buckets1 := da.GetOrCreateColumnBuckets(storageTx, val.column1)
-				dcBucket1 := buckets1.columnBucket.Bucket(val.dataCategory);
-				bsBucket1 := dcBucket1.Bucket(bitsetBucketName)
-
-				buckets2 := da.GetOrCreateColumnBuckets(storageTx, val.column1)
-				dcBucket2 := buckets2.columnBucket.Bucket(val.dataCategory);
-				bsBucket2 := dcBucket2.Bucket(bitsetBucketName)
-
-				bsBucket1.ForEach(func (keyBytes,valueBytes1 []byte) (error) {
-					keyUInt,_ := utils.B8ToUInt64(keyBytes)
-					valueBytes2 := bsBucket2.Get(keyBytes)
-					if valueBytes2 == nil {
-						return nil
-					}
-					var result utils.B8Type
-					for index := range valueBytes1 {
-						result[index] = valueBytes1[index] & valueBytes2[index]
-					}
-					intersection,_ := utils.B8ToUInt64(result[:])
-					prod := keyUInt * wordSize
-					rsh := uint64(0)
-					prev := uint64(0)
-					for {
-						w := intersection >> rsh
-						if w == 0 {
-							break
-						}
-						result := rsh + trailingZeroes64(w) + prod
-						if result != prev {
-							val.IntersectionCount++
-							out <- scm.NewMessageSize(2).Put("DH").PutN(0,val).PutN(result)
-							prev = result
-						}
-						rsh++
-					}
-					out <- scm.NewMessageSize(2).Put("PAIR").PutN(0,val).PutN(result)
-					return nil
-				})
-			}
-		}
-
-	if storageTx != nil {
-		storageTx.Rollback()
-	}
-
 	close(out)
 }
 
 var  dataIntersectionLabel []byte = []byte("dataIntersection")
-var  dataIntersectionStatsLabel []byte = []byte("stats")
+//var  dataIntersectionStatsLabel []byte = []byte("stats")
+var  dataIntersectionHashLabel []byte = []byte("hash")
 
 
-func (da DataAccessType) WriteDataBitset(in, out scm.ChannelType) {
-	var storateTx *bolt.Tx
+func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
+	var storageTx *bolt.Tx
 	var err error
+	var emptyValue []byte = make([]byte, 0, 0)
+	var transactionCount uint64 = 0
+
+	writeIntersectingHashValue := func (columnPair *columnPairType, hValue uint64) {
+
+//		if storageTx == nil {
+//			storageTx, err = HashStorage.Begin(true)
+//			if err != nil {
+//				panic(err)
+//			}
+//		}
+		labelBucket, err := storageTx.CreateBucketIfNotExists(dataIntersectionLabel)
+		if err != nil {
+			panic(err)
+		}
+
+		pairBucket, err := labelBucket.CreateBucketIfNotExists([]byte(columnPair.dataBucketName))
+		if err != nil {
+			panic(err)
+		}
+
+		categoryBucket, err := pairBucket.CreateBucketIfNotExists([]byte(columnPair.dataCategory))
+		if err != nil {
+			panic(err)
+		}
+
+		/*statsLabelBucket,err := categoryBucket.CreateBucketIfNotExists(dataIntersectionStatsLabel)
+		if err != nil {
+			panic(err)
+		}*/
+		hashLabelBucket, err := categoryBucket.CreateBucketIfNotExists(dataIntersectionHashLabel)
+		if err != nil {
+			panic(err)
+		}
+		//_ = hashLabelBucket
+		//_=emptyValue
+		//_= hValue
+		hashLabelBucket.Put(utils.UInt64ToB8(hValue)[:], emptyValue)
+		transactionCount ++
+	}
+
+
+	pushHashValues := func (bsBucket1,bsBucket2 *bolt.Bucket,
+				pair *columnPairType,
+				) {
+		bsBucket1.ForEach(func (keyBytes, valueBytes1 []byte) (error) {
+			keyUInt,_ := utils.B8ToUInt64(keyBytes)
+			valueBytes2 := bsBucket2.Get(keyBytes)
+			if valueBytes2 == nil {
+				return nil
+			}
+			var result utils.B8Type
+			for index := range valueBytes1 {
+				result[index] = valueBytes1[index] & valueBytes2[index]
+			}
+			intersection,_ := utils.B8ToUInt64(result[:])
+			prod := keyUInt * wordSize
+			rsh := uint64(0)
+			prev := uint64(0)
+			for {
+				w := intersection >> rsh
+				if w == 0 {
+					break
+				}
+				result := rsh + trailingZeroes64(w) + prod
+				if result != prev {
+					pair.IntersectionCount++
+					writeIntersectingHashValue(pair,result)
+					prev = result
+
+				}
+				rsh++
+			}
+			return nil
+		})
+		//out <- scm.NewMessageSize(1).Put("PAIR").PutN(0,pair)
+	}
+
 	for raw := range in {
-		if storateTx == nil{
-			storateTx,err = HashStorage.Begin(true)
+		if storageTx == nil {
+			storageTx, err = HashStorage.Begin(true)
 			if err != nil {
 				panic(err)
 			}
+			log.Println("open..")
 		}
-		switch sVal := raw.Get().(type) {
+		switch val := raw.Get().(type) {
 		case string:
-			switch sVal {
-			case "DH":
-				var columnPair = raw.GetN(0).(*columnPairType)
-				var hValue uint64 = raw.GetN(0).(uint64)
-
-				labelBucket,err := storateTx.CreateBucketIfNotExists(dataIntersectionLabel)
-				if err != nil {
-					panic(err)
-				}
-
-				pairBucket,err := labelBucket.CreateBucketIfNotExists([]byte(columnPair.dataBucketName))
-				if err != nil {
-					panic(err)
-				}
-
-				categoryBucket, err := pairBucket.CreateBucketIfNotExists([]byte(columnPair.dataCategory))
-				if err != nil {
-					panic(err)
-				}
-
-				hValueBucket,err := categoryBucket.CreateBucketIfNotExists(hValue)
-				if err != nil {
-					panic(err)
-				}
-
-				_ = hValueBucket
-
-
+			switch val {
 			case "PAIR":
+				pair := raw.GetN(0).(*columnPairType)
+				var hashUniqueCount1, hashUniqueCount2 uint64
+				buckets1 := da.GetOrCreateColumnBuckets(storageTx, pair.column1)
+				dcBucket1 := buckets1.columnBucket.Bucket(pair.dataCategory);
+				bsBucket1 := dcBucket1.Bucket(bitsetBucketName)
+				statsBucket1 := dcBucket1.Bucket(hashStatsName)
+				if statsBucket1 != nil {
+					uqCount := statsBucket1.Get(hashStatsUnqiueCountName)
+					if uqCount != nil {
+						hashUniqueCount1, _ = utils.B8ToUInt64(uqCount)
+					}
+				}
 
-
+				buckets2 := da.GetOrCreateColumnBuckets(storageTx, pair.column2)
+				dcBucket2 := buckets2.columnBucket.Bucket(pair.dataCategory);
+				bsBucket2 := dcBucket2.Bucket(bitsetBucketName)
+				statsBucket2 := dcBucket2.Bucket(hashStatsName)
+				if statsBucket2 != nil {
+					uqCount := statsBucket2.Get(hashStatsUnqiueCountName)
+					if uqCount != nil {
+						hashUniqueCount2, _ = utils.B8ToUInt64(uqCount)
+					}
+				}
+				//fmt.Println(pair.column1,pair.column2)
+				if hashUniqueCount1 <= hashUniqueCount2 {
+					pushHashValues(bsBucket1, bsBucket2, pair);
+				} else {
+					pushHashValues(bsBucket2, bsBucket1, pair);
+				}
+				if transactionCount >= da.TransactionCountLimit {
+					log.Println("commit... ")
+					err = storageTx.Commit()
+					if err != nil {
+						panic(err)
+					}
+					da.ColumnBucketsCache.Clear()
+					storageTx = nil
+					transactionCount = 0
+				}
+				//out <-scm.NewMessage().Put(pair)
 			}
 		}
+	}
+
+	if storageTx != nil {
+		err = storageTx.Commit()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	close(out)
+}
+
+
+

@@ -37,3 +37,8 @@ func B8ToInt64(buff []byte) (result int64, found bool) {
 	}
 	return
 }
+/*
+type Bucketer interface {
+	Bucket(b *Bucketer, name []byte ) (result *Bucketer)
+}
+func OpenBuckets(b *Bucketer,path[][]byte) []Bucketer {}*/
