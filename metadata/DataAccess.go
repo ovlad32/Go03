@@ -543,9 +543,10 @@ func (cbs *columnBucketsType) GetOrCreateByCategory(dataCategory []byte) (result
 			result = raw.(*columnSupplementaryBucketsType)
 		}
 	}
+	var appendToCache bool = false
 	if result == nil{
 		result = &columnSupplementaryBucketsType {}
-		cbs.supplementaryBucketCache.Add(string(dataCategory), result)
+		appendToCache = true
 	}
 
 	if result.dataCategoryBucket == nil{
@@ -575,6 +576,9 @@ func (cbs *columnBucketsType) GetOrCreateByCategory(dataCategory []byte) (result
 				panic(err)
 			}
 		}
+	}
+	if appendToCache {
+		cbs.supplementaryBucketCache.Add(string(dataCategory), result)
 	}
 	return
 }
@@ -611,6 +615,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 					hValue[index] = val.bValue[bLen-index-1]
 				}
 				hashUIntValue, _ = utils.B8ToUInt64(hValue)
+				//fmt.Println("1",val.column,hValue,category)
 			}
 			//val.column.DataCategories[category] = true
 			var err error
@@ -626,8 +631,8 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			//  -tableId (+)
 			// -"columns" (+)
 			//  -columnId (b)
-			colunmBuckets := da.GetOrCreateColumnBuckets(storageTx,val.column)
-			supplementary := colunmBuckets.GetOrCreateByCategory(category[:])
+			columnBuckets := da.GetOrCreateColumnBuckets(storageTx,val.column)
+			supplementary := columnBuckets.GetOrCreateByCategory(category[:])
 
 
 			var hashBucket *bolt.Bucket
@@ -648,7 +653,6 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 					)
 				} else {
 					value++
-					//fmt.Println(hValue,value)
 					supplementary.hashStatsBucket.Put(
 						hashStatsUnqiueCountName,
 						utils.UInt64ToB8(value),
@@ -790,7 +794,12 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 				for _,pair := range pairs {
 					out <- scm.NewMessageSize(1).Put("PAIR").PutN(0,pair)
 					if pair.IntersectionCount>0 {
-						fmt.Println(pair.column1, pair.column2, pair.dataCategory, pair.IntersectionCount)
+						if (pair.column2.ColumnName.Value() =="INFORMER_DEAL_ID" &&
+						    pair.column1.ColumnName.Value() == "CONTRACT_ID") ||
+							(pair.column1.ColumnName.Value() =="INFORMER_DEAL_ID" &&
+								pair.column2.ColumnName.Value() == "CONTRACT_ID") {
+							fmt.Println(pair.column1, pair.column2, pair.dataCategory, pair.IntersectionCount)
+						}
 					}
 
 
