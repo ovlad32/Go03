@@ -16,7 +16,7 @@ import (
 
 )
 
-var recreate bool = false
+var recreate bool = true
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -56,6 +56,8 @@ func main() {
 			FieldSeparator:124,
 			LineSeparator:10,
 		},
+		SubHashByteLengthThreshold: 6,
+		SubHashDumpRowCountThreshold: 100000,
 		TransactionCountLimit:300000,
 		ColumnBucketsCache:utils.New(50),
 
@@ -64,7 +66,7 @@ func main() {
 		loadStorage(da)
 	}
 	//fetchPairs(da);
-	da.Report1()
+	metadata.ReportHashStorageContents()
 	log.Printf("%v",time.Since(start))
 }
 

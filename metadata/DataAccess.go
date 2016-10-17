@@ -54,7 +54,8 @@ type DataAccessType struct {
 	DumpConfiguration     DumpConfigurationType
 	ColumnBucketsCache *utils.Cache
 	TransactionCountLimit uint64
-
+	SubHashByteLengthThreshold int
+	SubHashDumpRowCountThreshold int64
 }
 
 type columnDataType struct {
@@ -65,17 +66,13 @@ type columnDataType struct {
 	isNumeric  bool
 	fpScale    int8
 	isNegative bool
-	bStatsMean uint8
-	bStatsStdv uint8
-	bStatsMin uint8
-	bStatsMax uint8
+	isSubHash bool
+	bSubHash uint8
 }
 
 
-
-
 func (c columnDataType) buildDataCategory() (result []byte, bLen uint16) {
-	result = make([]byte, 3, 4)
+	result = make([]byte, 3, 5)
 	if c.isNumeric {
 		result[0] = (1 << 2)
 		if c.fpScale != -1 {
@@ -98,10 +95,11 @@ func (c columnDataType) buildDataCategory() (result []byte, bLen uint16) {
 				byte(c.fpScale),
 			)
 		}
-	} else {
+	}
+	if c.isSubHash {
 		result = append(
 			result,
-			byte(c.bStatsMean),
+			byte(c.bSubHash),
 		)/*,
 			byte(c.bStatsMean),
 			byte(c.bStatsMax),
@@ -109,6 +107,143 @@ func (c columnDataType) buildDataCategory() (result []byte, bLen uint16) {
 		)*/
 	}
 	return
+}
+
+
+func ReportHashStorageContents() {
+	categoryName := func(k []byte) (result string){
+		kLen := len(k)
+		//fmt.Println(k)
+		if kLen<3 {
+			result = fmt.Sprintf("Can not explan category data %v",k)
+		} else {
+			bLen := binary.LittleEndian.Uint16(k[1:])
+			if k[0] == 0 {
+				result = fmt.Sprintf("char[%v]",bLen)
+				if kLen>3 {
+					result = fmt.Sprintf("%v(%v)",result,k[3])
+				}
+			}  else {
+				if (k[0]>>0) & 0x01 > 0 {
+					result = "-"
+				} else {
+					result = "+"
+				}
+				if (k[0]>>1) & 0x01 == 0 {
+					result = fmt.Sprintf("%vF[%v,%v]",result,bLen,k[3])
+					if kLen>4 {
+						result = fmt.Sprintf("%v(%v)",result,k[4])
+					}
+				} else {
+					result = fmt.Sprintf("%vI[%v]",result,bLen)
+					if kLen>3 {
+						result = fmt.Sprintf("%v(%v)",result,k[3])
+					}
+				}
+			}
+		}
+		return
+	}
+
+
+	reportCategories := func (b *bolt.Bucket,totalHashes,totalLines *uint64) {
+		b.ForEach(func(k,v []byte) error {
+			categoryBucket := b.Bucket(k)
+			hashes,_ := utils.B8ToUInt64(categoryBucket.Bucket(hashStatsName).Get(hashStatsUnqiueCountName))
+			var bsWords, lines, hBuckets uint64
+			categoryBucket.Bucket(bitsetBucketName).ForEach(
+				func(ik,iv []byte) error {
+					bsWords ++
+					return nil
+				},
+			)
+			hashValuesBucket := categoryBucket.Bucket(hashValuesBucketName)
+			hashValuesBucket.ForEach(
+				func(ik,iv []byte) error {
+					hBuckets++
+					hashValuesBucket.Bucket(ik).ForEach(
+						func (iik,_ []byte) error {
+							lines ++
+							return nil
+						})
+					return nil
+				},
+			)
+
+			//- "bitset" (+b)
+			//-offset/bit(k/v)
+			//- "hashValues" (+b)
+			//- hash/value (b)
+			fmt.Println(
+				fmt.Sprintf("%v: hashes/values %v,  bitset words %v, rows by hashes %v, hashBuckets %v",
+					categoryName(k),
+					hashes,
+					bsWords,
+					lines,
+					hBuckets ),
+
+			)
+			(*totalHashes)+= hashes
+			(*totalLines) += lines
+			return nil
+		})
+	}
+
+	reportColumns := func (b *bolt.Bucket) {
+		b.ForEach(func(k,v []byte) error {
+			//t.Println(k)
+			id,_ := utils.B8ToInt64(k)
+			col,_ := H2.ColumnInfoById(jsnull.NewNullInt64(id))
+			fmt.Println(col)
+			var totalHashes,totalLines uint64
+			reportCategories(b.Bucket(k),&totalHashes,&totalLines)
+			fmt.Printf("Total: hashes/values %v, lines %v\n",totalHashes,totalLines)
+			return nil
+		})
+	}
+
+	reportTables := func (b *bolt.Bucket) {
+		b.ForEach(func(k,v []byte) error {
+			id,_ := utils.B8ToInt64(k)
+			tbl,_ := H2.TableInfoById(jsnull.NewNullInt64(id))
+			fmt.Println(id,tbl)
+			fmt.Println("-----------------------------------")
+			tableBucket := b.Bucket(k)
+			/*fmt.Println(string(k),k,columnsLabel)
+			if columns != nil && bytes.Compare(k,columnsLabel)==0 {
+				fmt.Println(string(k))
+				reportColumns(columns)
+			}*/
+			tableBucket.ForEach(func(ik,_ []byte) error {
+				if bytes.Compare(ik,columnsLabel) == 0 {
+					columns := tableBucket.Bucket(ik)
+					if columns!= nil {
+						reportColumns(columns)
+					}
+				}
+				return nil
+			} )
+
+
+
+
+			fmt.Println("-----------------------------------")
+			return nil
+		})
+
+	}
+	tx,err := HashStorage.Begin(false)
+	if err != nil {
+		panic(err)
+	}
+	tx.ForEach(func(k []byte, b *bolt.Bucket)(error){
+		if bytes.Compare(k,tablesLabel)==0 {
+			reportTables(b)
+		}
+		return nil
+	})
+	tx.Rollback();
+
 }
 
 /*
@@ -222,6 +357,8 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 
 				sValue := string(val.bValue)
 				var err error
+				val.isSubHash = byteLength > da.SubHashByteLengthThreshold &&
+					val.column.TableInfo.RowCount.Value() > da.SubHashDumpRowCountThreshold
 				val.nValue, err = strconv.ParseFloat(sValue, 64)
 
 				val.isNumeric = err == nil
@@ -235,6 +372,7 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 							sValue = trimmedValue
 						}
 						val.fpScale = int8(len(sValue) - (strings.Index(sValue, ".") + 1))
+						val.isSubHash = false
 					} else {
 						val.fpScale = -1
 					}
@@ -257,20 +395,15 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 						val.bValue = []byte(sValue)
 						byteLength = len(val.bValue)
 					}
-				} else {
-					val.bStatsMax = 1
-					val.bStatsMin = 0xFF
-					var bSum float64 = 0
-					var bCount int = 0
+				}
+				if val.isSubHash {
+					val.bSubHash = 0
 					for _,bChar := range val.bValue{
 						if bChar>0 {
-							bSum = bSum + float64(bChar)
-							bCount ++
+							val.bSubHash = ((uint8(37) * val.bSubHash) + uint8(bChar)) & 0xff;
 						}
 					}
-					fStatsMean := bSum/float64(bCount)
-					val.bStatsMean = uint8(fStatsMean)
-
+				}
 					/*bSum = 0
 					for _,bChar := range val.bValue{
 						if bChar>0 {
@@ -280,7 +413,7 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 					}
 					val.bStatsStdv = uint8(math.Sqrt(bSum))
 					*/
-				}
+
 
 				if !column.MaxStringValue.Valid() || column.MaxStringValue.Value() < sValue {
 					column.MaxStringValue = jsnull.NewNullString(sValue)
@@ -666,7 +799,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			baseB8Value := utils.UInt64ToB8(baseUIntValue)
 			//offsetB8Value := utils.UInt64ToB8(offsetUIntValue)
 			bits, _ := utils.B8ToUInt64(supplementary.bitsetBucket.Get(baseB8Value))
-			bits = bits | 1<<offsetUIntValue
+			bits = bits | (1 << offsetUIntValue)
 			supplementary.bitsetBucket.Put(baseB8Value, utils.UInt64ToB8(bits))
 
 			hashBucket.Put(
@@ -987,96 +1120,3 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 
 
 
-func (da DataAccessType) Report1() {
-	categoryName := func(k []byte) (result string){
-		kLen := len(k)
-		fmt.Println(k)
-		if kLen<3 {
-			result = fmt.Sprintf("Can not explan category data %v",k)
-		} else {
-			bLen := binary.LittleEndian.Uint16(k[1:])
-			if k[0] == 0 {
-				result = fmt.Sprintf("char[%v]",bLen)
-				if kLen>2 {
-					result = fmt.Sprintf("%v(%v)",result,k[3])
-				}
-			}  else {
-				if (k[0]>>0)&0xFE > 0 {
-					result = "-"
-				} else {
-					result = "+"
-				}
-				if (k[0]>>1)&0xFE == 0 {
-					result = fmt.Sprintf("%vF[%v,%v]",result,bLen,k[3])
-				} else {
-					result = fmt.Sprintf("%vI[%v]",result,bLen)
-				}
-			}
-		}
-		return
-	}
-
-
-	reportCategories := func (b *bolt.Bucket) {
-		b.ForEach(func(k,v []byte) error {
-
-			count,_ := utils.B8ToUInt64(b.Bucket(k).Bucket(hashStatsName).Get(hashStatsUnqiueCountName))
-			fmt.Println(categoryName(k), ":",count)
-			return nil
-		})
-	}
-
-	reportColumns := func (b *bolt.Bucket) {
-		b.ForEach(func(k,v []byte) error {
-			//t.Println(k)
-			id,_ := utils.B8ToInt64(k)
-			col,_ := H2.ColumnInfoById(jsnull.NewNullInt64(id))
-			fmt.Println(col)
-			reportCategories(b.Bucket(k))
-			return nil
-		})
-	}
-
-	reportTables := func (b *bolt.Bucket) {
-		b.ForEach(func(k,v []byte) error {
-			id,_ := utils.B8ToInt64(k)
-			tbl,_ := H2.TableInfoById(jsnull.NewNullInt64(id))
-			fmt.Println(id,tbl)
-			fmt.Println("-----------------------------------")
-			tableBucket := b.Bucket(k)
-			/*fmt.Println(string(k),k,columnsLabel)
-			if columns != nil && bytes.Compare(k,columnsLabel)==0 {
-				fmt.Println(string(k))
-				reportColumns(columns)
-			}*/
-			tableBucket.ForEach(func(ik,_ []byte) error {
-				if bytes.Compare(ik,columnsLabel) == 0 {
-					columns := tableBucket.Bucket(ik)
-					if columns!= nil {
-						reportColumns(columns)
-					}
-				}
-				return nil
-			} )
-
-
-
-
-			fmt.Println("-----------------------------------")
-			return nil
-		})
-
-	}
-	tx,err := HashStorage.Begin(false)
-	if err != nil {
-		panic(err)
-	}
-	tx.ForEach(func(k []byte, b *bolt.Bucket)(error){
-		if bytes.Compare(k,tablesLabel)==0 {
-			reportTables(b)
-		}
-		return nil
-	})
-	tx.Rollback();
-
-}
