@@ -58,7 +58,7 @@ func main() {
 		},
 		SubHashByteLengthThreshold: 6,
 		SubHashDumpRowCountThreshold: 100000,
-		TransactionCountLimit:300000,
+		TransactionCountLimit:1000*1000,
 		ColumnBucketsCache:utils.New(50),
 
 	}
@@ -66,7 +66,7 @@ func main() {
 		loadStorage(da)
 	}
 	//fetchPairs(da);
-	metadata.ReportHashStorageContents()
+	//metadata.ReportHashStorageContents()
 	log.Printf("%v",time.Since(start))
 }
 
