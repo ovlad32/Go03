@@ -12,7 +12,6 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"log"
-	"github.com/constabulary/gb/testdata/src/c"
 	"encoding/binary"
 )
 
@@ -558,6 +557,7 @@ func (ti *TableInfoType) ResetBuckets() {
 		}
 	}
 }
+
 func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 	funcName := "TableInfoType.GetOrCreateBuckets"
 
@@ -568,7 +568,7 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 		return
 	}
 
-	tableBucketName := utils.Int64ToB8(ti.Id.Value())
+	tableBucketIdBytes := utils.Int64ToB8(ti.Id.Value())
 	tablesLabelBucket := tx.Bucket(tablesLabelBucketBytes)
 
 	if tablesLabelBucket == nil {
@@ -589,15 +589,15 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 		}
 	}
 
-	ti.TableLabelBucket = tablesLabelBucket.Bucket(tableBucketName[:])
-	if ti.TableLabelBucket == nil {
+	ti.TableBucket = tablesLabelBucket.Bucket(tableBucketIdBytes[:])
+	if ti.TableBucket == nil {
 		if tx.Writable() {
-			ti.TableLabelBucket, err = tablesLabelBucket.CreateBucket(tableBucketName[:])
+			ti.TableBucket, err = tablesLabelBucket.CreateBucket(tableBucketIdBytes[:])
 			if err != nil {
 				return
 			}
-			if ti.TableLabelBucket == nil {
-				err = errors.New(fmt.Sprintf("Could not create buclet for table id %v. Got empty value",ti.Id))
+			if ti.TableBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for table id %v. Got empty value",ti.Id))
 				return
 			} else {
 				log.Println(fmt.Sprintf("Bucket for table id %v created",ti.Id))
@@ -629,7 +629,6 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 	tracelog.Completed(logPackageName,funcName)
 	return
 }
-
 
 
 type ColumnInfoType struct {
@@ -717,25 +716,26 @@ func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	return
 }
 
+
 func (ci ColumnInfoType) FindDataCategory(
-		byteLength int16,
+		byteLength uint16,
 		isNumeric bool,
 		isNegative bool,
 		fpScale int8,
 		isSubHash bool,
-		subHash int8,
+		subHash uint8,
 	) (result *ColumnDataCategoryStatsType){
 
 	if ci.DataCategories == nil {
 		return nil
 	}
 	for _,cdc := range ci.DataCategories {
-		if byteLength == int16(cdc.ByteLength.Value()) {
+		if byteLength == uint16(cdc.ByteLength.Value()) {
 			if !isNumeric && isNumeric == cdc.IsNumeric.Value() {
 				if !isSubHash && isSubHash == cdc.IsSubHash.Value(){
 					return cdc
 				} else if isSubHash == cdc.IsSubHash.Value() &&
-					subHash == int8(cdc.SubHash.Value()) {
+					subHash == uint8(cdc.SubHash.Value()) {
 					return cdc
 				}
 			} else if isNumeric == cdc.IsNumeric.Value() {
@@ -744,7 +744,7 @@ func (ci ColumnInfoType) FindDataCategory(
 					if !isSubHash && isSubHash == cdc.IsSubHash.Value(){
 						return cdc
 					} else if isSubHash == cdc.IsSubHash.Value() &&
-							subHash == int8(cdc.SubHash.Value()) {
+							subHash == uint8(cdc.SubHash.Value()) {
 						return cdc
 					}
 				}
@@ -779,6 +779,7 @@ type ColumnDataCategoryStatsType struct {
 	HashStatsBucket    *bolt.Bucket
 	HashValuesBucket   *bolt.Bucket
 }
+
 
 
 func (cdc *ColumnDataCategoryStatsType) GetDataCategoryBytes() (result []byte, err error) {
@@ -858,15 +859,20 @@ func (cdc *ColumnDataCategoryStatsType) ResetBuckets() {
 	cdc.HashValuesBucket   = nil
 }
 
-func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
+func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCategory []byte) (err error) {
 	funcName := "ColumnDataCategoryStatsType.GetOrCreateBuckets"
 	tracelog.Started(logPackageName, funcName)
 
-	if !cdc.Column == nil {
+	if cdc.Column == nil {
 		err = ColumnInfoNotInitialized
 		return
 	}
-
+	if dataCategory == nil {
+		dataCategory,err = cdc.GetDataCategoryBytes()
+		if err != nil {
+			return
+		}
+	}
 	if cdc.Column.ColumnBucket == nil {
 		err = cdc.Column.GetOrCreateBucket(tx)
 		if err != nil {
@@ -876,8 +882,57 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx) (err erro
 			return
 		}
 	}
+	if cdc.CategoryBucket == nil {
 
+		cdc.CategoryBucket = cdc.Column.ColumnBucket.Bucket(dataCategory)
+		if cdc.CategoryBucket == nil {
+			if tx.Writable() {
+				cdc.CategoryBucket, err = cdc.Column.ColumnBucket.CreateBucket(dataCategory)
+				if err != nil {
+					return
+				}
+			}
+			if cdc.CategoryBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v and category %v. Got empty value", cdc.Column.Id, dataCategory))
+				return
+			} else {
+				log.Println(fmt.Sprintf("Bucket for column id %v and category %v created", cdc.Column.Id, dataCategory))
+			}
+		}
 
+		cdc.BitsetBucket = cdc.CategoryBucket.Bucket(bitsetBucketBytes)
+		if tx.Writable() {
+			cdc.BitsetBucket, err = cdc.CategoryBucket.CreateBucket(bitsetBucketBytes)
+			if err != nil {
+				return
+			}
+		}
+		if cdc.BitsetBucket == nil {
+			return
+		}
+
+		cdc.HashValuesBucket = cdc.CategoryBucket.Bucket(hashValuesBucketBytes)
+		if tx.Writable() {
+			cdc.HashValuesBucket, err = cdc.CategoryBucket.CreateBucket(hashValuesBucketBytes)
+			if err != nil {
+				return
+			}
+		}
+		if cdc.HashValuesBucket == nil {
+			return
+		}
+
+		cdc.HashStatsBucket = cdc.CategoryBucket.Bucket(hashStatsBucketBytes)
+		if tx.Writable() {
+			cdc.HashStatsBucket, err = cdc.CategoryBucket.CreateBucket(hashStatsBucketBytes)
+			if err != nil {
+				return
+			}
+		}
+		if cdc.HashStatsBucket == nil {
+			return
+		}
+	}
 	tracelog.Completed(logPackageName, funcName)
 	return
 
@@ -886,7 +941,7 @@ func (cdc ColumnDataCategoryStatsType) String() (result string){
 	if !cdc.IsNumeric.Value() {
 		result = fmt.Sprintf("char[%v]",cdc.ByteLength.Value())
 	} else {
-		if cdc.IsNegative() {
+		if cdc.IsNegative.Value() {
 			result = "-"
 		} else {
 			result = "+"

@@ -14,6 +14,7 @@ import (
 	"time"
 	"log"
 
+	"github.com/goinggo/tracelog"
 )
 
 var recreate bool = true
@@ -37,6 +38,7 @@ func init() {
 		panic(err)
 	}
 
+	tracelog.Start(tracelog.LevelInfo)
 }
 func main() {
 	start := time.Now()
@@ -57,7 +59,6 @@ func main() {
 			LineSeparator:10,
 		},
 		SubHashByteLengthThreshold: 6,
-		SubHashDumpRowCountThreshold: 100000,
 		TransactionCountLimit:1000*1000,
 		ColumnBucketsCache:utils.New(50),
 
@@ -73,12 +74,12 @@ func main() {
 func loadStorage(da metadata.DataAccessType) {
 	table := scm.NewChannel();
 	TableData := scm.NewChannelSize(1024*100);
-	TableCalculatedData := scm.NewChannelSize(1024*100);
+	//TableCalculatedData := scm.NewChannelSize(1024*100);
 	done := scm.NewChannel();
 
 	go da.ReadTableDumpData(table, TableData);
-	go da.CollectMinMaxStats(TableData, TableCalculatedData)
-	go da.SplitDataToBuckets(TableCalculatedData, done)
+	//go da.CollectMinMaxStats(TableData, TableCalculatedData)
+	go da.SplitDataToBuckets(TableData, done)
 
 
 	err := metadata.H2.CreateDataCategoryTable()
