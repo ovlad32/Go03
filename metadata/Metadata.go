@@ -2,12 +2,18 @@ package metadata
 
 import (
 	jsnull "./../jsnull"
+	utils "./../utils"
 	"database/sql"
 	"errors"
 	"fmt"
 	_ "github.com/lib/pq"
 	//_ "github.com/lxn/go-pgsql"
 	"strings"
+	"github.com/boltdb/bolt"
+	"github.com/goinggo/tracelog"
+	"log"
+	"github.com/constabulary/gb/testdata/src/c"
+	"encoding/binary"
 )
 
 var H2 H2Type
@@ -23,6 +29,18 @@ var (
 	TableIdNotInitialized = errors.New("Table ID is not initialized")
 	ColumnIdNotInitialized = errors.New("Column ID is not initialized")
 )
+
+const logPackageName = "metadata"
+
+
+var tablesLabelBucketBytes = []byte("tables")
+var columnsLabelBucketBytes = []byte("columns")
+
+var bitsetBucketBytes = []byte("bitset")
+var hashValuesBucketBytes = []byte("hashValues")
+
+var hashStatsBucketBytes = []byte("hashStats")
+var hashStatsUnqiueCountBucketBytes = []byte("uniqueCount")
 
 func (h2 *H2Type) InitDb() (idb *sql.DB) {
 	if idb == nil {
@@ -525,7 +543,94 @@ type TableInfoType struct {
 	PathToDataDir jsnull.NullString `json:"path-to-data-dir"`
 	Metadata      *MetadataType
 	Columns       []*ColumnInfoType `json:"columns"`
+	TableLabelBucket *bolt.Bucket
+	TableBucket   *bolt.Bucket
+	ColumnLabelBucket *bolt.Bucket
 }
+
+func (ti *TableInfoType) ResetBuckets() {
+	ti.TableLabelBucket = nil
+	ti.TableBucket = nil
+	ti.ColumnLabelBucket = nil
+	if ti.Columns != nil {
+		for _, col := range ti.Columns{
+			col.ResetBuckets()
+		}
+	}
+}
+func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
+	funcName := "TableInfoType.GetOrCreateBuckets"
+
+	tracelog.Started(logPackageName,funcName)
+	if !ti.Id.Valid() {
+		err = TableIdNotInitialized
+		tracelog.CompletedError(err,logPackageName,funcName)
+		return
+	}
+
+	tableBucketName := utils.Int64ToB8(ti.Id.Value())
+	tablesLabelBucket := tx.Bucket(tablesLabelBucketBytes)
+
+	if tablesLabelBucket == nil {
+		if tx.Writable() {
+			tablesLabelBucket, err = tx.CreateBucket(tablesLabelBucketBytes)
+			if err != nil {
+				return
+			}
+			if tablesLabelBucket == nil {
+				err = errors.New("Could not create predefined buclet \""+string(tablesLabelBucketBytes)+"\". Got empty value")
+				return
+			} else {
+				tracelog.Info(logPackageName,funcName,"Bucket \"tables\" created")
+			}
+		} else {
+			err = errors.New("Predefined bucket \"tables\" does not exist")
+			return
+		}
+	}
+
+	ti.TableLabelBucket = tablesLabelBucket.Bucket(tableBucketName[:])
+	if ti.TableLabelBucket == nil {
+		if tx.Writable() {
+			ti.TableLabelBucket, err = tablesLabelBucket.CreateBucket(tableBucketName[:])
+			if err != nil {
+				return
+			}
+			if ti.TableLabelBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create buclet for table id %v. Got empty value",ti.Id))
+				return
+			} else {
+				log.Println(fmt.Sprintf("Bucket for table id %v created",ti.Id))
+			}
+		} else {
+			//			err = errors.New(fmt.Sprintf("Bucket for table id %v does not exist",table.Id))
+			return
+		}
+	}
+
+	ti.ColumnLabelBucket = ti.TableBucket.Bucket(columnsLabelBucketBytes)
+	if ti.ColumnLabelBucket == nil {
+		if tx.Writable() {
+			ti.ColumnLabelBucket, err = ti.TableBucket.CreateBucket(columnsLabelBucketBytes)
+			if err != nil {
+				return
+			}
+			if ti.ColumnLabelBucket == nil {
+				err = errors.New("Could not create predefined buclet \"columns\". Got empty value")
+				return
+			} else {
+				log.Println("Bucket \"columns\" created")
+			}
+		} else {
+			err = errors.New(fmt.Sprintf("Predefined bucket \"columns\" does not exist for table id %v ",ti.Id))
+			return
+		}
+	}
+	tracelog.Completed(logPackageName,funcName)
+	return
+}
+
+
 
 type ColumnInfoType struct {
 	Id              jsnull.NullInt64  `json:"column-id"`
@@ -555,7 +660,102 @@ type ColumnInfoType struct {
 	TableInfo       *TableInfoType
 	DataCategories  []*ColumnDataCategoryStatsType
 	NumericCount    jsnull.NullInt64
+	ColumnBucket    *bolt.Bucket
 }
+func (ci *ColumnInfoType) ResetBuckets() {
+	ci.ColumnBucket = nil
+	if ci.DataCategories != nil {
+		for _, dc := range ci.DataCategories{
+			dc.ResetBuckets()
+		}
+	}
+}
+
+func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
+	funcName := "ColumnInfoType.GetOrCreateBuckets"
+	tracelog.Started(logPackageName,funcName)
+
+	if !ci.Id.Valid() {
+		err = ColumnIdNotInitialized
+		return
+	}
+	if ci.TableInfo == nil {
+		err = TableInfoNotInitialized
+		return
+	}
+	if ci.TableInfo.TableBucket == nil {
+		err = ci.TableInfo.GetOrCreateBuckets(tx)
+		if err != nil {
+			return
+		}
+		if ci.TableInfo.TableBucket == nil {
+			return
+		}
+		if ci.TableInfo.ColumnLabelBucket == nil {
+			return
+		}
+	}
+
+	columnBucketName := utils.Int64ToB8(ci.Id.Value())
+
+	ci.ColumnBucket = ci.TableInfo.ColumnLabelBucket.Bucket(columnBucketName[:])
+	if ci.ColumnBucket == nil {
+		if tx.Writable() {
+			ci.ColumnBucket, err = ci.TableInfo.ColumnLabelBucket.CreateBucket(columnBucketName[:])
+			if err != nil {
+				return
+			}
+		}
+		if ci.ColumnBucket == nil {
+			err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value", ci.Id))
+			return
+		} else {
+			log.Println(fmt.Sprintf("Bucket for column id %v created", ci.Id))
+		}
+	}
+	tracelog.Completed(logPackageName,funcName)
+	return
+}
+
+func (ci ColumnInfoType) FindDataCategory(
+		byteLength int16,
+		isNumeric bool,
+		isNegative bool,
+		fpScale int8,
+		isSubHash bool,
+		subHash int8,
+	) (result *ColumnDataCategoryStatsType){
+
+	if ci.DataCategories == nil {
+		return nil
+	}
+	for _,cdc := range ci.DataCategories {
+		if byteLength == int16(cdc.ByteLength.Value()) {
+			if !isNumeric && isNumeric == cdc.IsNumeric.Value() {
+				if !isSubHash && isSubHash == cdc.IsSubHash.Value(){
+					return cdc
+				} else if isSubHash == cdc.IsSubHash.Value() &&
+					subHash == int8(cdc.SubHash.Value()) {
+					return cdc
+				}
+			} else if isNumeric == cdc.IsNumeric.Value() {
+				if isNegative == cdc.IsNegative.Value() &&
+					fpScale == int8(cdc.FloatingPointScale.Value()) {
+					if !isSubHash && isSubHash == cdc.IsSubHash.Value(){
+						return cdc
+					} else if isSubHash == cdc.IsSubHash.Value() &&
+							subHash == int8(cdc.SubHash.Value()) {
+						return cdc
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+
+
 
 //	MinStringLength jsnull.NullInt64
 //	MaxStringLength jsnull.NullInt64
@@ -572,6 +772,178 @@ type ColumnDataCategoryStatsType struct {
 	MaxStringValue     jsnull.NullString `json:"max-string-value"`
 	MinNumericValue    jsnull.NullFloat64
 	MaxNumericValue    jsnull.NullFloat64
+	IsSubHash          jsnull.NullBool
+	SubHash            jsnull.NullInt64
+	CategoryBucket     *bolt.Bucket
+	BitsetBucket       *bolt.Bucket
+	HashStatsBucket    *bolt.Bucket
+	HashValuesBucket   *bolt.Bucket
+}
+
+
+func (cdc *ColumnDataCategoryStatsType) GetDataCategoryBytes() (result []byte, err error) {
+	funcName := "ColumnDataCategoryStatsType.GetDataCategoryBytes"
+	tracelog.Started(logPackageName,funcName)
+
+	result = make([]byte, 3, 5)
+
+	if !cdc.IsNumeric.Valid() {
+		err = errors.New("IsNumeric not initialized!")
+		tracelog.Error(err,logPackageName,funcName)
+		return
+	} else {
+		if !cdc.FloatingPointScale.Valid() {
+			err = errors.New("FloatingPointScale not initialized!")
+			tracelog.Error(err,logPackageName,funcName)
+			return
+		}
+
+		if !cdc.IsNegative.Valid() {
+			err = errors.New("IsNegative not initialized!")
+			tracelog.Error(err,logPackageName,funcName)
+			return
+		}
+	}
+
+
+	if !cdc.IsSubHash.Valid() {
+		err = errors.New("IsSubHash not initialized!")
+		tracelog.Error(err,logPackageName,funcName)
+		return
+	} else if !cdc.SubHash.Valid() {
+		err = errors.New("SubHash not initialized!")
+		tracelog.Error(err, logPackageName, funcName)
+		return
+	}
+
+
+
+
+	if cdc.IsNumeric.Value() {
+		result[0] = (1 << 2)
+		if cdc.FloatingPointScale.Value() != -1 {
+			if cdc.IsNegative.Value() {
+				result[0] = result[0] | (1 << 0)
+			}
+		} else {
+			result[0] = result[0] | (1 << 1)
+			if cdc.IsNegative.Value() {
+				result[0] = result[0] | (1 << 0)
+			}
+		}
+	}
+
+	binary.LittleEndian.PutUint16(result[1:], uint16(cdc.ByteLength.Value()))
+	if cdc.IsNumeric.Value() {
+		if cdc.FloatingPointScale.Value() != -1 {
+			result = append(
+				result,
+				byte(cdc.FloatingPointScale.Value()),
+			)
+		}
+	}
+	if cdc.IsSubHash.Value() {
+		result = append(
+		result,
+		byte(cdc.SubHash.Value()),
+		)
+	}
+	return
+}
+
+func (cdc *ColumnDataCategoryStatsType) ResetBuckets() {
+	cdc.CategoryBucket     = nil
+	cdc.BitsetBucket       = nil
+	cdc.HashStatsBucket    = nil
+	cdc.HashValuesBucket   = nil
+}
+
+func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
+	funcName := "ColumnDataCategoryStatsType.GetOrCreateBuckets"
+	tracelog.Started(logPackageName, funcName)
+
+	if !cdc.Column == nil {
+		err = ColumnInfoNotInitialized
+		return
+	}
+
+	if cdc.Column.ColumnBucket == nil {
+		err = cdc.Column.GetOrCreateBucket(tx)
+		if err != nil {
+			return
+		}
+		if cdc.Column.ColumnBucket == nil {
+			return
+		}
+	}
+
+
+	tracelog.Completed(logPackageName, funcName)
+	return
+
+}
+func (cdc ColumnDataCategoryStatsType) String() (result string){
+	if !cdc.IsNumeric.Value() {
+		result = fmt.Sprintf("char[%v]",cdc.ByteLength.Value())
+	} else {
+		if cdc.IsNegative() {
+			result = "-"
+		} else {
+			result = "+"
+		}
+		if cdc.FloatingPointScale.Value() != 0 {
+			result = fmt.Sprintf("%vF[%v,%v]",
+				result,
+				cdc.ByteLength,
+				cdc.FloatingPointScale.Value(),
+			)
+		} else {
+			result = fmt.Sprintf("%vI[%v]",
+				result,
+				cdc.ByteLength,
+			)
+		}
+	}
+	if cdc.IsSubHash.Value(){
+		result = fmt.Sprintf("%v(%v)",result,cdc.SubHash.Value())
+	}
+	return
+}
+
+func ColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
+	kLen := len(k)
+	err = errors.New(fmt.Sprintf("Can not explan category for chain of bytes %v. Too short.",k))
+
+	result = &ColumnDataCategoryStatsType{}
+
+	result.ByteLength = jsnull.NewNullInt64(
+		int64(binary.LittleEndian.Uint16(k[1:2])),
+	)
+
+	result.IsNumeric = jsnull.NewNullBool(k[0] == 0)
+	if !result.IsNumeric.Value() {
+		result.IsSubHash = jsnull.NewNullBool(kLen > 3)
+		if  result.IsSubHash.Value() {
+			result.SubHash = jsnull.NewNullInt64(int64(k[3]))
+		}
+	} else {
+		result.IsNegative = jsnull.NewNullBool( ((k[0]>>0)&0x01) > 0)
+		isFp := (k[0]>>1) & 0x01 == 0
+		if isFp {
+			result.FloatingPointScale = jsnull.NewNullInt64(int64(k[3]))
+			result.IsSubHash = jsnull.NewNullBool(kLen>4)
+			if result.IsSubHash.Value() {
+				result.SubHash = jsnull.NewNullInt64(int64(k[4]))
+			}
+		} else {
+			result.FloatingPointScale = jsnull.NewNullInt64(int64(0))
+			result.IsSubHash = jsnull.NewNullBool(kLen>3)
+			if result.IsSubHash.Value() {
+				result.SubHash = jsnull.NewNullInt64(int64(k[3]))
+			}
+		}
+	}
+	return
 }
 
 func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
