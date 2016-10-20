@@ -11,7 +11,6 @@ import (
 	"strings"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
-	"log"
 	"encoding/binary"
 )
 
@@ -29,7 +28,7 @@ var (
 	ColumnIdNotInitialized = errors.New("Column ID is not initialized")
 )
 
-const logPackageName = "metadata"
+const packageName = "metadata"
 
 
 var tablesLabelBucketBytes = []byte("tables")
@@ -561,10 +560,10 @@ func (ti *TableInfoType) ResetBuckets() {
 func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 	funcName := "TableInfoType.GetOrCreateBuckets"
 
-	tracelog.Started(logPackageName,funcName)
+	tracelog.Started(packageName,funcName)
 	if !ti.Id.Valid() {
 		err = TableIdNotInitialized
-		tracelog.CompletedError(err,logPackageName,funcName)
+		tracelog.CompletedError(err, packageName,funcName)
 		return
 	}
 
@@ -579,9 +578,10 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 			}
 			if tablesLabelBucket == nil {
 				err = errors.New("Could not create predefined buclet \""+string(tablesLabelBucketBytes)+"\". Got empty value")
+				tracelog.Error(err,packageName,funcName)
 				return
 			} else {
-				tracelog.Info(logPackageName,funcName,"Bucket \"tables\" created")
+				tracelog.Info(packageName,funcName,"Bucket \"tables\" created")
 			}
 		} else {
 			err = errors.New("Predefined bucket \"tables\" does not exist")
@@ -598,9 +598,11 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 			}
 			if ti.TableBucket == nil {
 				err = errors.New(fmt.Sprintf("Could not create bucket for table id %v. Got empty value",ti.Id))
+				tracelog.Error(err,packageName,funcName)
 				return
 			} else {
-				log.Println(fmt.Sprintf("Bucket for table id %v created",ti.Id))
+				tracelog.Info(packageName,funcName,"Bucket for table id %v created",ti.Id)
+
 			}
 		} else {
 			//			err = errors.New(fmt.Sprintf("Bucket for table id %v does not exist",table.Id))
@@ -617,16 +619,18 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 			}
 			if ti.ColumnLabelBucket == nil {
 				err = errors.New("Could not create predefined buclet \"columns\". Got empty value")
+				tracelog.Error(err,packageName,funcName)
 				return
 			} else {
-				log.Println("Bucket \"columns\" created")
+				tracelog.Info(packageName,funcName,"Bucket \"columns\" created",nil)
 			}
 		} else {
 			err = errors.New(fmt.Sprintf("Predefined bucket \"columns\" does not exist for table id %v ",ti.Id))
+			tracelog.Error(err,packageName,funcName)
 			return
 		}
 	}
-	tracelog.Completed(logPackageName,funcName)
+	tracelog.Completed(packageName,funcName)
 	return
 }
 
@@ -672,7 +676,7 @@ func (ci *ColumnInfoType) ResetBuckets() {
 
 func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	funcName := "ColumnInfoType.GetOrCreateBuckets"
-	tracelog.Started(logPackageName,funcName)
+	tracelog.Started(packageName,funcName)
 
 	if !ci.Id.Valid() {
 		err = ColumnIdNotInitialized
@@ -685,6 +689,7 @@ func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	if ci.TableInfo.TableBucket == nil {
 		err = ci.TableInfo.GetOrCreateBuckets(tx)
 		if err != nil {
+			tracelog.Error(err,packageName,funcName)
 			return
 		}
 		if ci.TableInfo.TableBucket == nil {
@@ -695,24 +700,26 @@ func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 		}
 	}
 
-	columnBucketName := utils.Int64ToB8(ci.Id.Value())
+	columnBucketIdBytes := utils.Int64ToB8(ci.Id.Value())
 
-	ci.ColumnBucket = ci.TableInfo.ColumnLabelBucket.Bucket(columnBucketName[:])
+	ci.ColumnBucket = ci.TableInfo.ColumnLabelBucket.Bucket(columnBucketIdBytes[:])
 	if ci.ColumnBucket == nil {
 		if tx.Writable() {
-			ci.ColumnBucket, err = ci.TableInfo.ColumnLabelBucket.CreateBucket(columnBucketName[:])
+			ci.ColumnBucket, err = ci.TableInfo.ColumnLabelBucket.CreateBucket(columnBucketIdBytes[:])
 			if err != nil {
+				tracelog.Error(err,packageName,funcName)
 				return
 			}
 		}
 		if ci.ColumnBucket == nil {
 			err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value", ci.Id))
+			tracelog.Error(err,packageName,funcName)
 			return
 		} else {
-			log.Println(fmt.Sprintf("Bucket for column id %v created", ci.Id))
+			tracelog.Info(packageName,funcName,"Bucket for column id %v created", ci.Id)
 		}
 	}
-	tracelog.Completed(logPackageName,funcName)
+	tracelog.Completed(packageName,funcName)
 	return
 }
 
@@ -782,26 +789,26 @@ type ColumnDataCategoryStatsType struct {
 
 
 
-func (cdc *ColumnDataCategoryStatsType) GetDataCategoryBytes() (result []byte, err error) {
+func (cdc *ColumnDataCategoryStatsType) DataCategoryBytes() (result []byte, err error) {
 	funcName := "ColumnDataCategoryStatsType.GetDataCategoryBytes"
-	tracelog.Started(logPackageName,funcName)
+	tracelog.Started(packageName,funcName)
 
 	result = make([]byte, 3, 5)
 
 	if !cdc.IsNumeric.Valid() {
 		err = errors.New("IsNumeric not initialized!")
-		tracelog.Error(err,logPackageName,funcName)
+		tracelog.Error(err, packageName,funcName)
 		return
 	} else {
 		if !cdc.FloatingPointScale.Valid() {
 			err = errors.New("FloatingPointScale not initialized!")
-			tracelog.Error(err,logPackageName,funcName)
+			tracelog.Error(err, packageName,funcName)
 			return
 		}
 
 		if !cdc.IsNegative.Valid() {
 			err = errors.New("IsNegative not initialized!")
-			tracelog.Error(err,logPackageName,funcName)
+			tracelog.Error(err, packageName,funcName)
 			return
 		}
 	}
@@ -809,11 +816,11 @@ func (cdc *ColumnDataCategoryStatsType) GetDataCategoryBytes() (result []byte, e
 
 	if !cdc.IsSubHash.Valid() {
 		err = errors.New("IsSubHash not initialized!")
-		tracelog.Error(err,logPackageName,funcName)
+		tracelog.Error(err, packageName,funcName)
 		return
 	} else if !cdc.SubHash.Valid() {
 		err = errors.New("SubHash not initialized!")
-		tracelog.Error(err, logPackageName, funcName)
+		tracelog.Error(err, packageName, funcName)
 		return
 	}
 
@@ -859,17 +866,18 @@ func (cdc *ColumnDataCategoryStatsType) ResetBuckets() {
 	cdc.HashValuesBucket   = nil
 }
 
-func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCategory []byte) (err error) {
+func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCategoryBytes []byte) (err error) {
 	funcName := "ColumnDataCategoryStatsType.GetOrCreateBuckets"
-	tracelog.Started(logPackageName, funcName)
+	tracelog.Started(packageName, funcName)
 
 	if cdc.Column == nil {
 		err = ColumnInfoNotInitialized
 		return
 	}
-	if dataCategory == nil {
-		dataCategory,err = cdc.GetDataCategoryBytes()
+	if dataCategoryBytes == nil {
+		dataCategoryBytes,err = cdc.DataCategoryBytes()
 		if err != nil {
+			tracelog.Error(err,packageName,funcName)
 			return
 		}
 	}
@@ -884,56 +892,67 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCateg
 	}
 	if cdc.CategoryBucket == nil {
 
-		cdc.CategoryBucket = cdc.Column.ColumnBucket.Bucket(dataCategory)
+		cdc.CategoryBucket = cdc.Column.ColumnBucket.Bucket(dataCategoryBytes)
 		if cdc.CategoryBucket == nil {
 			if tx.Writable() {
-				cdc.CategoryBucket, err = cdc.Column.ColumnBucket.CreateBucket(dataCategory)
+				cdc.CategoryBucket, err = cdc.Column.ColumnBucket.CreateBucket(dataCategoryBytes)
 				if err != nil {
+					tracelog.Error(err,packageName,funcName)
 					return
 				}
 			}
 			if cdc.CategoryBucket == nil {
-				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v and category %v. Got empty value", cdc.Column.Id, dataCategory))
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v and category %v. Got empty value", cdc.Column.Id, dataCategoryBytes))
+				tracelog.Error(err,packageName,funcName)
 				return
 			} else {
-				log.Println(fmt.Sprintf("Bucket for column id %v and category %v created", cdc.Column.Id, dataCategory))
+				tracelog.Info(packageName,funcName,"Bucket for column id %v and category %v created", cdc.Column.Id, dataCategoryBytes)
 			}
 		}
 
 		cdc.BitsetBucket = cdc.CategoryBucket.Bucket(bitsetBucketBytes)
-		if tx.Writable() {
-			cdc.BitsetBucket, err = cdc.CategoryBucket.CreateBucket(bitsetBucketBytes)
-			if err != nil {
+		if cdc.BitsetBucket == nil {
+			if tx.Writable() {
+				cdc.BitsetBucket, err = cdc.CategoryBucket.CreateBucket(bitsetBucketBytes)
+				if err != nil {
+					tracelog.Error(err,packageName,funcName)
+					return
+				}
+			}
+			if cdc.BitsetBucket == nil {
 				return
 			}
-		}
-		if cdc.BitsetBucket == nil {
-			return
-		}
+			}
 
 		cdc.HashValuesBucket = cdc.CategoryBucket.Bucket(hashValuesBucketBytes)
-		if tx.Writable() {
-			cdc.HashValuesBucket, err = cdc.CategoryBucket.CreateBucket(hashValuesBucketBytes)
-			if err != nil {
+		if cdc.HashValuesBucket == nil {
+			if tx.Writable() {
+				cdc.HashValuesBucket, err = cdc.CategoryBucket.CreateBucket(hashValuesBucketBytes)
+				if err != nil {
+					tracelog.Error(err, packageName, funcName)
+					return
+				}
+			}
+			if cdc.HashValuesBucket == nil {
 				return
 			}
-		}
-		if cdc.HashValuesBucket == nil {
-			return
 		}
 
 		cdc.HashStatsBucket = cdc.CategoryBucket.Bucket(hashStatsBucketBytes)
-		if tx.Writable() {
-			cdc.HashStatsBucket, err = cdc.CategoryBucket.CreateBucket(hashStatsBucketBytes)
-			if err != nil {
+		if cdc.HashStatsBucket == nil {
+			if tx.Writable() {
+				cdc.HashStatsBucket, err = cdc.CategoryBucket.CreateBucket(hashStatsBucketBytes)
+				if err != nil {
+					tracelog.Error(err, packageName, funcName)
+					return
+				}
+			}
+			if cdc.HashStatsBucket == nil {
 				return
 			}
 		}
-		if cdc.HashStatsBucket == nil {
-			return
-		}
 	}
-	tracelog.Completed(logPackageName, funcName)
+	tracelog.Completed(packageName, funcName)
 	return
 
 }

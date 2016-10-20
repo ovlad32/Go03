@@ -17,6 +17,7 @@ import (
 	"strings"
 	"errors"
 	"log"
+	"github.com/goinggo/tracelog"
 )
 
 const hashLength = 8
@@ -314,7 +315,7 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 					out <- scm.NewMessage().Put(source)
 				}
 				out <- scm.NewMessage().Put(
-					  columnDataType{
+					  &columnDataType{
 						column:     source.Columns[columnIndex],
 						bValue:     lineColumns[columnIndex],
 						lineNumber: lineNumber,
@@ -338,171 +339,169 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 		switch val := raw.Get().(type) {
 		case TableInfoType:
 			out <- raw
-		case columnDataType:
-			{
-				column := val.column
+		case (*columnDataType):
+			column := val.column
+			byteLength := len(val.bValue)
+			if byteLength == 0 {
+				if !column.NullCount.Valid() {
+					column.NullCount = jsnull.NewNullInt64(1)
+				} else {
+					(*column.NullCount.Reference())++
+				}
+				continue
+			}
 
-				byteLength := len(val.bValue)
-				if byteLength == 0 {
-					if !column.NullCount.Valid() {
-						column.NullCount = jsnull.NewNullInt64(1)
-					} else {
-						(*column.NullCount.Reference())++
+			sValue := string(val.bValue)
+			var err error
+			var nValue     float64
+			var fpScale    int
+			var isNegative bool
+
+			isSubHash := byteLength > da.SubHashByteLengthThreshold
+			//nValue, err = strconv.ParseFloat(sValue, 64)
+			nValue =float64(0)
+			isNumeric := err == nil
+
+			if isNumeric {
+				var lengthChanged bool
+				if strings.Index(sValue, ".") != -1 {
+					trimmedValue := strings.TrimRight(sValue, "0")
+					lengthChanged = len(sValue) != len(trimmedValue)
+					if lengthChanged {
+						sValue = trimmedValue
 					}
+					fpScale = len(sValue) - (strings.Index(sValue, ".") + 1)
+					isSubHash = false
+				} else {
+					fpScale = -1
+				}
+
+				isNegative = strings.HasPrefix(sValue, "-")
+				(*column.NumericCount.Reference())++
+				if !column.MaxNumericValue.Valid() {
+					column.MaxNumericValue = jsnull.NewNullFloat64(nValue)
+				} else if column.MaxNumericValue.Value() < nValue {
+					(*column.MaxNumericValue.Reference()) = nValue
+				}
+
+				if !column.MinNumericValue.Valid() {
+					column.MinNumericValue = jsnull.NewNullFloat64(nValue)
+				} else if column.MinNumericValue.Value() > nValue {
+					(*column.MinNumericValue.Reference()) = nValue
+				}
+				if fpScale != -1 && lengthChanged {
+					sValue = strings.TrimRight(fmt.Sprintf("%f", nValue), "0")
+					val.bValue = []byte(sValue)
+					byteLength = len(val.bValue)
+				}
+			}
+			bSubHash := uint8(0)
+			if isSubHash {
+
+				for _,bChar := range val.bValue{
+					if bChar>0 {
+						bSubHash = ((uint8(37) * bSubHash) + uint8(bChar)) & 0xff;
+					}
+				}
+			}
+				/*bSum = 0
+				for _,bChar := range val.bValue{
+					if bChar>0 {
+						res := fStatsMean - float64(bChar)
+						bSum = bSum + res*res
+					}
+				}
+				val.bStatsStdv = uint8(math.Sqrt(bSum))
+				*/
+
+
+			if !column.MaxStringValue.Valid() || column.MaxStringValue.Value() < sValue {
+				column.MaxStringValue = jsnull.NewNullString(sValue)
+			}
+			if !column.MinStringValue.Valid() || column.MinStringValue.Value() > sValue {
+				column.MinStringValue = jsnull.NewNullString(sValue)
+			}
+
+			lValue := int64(len(sValue))
+			if !column.MaxStringLength.Valid() {
+				column.MaxStringLength = jsnull.NewNullInt64(lValue)
+			} else if column.MaxStringLength.Value() < lValue {
+				(*column.MaxStringLength.Reference()) = lValue
+
+			}
+			if !column.MinStringLength.Valid() {
+				column.MinStringLength = jsnull.NewNullInt64(lValue)
+			} else if column.MinStringLength.Value() > lValue {
+				(*column.MinStringLength.Reference()) = lValue
+
+			}
+
+			/*var found *ColumnDataCategoryStatsType
+			for _, category := range column.DataCategories {
+				if category.ByteLength.Value() != int64(byteLength) {
 					continue
 				}
-
-				sValue := string(val.bValue)
-				var err error
-				var nValue     float64
-				var fpScale    int
-				var isNegative bool
-
-				isSubHash := byteLength > da.SubHashByteLengthThreshold
-				//nValue, err = strconv.ParseFloat(sValue, 64)
-				nValue =float64(0)
-				isNumeric := err == nil
-
-				if isNumeric {
-					var lengthChanged bool
-					if strings.Index(sValue, ".") != -1 {
-						trimmedValue := strings.TrimRight(sValue, "0")
-						lengthChanged = len(sValue) != len(trimmedValue)
-						if lengthChanged {
-							sValue = trimmedValue
-						}
-						fpScale = len(sValue) - (strings.Index(sValue, ".") + 1)
-						isSubHash = false
-					} else {
-						fpScale = -1
-					}
-
-					isNegative = strings.HasPrefix(sValue, "-")
-					(*column.NumericCount.Reference())++
-					if !column.MaxNumericValue.Valid() {
-						column.MaxNumericValue = jsnull.NewNullFloat64(nValue)
-					} else if column.MaxNumericValue.Value() < nValue {
-						(*column.MaxNumericValue.Reference()) = nValue
-					}
-
-					if !column.MinNumericValue.Valid() {
-						column.MinNumericValue = jsnull.NewNullFloat64(nValue)
-					} else if column.MinNumericValue.Value() > nValue {
-						(*column.MinNumericValue.Reference()) = nValue
-					}
-					if fpScale != -1 && lengthChanged {
-						sValue = strings.TrimRight(fmt.Sprintf("%f", nValue), "0")
-						val.bValue = []byte(sValue)
-						byteLength = len(val.bValue)
-					}
+				if !category.IsNumeric.Value() && !val.isNumeric {
+					found = category
+					break
 				}
-				bSubHash := uint8(0)
-				if isSubHash {
-
-					for _,bChar := range val.bValue{
-						if bChar>0 {
-							bSubHash = ((uint8(37) * bSubHash) + uint8(bChar)) & 0xff;
-						}
-					}
+				if category.IsNumeric.Value() == val.isNumeric &&
+					int8(category.FloatingPointScale.Value()) == val.fpScale &&
+					category.IsNegative.Value() == val.isNegative {
+					found = category
+					break
 				}
-					/*bSum = 0
-					for _,bChar := range val.bValue{
-						if bChar>0 {
-							res := fStatsMean - float64(bChar)
-							bSum = bSum + res*res
-						}
-					}
-					val.bStatsStdv = uint8(math.Sqrt(bSum))
-					*/
-
-
-				if !column.MaxStringValue.Valid() || column.MaxStringValue.Value() < sValue {
-					column.MaxStringValue = jsnull.NewNullString(sValue)
+			}*/
+			found := val.column.FindDataCategory(
+				uint16(byteLength),
+				isNumeric,
+				isNegative,
+				int8(fpScale),
+				isSubHash,
+				bSubHash,
+			)
+			if found == nil {
+				found = &ColumnDataCategoryStatsType{
+					Column:             val.column,
+					ByteLength:         jsnull.NewNullInt64(int64(byteLength)),
+					IsNumeric:          jsnull.NewNullBool(isNumeric),
+					FloatingPointScale: jsnull.NewNullInt64(int64(fpScale)),
+					IsNegative:         jsnull.NewNullBool(isNegative),
+					NonNullCount:       jsnull.NewNullInt64(int64(0)),
+					HashUniqueCount:    jsnull.NewNullInt64(int64(0)),
+					IsSubHash:jsnull.NewNullBool(isSubHash),
+					SubHash:jsnull.NewNullInt64(int64(bSubHash)),
 				}
-				if !column.MinStringValue.Valid() || column.MinStringValue.Value() > sValue {
-					column.MinStringValue = jsnull.NewNullString(sValue)
+				if column.DataCategories == nil {
+					column.DataCategories = make([]*ColumnDataCategoryStatsType, 0, 2)
 				}
-
-				lValue := int64(len(sValue))
-				if !column.MaxStringLength.Valid() {
-					column.MaxStringLength = jsnull.NewNullInt64(lValue)
-				} else if column.MaxStringLength.Value() < lValue {
-					(*column.MaxStringLength.Reference()) = lValue
-
-				}
-				if !column.MinStringLength.Valid() {
-					column.MinStringLength = jsnull.NewNullInt64(lValue)
-				} else if column.MinStringLength.Value() > lValue {
-					(*column.MinStringLength.Reference()) = lValue
-
-				}
-
-				/*var found *ColumnDataCategoryStatsType
-				for _, category := range column.DataCategories {
-					if category.ByteLength.Value() != int64(byteLength) {
-						continue
-					}
-					if !category.IsNumeric.Value() && !val.isNumeric {
-						found = category
-						break
-					}
-					if category.IsNumeric.Value() == val.isNumeric &&
-						int8(category.FloatingPointScale.Value()) == val.fpScale &&
-						category.IsNegative.Value() == val.isNegative {
-						found = category
-						break
-					}
-				}*/
-				found := val.column.FindDataCategory(
-					uint16(byteLength),
-					isNumeric,
-					isNegative,
-					int8(fpScale),
-					isSubHash,
-					bSubHash,
-				)
-				if found == nil {
-					found = &ColumnDataCategoryStatsType{
-						Column:             val.column,
-						ByteLength:         jsnull.NewNullInt64(int64(byteLength)),
-						IsNumeric:          jsnull.NewNullBool(isNumeric),
-						FloatingPointScale: jsnull.NewNullInt64(int64(fpScale)),
-						IsNegative:         jsnull.NewNullBool(isNegative),
-						NonNullCount:       jsnull.NewNullInt64(int64(0)),
-						HashUniqueCount:    jsnull.NewNullInt64(int64(0)),
-						IsSubHash:jsnull.NewNullBool(isSubHash),
-						SubHash:jsnull.NewNullInt64(int64(bSubHash)),
-					}
-					if column.DataCategories == nil {
-						column.DataCategories = make([]*ColumnDataCategoryStatsType, 0, 2)
-					}
-					column.DataCategories = append(column.DataCategories, found)
-				}
-				val.dataCategory = found
-				(*found.NonNullCount.Reference())++
-				if found.MaxStringValue.Value() < sValue || !found.MaxStringValue.Valid() {
-					found.MaxStringValue = jsnull.NewNullString(sValue)
-				}
-
-				if found.MinStringValue.Value() > sValue || !found.MinStringValue.Valid() {
-					found.MinStringValue = jsnull.NewNullString(sValue)
-				}
-
-				if found.IsNumeric.Value() {
-					if !found.MaxNumericValue.Valid() {
-						found.MaxNumericValue = jsnull.NewNullFloat64(nValue)
-
-					} else if found.MaxNumericValue.Value() < nValue {
-						(*found.MaxNumericValue.Reference()) = nValue
-					}
-					if !column.MinNumericValue.Valid() {
-						found.MinNumericValue = jsnull.NewNullFloat64(nValue)
-					} else if column.MinNumericValue.Value() > nValue {
-						(*found.MinNumericValue.Reference()) = nValue
-					}
-				}
-				out <- scm.NewMessage().Put(val)
+				column.DataCategories = append(column.DataCategories, found)
 			}
+			val.dataCategory = found
+			(*found.NonNullCount.Reference())++
+
+			if found.MaxStringValue.Value() < sValue || !found.MaxStringValue.Valid() {
+				found.MaxStringValue = jsnull.NewNullString(sValue)
+			}
+
+			if found.MinStringValue.Value() > sValue || !found.MinStringValue.Valid() {
+				found.MinStringValue = jsnull.NewNullString(sValue)
+			}
+
+			if found.IsNumeric.Value() {
+				if !found.MaxNumericValue.Valid() {
+					found.MaxNumericValue = jsnull.NewNullFloat64(nValue)
+
+				} else if found.MaxNumericValue.Value() < nValue {
+					(*found.MaxNumericValue.Reference()) = nValue
+				}
+				if !column.MinNumericValue.Valid() {
+					found.MinNumericValue = jsnull.NewNullFloat64(nValue)
+				} else if column.MinNumericValue.Value() > nValue {
+					(*found.MinNumericValue.Reference()) = nValue
+				}
+			}
+			out <- scm.NewMessage().Put(val)
 		}
 	}
 	close(out)
@@ -527,15 +526,13 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
 
 
 func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelType) {
+	funcName := "DataAccess.SplitDataToBuckets"
+
 	//var currentTable *TableInfoType;
 	var transactionCount uint64 = 0
 	//	var emptyValue []byte = make([]byte, 0)
 	hasher := fnv.New64()
 	var storageTx *bolt.Tx = nil
-
-
-
-
 	for raw := range in {
 		switch val := raw.Get().(type) {
 		case TableInfoType:
@@ -543,8 +540,7 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 				//		makeColumnBuckets()
 			}
 			currentTable = &val;*/
-		case columnDataType:
-			return
+		case (*columnDataType):
 			var hashUIntValue uint64
 			bLen := uint16(len(val.bValue))
 			var hValue []byte
@@ -657,14 +653,13 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 			)
 			transactionCount++
 			if transactionCount >= da.TransactionCountLimit {
-				log.Println("commit... ")
+				tracelog.Info(packageName,funcName,"Сommit %v txs",transactionCount)
 				err = storageTx.Commit()
 				if err != nil {
 					panic(err)
 				}
 				storageTx = nil
 				transactionCount = 0
-				log.Println("Clear buckets cache...")
 				val.column.TableInfo.ResetBuckets()
 			}
 		}
