@@ -3,6 +3,7 @@ package metadata
 import (
 	jsnull "./../jsnull"
 	utils "./../utils"
+	scm "./../scm"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"encoding/binary"
+	"os"
 )
 
 var H2 H2Type
@@ -663,6 +665,8 @@ type ColumnInfoType struct {
 	TableInfo       *TableInfoType
 	DataCategories  []*ColumnDataCategoryStatsType
 	NumericCount    jsnull.NullInt64
+	BinDataPipe     scm.ChannelType
+	HashStorage     *bolt.DB
 	ColumnBucket    *bolt.Bucket
 }
 func (ci *ColumnInfoType) ResetBuckets() {
@@ -673,6 +677,59 @@ func (ci *ColumnInfoType) ResetBuckets() {
 		}
 	}
 }
+func (ci *ColumnInfoType) Buckets(writable bool) (err error) {
+	funcName := "ColumnInfoType.Buckets"
+	if !ci.Id.Valid() {
+		err = ColumnIdNotInitialized
+		return
+	}
+	if ci.TableInfo == nil {
+		err = TableInfoNotInitialized
+		return
+	}
+	if HashStorage == nil {
+		path:= fmt.Sprintf("./%v",ci.TableInfo.PathToDataDir.Value())
+		_ = os.MkdirAll(path,0)
+		file := fmt.Sprintf("%v/%v.boltdb",path,ci.Id.Value())
+		HashStorage, err = bolt.Open(
+			file,
+			0600,
+			nil,
+		)
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return
+		}
+	}
+	tx, err := HashStorage.Begin(writable)
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
+	columnBucketIdBytes := utils.Int64ToB8(ci.Id.Value())
+
+	ci.ColumnBucket = tx.Bucket(columnBucketIdBytes[:])
+	if ci.ColumnBucket == nil {
+		if tx.Writable() {
+			ci.ColumnBucket, err = tx.CreateBucket(columnBucketIdBytes[:])
+			if err != nil {
+				tracelog.Error(err,packageName,funcName)
+				return
+			}
+		}
+		if ci.ColumnBucket == nil {
+			err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value", ci.Id))
+			tracelog.Error(err,packageName,funcName)
+			return
+		} else {
+			tracelog.Info(packageName,funcName,"Bucket for column id %v created", ci.Id)
+		}
+	}
+	tracelog.Completed(packageName,funcName)
+	return
+}
+
 
 func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	funcName := "ColumnInfoType.GetOrCreateBuckets"
