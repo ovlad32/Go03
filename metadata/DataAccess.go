@@ -18,6 +18,7 @@ import (
 	"errors"
 	"log"
 	"github.com/goinggo/tracelog"
+	"sync"
 )
 
 const hashLength = 8
@@ -139,7 +140,7 @@ func ReportHashStorageContents() {
 	reportCategories := func (b *bolt.Bucket,totalHashes,totalLines *uint64) {
 		b.ForEach(func(k,v []byte) error {
 			categoryBucket := b.Bucket(k)
-			hashes,_ := utils.B8ToUInt64(categoryBucket.Bucket(hashStatsBucketBytes).Get(hashStatsUnqiueCountBucketBytes))
+			hashes,_ := utils.B8ToUInt64(categoryBucket.Bucket(statsBucketBytes).Get(hashStatsUnqiueCountBucketBytes))
 			var bsWords, lines, hBuckets uint64
 			categoryBucket.Bucket(bitsetBucketBytes).ForEach(
 				func(ik,iv []byte) error {
@@ -514,8 +515,8 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
      -"columns" (+)
       -columnId (b)
        -category (b)
-         - "hashStats" (b)
-            - "uniqueCount" / int64
+         - "stats" (b)
+            - "hashUniqueCount" / int64
          - "bitset" (+b)
             -offset/bit(k/v)
          - "hashValues" (+b)
@@ -677,12 +678,143 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 }
 
-type columnPairType struct{
+type ColumnPairType struct{
 	dataCategory []byte
 	column1 *ColumnInfoType
 	column2 *ColumnInfoType
 	IntersectionCount uint64
 	dataBucketName []byte
+	storage *bolt.DB
+	currentTx *bolt.Tx
+	hashBucket *bolt.Bucket
+}
+
+func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
+	funcName := "ColumnPairType.OpenStorage"
+	if cp.column1 == nil || cp.column2 == nil ||
+		!cp.column1.Id.Valid() || !cp.column2.Id.Valid() {
+		err = ColumnInfoNotInitialized
+		tracelog.Error(err,packageName,funcName)
+		return
+	}
+
+	if cp.storage == nil {
+		path := "./DBS"
+		err = os.MkdirAll(path,0600)
+		if err != nil {
+			tracelog.Error(err,packageName,funcName)
+			return
+		}
+		file := fmt.Sprintf("%v/%v-%v.boltdb",path,cp.column1.Id.Value(),cp.column2.Id.Value())
+
+		cp.storage, err = bolt.Open(file, 0600, nil)
+		if err != nil {
+			tracelog.Error(err,packageName,funcName)
+			return
+		}
+		if cp.storage == nil {
+			tracelog.Warning(packageName,funcName,"Storage has not been created for pair id=[%v,%v]",cp.column1.Id,cp.column2.Id)
+			return
+		}
+	}
+
+	if cp.currentTx == nil {
+		cp.currentTx,err = cp.storage.Begin(writable)
+		if err != nil {
+			tracelog.Error(err,packageName,funcName)
+			return err
+		}
+		if cp.currentTx == nil {
+			tracelog.Warning(packageName,funcName,"Transaction has not been opened for pair id=[%v,%v]",cp.column1.Id,cp.column2.Id)
+			return
+		}
+	}
+	categoryBucket := cp.currentTx.Bucket(cp.dataCategory)
+	if categoryBucket == nil {
+		if cp.currentTx.Writable() {
+			categoryBucket, err = categoryBucket.CreateBucket(cp.dataCategory)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+			if cp.hashBucket == nil {
+				err = errors.New("DataCategory bucket has not been created for pair...")
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+		}
+	}
+	if cp.hashBucket == nil {
+		cp.hashBucket = categoryBucket.Bucket(cp.dataBucketName)
+		if cp.hashBucket == nil {
+			if cp.currentTx.Writable() {
+				cp.hashBucket, err = categoryBucket.CreateBucket(cp.dataBucketName)
+				if err != nil {
+					tracelog.Error(err, packageName, funcName)
+					return
+				}
+				if cp.hashBucket == nil {
+					err = errors.New("Hash bucket has not been created for pair...")
+					tracelog.Error(err, packageName, funcName)
+					return
+				}
+			}
+		}
+	}
+	tracelog.Completed(packageName,funcName)
+	return
+}
+
+func(cp *ColumnPairType) CloseStorage(commit bool) (err error){
+	funcName := "ColumnPairType.CommitStorageTransaction"
+	if cp.currentTx != nil{
+		if commit {
+			err = cp.currentTx.Commit()
+		} else {
+			err = cp.currentTx.Rollback()
+		}
+		if err!=nil{
+			tracelog.Error(err,packageName, funcName)
+			return
+		}
+		cp.currentTx = nil
+		cp.hashBucket = nil
+	}
+	tracelog.Completed(packageName,funcName)
+	return
+}
+
+func NewColumnPair(column1,column2 *ColumnInfoType,dataCategory []byte) (result *ColumnPairType,err error) {
+	funcName := "NewColumnPair"
+	if column1 == nil || column2 == nil ||
+		!column1.Id.Valid() || !column2.Id.Valid() {
+		err = ColumnInfoNotInitialized
+		tracelog.Error(err,packageName,funcName)
+		return
+	}
+	if dataCategory == nil {
+		err = errors.New("DataCategory is empty!")
+		tracelog.Error(err,packageName,funcName)
+		return
+	}
+	result = &ColumnPairType{}
+	if column1.Id.Value() < column2.Id.Value() {
+		result.column1 = column1
+		result.column2 = column2
+	} else {
+		result.column2 = column1
+		result.column1 = column2
+	}
+
+	result.dataBucketName = make([]byte,8*2,8*2)
+	b81 := utils.Int64ToB8(result.column1.Id.Value())
+	copy(result.dataBucketName,b81)
+
+	b82 := utils.Int64ToB8(result.column2.Id.Value())
+	copy(result.dataBucketName[8:],b82)
+
+	tracelog.Completed(packageName,funcName)
+	return
 }
 
 func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
@@ -701,86 +833,69 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 		for tables1Index := range tables1 {
 			for tables2Index := range tables2 {
 				// TODO: get number of categories
-				pairs := make([]*columnPairType,0, len(tables1[tables1Index].Columns)*len(tables2[tables2Index].Columns))
-
+				pairs := make([]*ColumnPairType, 0, len(tables1[tables1Index].Columns) * len(tables2[tables2Index].Columns))
+				tx, _ := HashStorage.Begin(false);
 				for _, column1 := range tables1[tables1Index].Columns {
+					col2:
 					for _, column2 := range tables2[tables2Index].Columns {
 						if column1.Id.Value() == column2.Id.Value() {
-							continue
+							continue col2
 						}
 						//fmt.Println(column1, column2)
 
-						HashStorage.View(func(tx *bolt.Tx) error {
-							err = column1.GetOrCreateBucket(tx)
+						fmt.Printf("%v,%v\n", column1, column2)
+						err = column1.GetOrCreateBucket(tx)
 
-							if err != nil {
-								panic(err)
-							}
-							if column1.ColumnBucket == nil {
+						if err != nil {
+							panic(err)
+						}
+						if column1.ColumnBucket == nil {
+							continue col2
+						}
+						err = column2.GetOrCreateBucket(tx)
+						if err != nil {
+							panic(err)
+						}
+						if column2.ColumnBucket == nil {
+							continue col2
+						}
+
+						column1.ColumnBucket.ForEach(func(dataCategory, value []byte) error {
+							if stage == "CHAR" && dataCategory[0] == 0 {
+							} else if stage == "NUMBER" && dataCategory[0] != 0 {
+							} else {
 								return nil
 							}
-							err = column1.GetOrCreateBucket(tx)
-							if err != nil {
-								panic(err)
-							}
-							if column2.ColumnBucket == nil {
-								return nil
-							}
 
-							column1.ColumnBucket.ForEach(func(dataCategory, value []byte) error {
-								if stage == "CHAR" && dataCategory[0] == 0 {
-								} else if stage == "NUMBER" && dataCategory[0] != 0 {
-								} else {
-									return nil
+							bucket := column2.ColumnBucket.Bucket(dataCategory)
+
+							if bucket != nil {
+								var pair, err = NewColumnPair(column1, column2, dataCategory)
+								if err != nil {
+									panic(err)
 								}
+								pairs = append(pairs, pair)
+							}
 
-								bucket := column2.ColumnBucket.Bucket(dataCategory)
-
-								if bucket != nil {
-									//fmt.Println("!",column1, column2, dataCategory, bucket)
-
-									var pair = &columnPairType{}
-
-									if column1.Id.Value() < column2.Id.Value() {
-										pair.column1 = column1
-										pair.column2 = column2
-									} else {
-										pair.column2 = column1
-										pair.column1 = column2
-									}
-
-									pair.dataBucketName = make([]byte,8*2,8*2)
-									b81 := utils.Int64ToB8(pair.column1.Id.Value())
-									b82 := utils.Int64ToB8(pair.column2.Id.Value())
-									copy(pair.dataBucketName,b81)
-									copy(pair.dataBucketName[8:],b82)
-									//fmt.Println(b81,b82)
-									//fmt.Println(pair.dataBucketName)
-									//fmt.Println()
-									pair.dataCategory = dataCategory
-									pairs = append(pairs, pair)
-								}
-
-								return nil
-							})
-							//fmt.Println("!")
 							return nil
 						})
 					}
 				}
 				for _,pair := range pairs {
+					pair.column1.TableInfo.ResetBuckets();
+					pair.column2.TableInfo.ResetBuckets();
 					out <- scm.NewMessageSize(1).Put("PAIR").PutN(0,pair)
 					if pair.IntersectionCount>0 {
 						if (pair.column2.ColumnName.Value() =="INFORMER_DEAL_ID" &&
-						    pair.column1.ColumnName.Value() == "CONTRACT_ID") ||
+							pair.column1.ColumnName.Value() == "CONTRACT_ID") ||
 							(pair.column1.ColumnName.Value() =="INFORMER_DEAL_ID" &&
 								pair.column2.ColumnName.Value() == "CONTRACT_ID") {
 							fmt.Println(pair.column1, pair.column2, pair.dataCategory, pair.IntersectionCount)
 						}
 					}
-
-
 				}
+				tx.Rollback()
+
 			}
 		}
 
@@ -816,8 +931,27 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 	var err error
 	var emptyValue []byte = make([]byte, 0, 0)
 	var transactionCount uint64 = 0
+	var written sync.WaitGroup
+	writeIntersection := func (pair *ColumnPairType,hashChannel chan uint64) {
+		defer written.Done()
+		for data := range hashChannel{
+			if pair.currentTx == nil {
+				err = pair.OpenStorage(true)
+				if err != nil{
+					panic(err)
+				}
+			}
+			err = pair.hashBucket.Put(utils.UInt64ToB8(data)[:],emptyValue)
+			if err != nil {
+				pair.CloseStorage(false)
+				panic(err)
 
-	writeIntersectingHashValue := func (columnPair *columnPairType, hValue uint64) {
+			}
+		}
+		pair.CloseStorage(true)
+		panic(err)
+	}
+	writeIntersectingHashValue := func (columnPair *ColumnPairType, hValue uint64) {
 
 //		if storageTx == nil {
 //			storageTx, err = HashStorage.Begin(true)
@@ -857,8 +991,9 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 
 
 	pushHashValues := func (bsBucket1,bsBucket2 *bolt.Bucket,
-				pair *columnPairType,
+				pair *ColumnPairType,
 				) {
+		var hashChannel chan uint64;
 		bsBucket1.ForEach(func (keyBytes, valueBytes1 []byte) (error) {
 			keyUInt,_ := utils.B8ToUInt64(keyBytes)
 			valueBytes2 := bsBucket2.Get(keyBytes)
@@ -880,8 +1015,14 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 				}
 				result := rsh + trailingZeroes64(w) + prod
 				if result != prev {
+					if hashChannel == nil {
+						hashChannel = make(chan uint64,100)
+						written.Add(1)
+						go writeIntersection(pair,hashChannel)
+					}
 					pair.IntersectionCount++
-					writeIntersectingHashValue(pair,result)
+					hashChannel <- result
+					//writeIntersectingHashValue(pair,result)
 					prev = result
 
 				}
@@ -890,7 +1031,12 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 			return nil
 		})
 		//out <- scm.NewMessageSize(1).Put("PAIR").PutN(0,pair)
+		if hashChannel != nil {
+			written.Wait()
+		}
 	}
+
+	_ = writeIntersectingHashValue
 
 	for raw := range in {
 		if storageTx == nil {
@@ -904,7 +1050,7 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 		case string:
 			switch val {
 			case "PAIR":
-				pair := raw.GetN(0).(*columnPairType)
+				pair := raw.GetN(0).(*ColumnPairType)
 				var hashUniqueCount1, hashUniqueCount2 uint64
 
 				if pair.column1.ColumnBucket == nil {
@@ -980,3 +1126,54 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 
 
 
+func (da DataAccessType) LoadStorage() {
+	table := scm.NewChannel();
+	TableData := scm.NewChannelSize(1024*100);
+	TableCalculatedData := scm.NewChannelSize(1024*100);
+	done := scm.NewChannel();
+
+	go da.ReadTableDumpData(table, TableData);
+	go da.CollectMinMaxStats(TableData, TableCalculatedData)
+	go da.SplitDataToBuckets(TableCalculatedData, done)
+
+
+	err := H2.CreateDataCategoryTable()
+	if err != nil {
+		panic(err)
+	}
+
+	mtd1,err := H2.MetadataById(jsnull.NewNullInt64(10))
+	if err != nil {
+		panic(err)
+	}
+
+	mtd2,err := H2.MetadataById(jsnull.NewNullInt64(11))
+	if err != nil {
+		panic(err)
+	}
+
+	tables,err := H2.TableInfoByMetadata(mtd1)
+	for _,tableInfo := range tables {
+		//if tableInfo.Id.Value() == int64(268) {
+		table <- scm.NewMessage().Put(tableInfo)
+		//}
+	}
+	tables,err = H2.TableInfoByMetadata(mtd2)
+	for _,tableInfo := range tables {
+		//if tableInfo.Id.Value() == int64(291) {
+		table <- scm.NewMessage().Put(tableInfo)
+		//}
+	}
+
+	close(table)
+
+	<-done
+	for _,t := range tables {
+		for _,c := range t.Columns {
+			err = H2.SaveColumnCategory(c)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+}

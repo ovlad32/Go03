@@ -17,7 +17,7 @@ import (
 	"github.com/goinggo/tracelog"
 )
 
-var recreate bool = true
+var recreate bool = false
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -64,64 +64,13 @@ func main() {
 
 	}
 	if recreate {
-		loadStorage(da)
+		da.LoadStorage()
 	}
-	//fetchPairs(da);
+	fetchPairs(da);
 	//metadata.ReportHashStorageContents()
 	log.Printf("%v",time.Since(start))
 }
 
-func loadStorage(da metadata.DataAccessType) {
-	table := scm.NewChannel();
-	TableData := scm.NewChannelSize(1024*100);
-	TableCalculatedData := scm.NewChannelSize(1024*100);
-	done := scm.NewChannel();
-
-	go da.ReadTableDumpData(table, TableData);
-	go da.CollectMinMaxStats(TableData, TableCalculatedData)
-	go da.SplitDataToBuckets(TableCalculatedData, done)
-
-
-	err := metadata.H2.CreateDataCategoryTable()
-	if err != nil {
-		panic(err)
-	}
-
-	mtd1,err := metadata.H2.MetadataById(jsnull.NewNullInt64(10))
-	if err != nil {
-		panic(err)
-	}
-
-	mtd2,err := metadata.H2.MetadataById(jsnull.NewNullInt64(11))
-	if err != nil {
-		panic(err)
-	}
-
-	tables,err := metadata.H2.TableInfoByMetadata(mtd1)
-	for _,tableInfo := range tables {
-		//if tableInfo.Id.Value() == int64(268) {
-			table <- scm.NewMessage().Put(tableInfo)
-		//}
-	}
-	tables,err = metadata.H2.TableInfoByMetadata(mtd2)
-	for _,tableInfo := range tables {
-		//if tableInfo.Id.Value() == int64(291) {
-			table <- scm.NewMessage().Put(tableInfo)
-		//}
-	}
-
-	close(table)
-
-	<-done
-	for _,t := range tables {
-		for _,c := range t.Columns {
-			err = metadata.H2.SaveColumnCategory(c)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
-}
 func fetchPairs(da metadata.DataAccessType) {
 	mtd := scm.NewChannel();
 	pairs := scm.NewChannel();
