@@ -75,7 +75,6 @@ func fetchPairs(da metadata.DataAccessType) {
 	mtd := scm.NewChannel();
 	pairs := scm.NewChannel();
 	done := scm.NewChannel();
-
 	go da.MakePairs(mtd, pairs);
 	go da.BuildDataBitsets(pairs,done)
 

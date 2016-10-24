@@ -667,7 +667,7 @@ type ColumnInfoType struct {
 	TableInfo       *TableInfoType
 	DataCategories  []*ColumnDataCategoryStatsType
 	NumericCount    jsnull.NullInt64
-	BinDataPipe     scm.ChannelType
+	//BinDataPipe     scm.ChannelType
 	storage     *bolt.DB
 	currentTx       *bolt.Tx
 	ColumnBucket    *bolt.Bucket
@@ -692,11 +692,11 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 		err = TableInfoNotInitialized
 		return
 	}
-	if HashStorage == nil {
+	if ci.storage == nil {
 		path:= fmt.Sprintf("./%v",ci.TableInfo.PathToDataDir.Value())
 		_ = os.MkdirAll(path,0)
 		file := fmt.Sprintf("%v/%v.boltdb",path,ci.Id.Value())
-		HashStorage, err = bolt.Open(
+		ci.storage, err = bolt.Open(
 			file,
 			0600,
 			nil,
@@ -706,10 +706,12 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 			return
 		}
 	}
-	ci.currentTx, err = ci.storage.Begin(writable)
-	if err != nil {
-		tracelog.Error(err, packageName, funcName)
-		return
+	if ci.currentTx == nil {
+		ci.currentTx, err = ci.storage.Begin(writable)
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return
+		}
 	}
 
 	columnBucketIdBytes := utils.Int64ToB8(ci.Id.Value())
@@ -738,7 +740,7 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 }
 
 
-func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
+/*func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	funcName := "ColumnInfoType.GetOrCreateBuckets"
 	tracelog.Started(packageName,funcName)
 
@@ -788,7 +790,7 @@ func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	tracelog.Completed(packageName,funcName)
 	return
 }
-
+*/
 
 func (ci ColumnInfoType) FindDataCategory(
 		byteLength uint16,
@@ -932,7 +934,7 @@ func (cdc *ColumnDataCategoryStatsType) ResetBuckets() {
 	cdc.HashValuesBucket   = nil
 }
 
-func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCategoryBytes []byte) (err error) {
+func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []byte) (err error) {
 	funcName := "ColumnDataCategoryStatsType.GetOrCreateBuckets"
 	tracelog.Started(packageName, funcName)
 
@@ -954,7 +956,7 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCateg
 		}
 	}
 	if cdc.Column.ColumnBucket == nil {
-		err = cdc.Column.GetOrCreateBucket(tx)
+		err = cdc.Column.OpenStorage()
 		if err != nil {
 			return
 		}
@@ -966,7 +968,7 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCateg
 
 		cdc.CategoryBucket = cdc.Column.ColumnBucket.Bucket(dataCategoryBytes)
 		if cdc.CategoryBucket == nil {
-			if tx.Writable() {
+			if cdc.Column.currentTx.Writable() {
 				cdc.CategoryBucket, err = cdc.Column.ColumnBucket.CreateBucket(dataCategoryBytes)
 				if err != nil {
 					tracelog.Error(err,packageName,funcName)
@@ -984,7 +986,7 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCateg
 
 		cdc.BitsetBucket = cdc.CategoryBucket.Bucket(bitsetBucketBytes)
 		if cdc.BitsetBucket == nil {
-			if tx.Writable() {
+			if cdc.Column.currentTx.Writable() {
 				cdc.BitsetBucket, err = cdc.CategoryBucket.CreateBucket(bitsetBucketBytes)
 				if err != nil {
 					tracelog.Error(err,packageName,funcName)
@@ -998,7 +1000,7 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCateg
 
 		cdc.HashValuesBucket = cdc.CategoryBucket.Bucket(hashValuesBucketBytes)
 		if cdc.HashValuesBucket == nil {
-			if tx.Writable() {
+			if cdc.Column.currentTx.Writable() {
 				cdc.HashValuesBucket, err = cdc.CategoryBucket.CreateBucket(hashValuesBucketBytes)
 				if err != nil {
 					tracelog.Error(err, packageName, funcName)
@@ -1012,7 +1014,7 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCateg
 
 		cdc.HashStatsBucket = cdc.CategoryBucket.Bucket(statsBucketBytes)
 		if cdc.HashStatsBucket == nil {
-			if tx.Writable() {
+			if cdc.Column.currentTx.Writable() {
 				cdc.HashStatsBucket, err = cdc.CategoryBucket.CreateBucket(statsBucketBytes)
 				if err != nil {
 					tracelog.Error(err, packageName, funcName)
@@ -1073,7 +1075,7 @@ func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
 
 
 	ci.ByteLength = jsnull.NewNullInt64(
-		int64(binary.LittleEndian.Uint16(k[1:2])),
+		int64(binary.LittleEndian.Uint16(k[1:])),
 	)
 
 	ci.IsNumeric = jsnull.NewNullBool(k[0] == 0)

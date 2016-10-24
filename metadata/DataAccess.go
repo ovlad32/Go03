@@ -314,6 +314,7 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 			for columnIndex := range source.Columns {
 				if columnIndex == 0 && lineNumber == 1 {
 					out <- scm.NewMessage().Put(source)
+
 				}
 				out <- scm.NewMessage().Put(
 					  &columnDataType{
@@ -797,7 +798,9 @@ func NewColumnPair(column1,column2 *ColumnInfoType,dataCategory []byte) (result 
 		tracelog.Error(err,packageName,funcName)
 		return
 	}
-	result = &ColumnPairType{}
+	result = &ColumnPairType{
+		dataCategory:dataCategory,
+	}
 	if column1.Id.Value() < column2.Id.Value() {
 		result.column1 = column1
 		result.column2 = column2
@@ -841,7 +844,7 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 				for _, column1 := range tables1[tables1Index].Columns {
 					column1.TableInfo.ResetBuckets()
 
-					err = column1.GetOrCreateBucket(tx)
+					//err = column1.GetOrCreateBucket(tx)
 
 					if err != nil {
 						panic(err)
@@ -858,7 +861,7 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 						//fmt.Println(column1, column2)
 
 						//fmt.Printf("%v,%v\n", column1, column2)
-						err = column2.GetOrCreateBucket(tx)
+						//err = column2.GetOrCreateBucket(tx)
 						if err != nil {
 							panic(err)
 						}
@@ -1047,22 +1050,19 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 	}
 
 	_ = writeIntersectingHashValue
+	_=pushHashValues
+	_=writeIntersection
 
 	for raw := range in {
-		if storageTx == nil {
-			storageTx, err = HashStorage.Begin(true)
-			if err != nil {
-				panic(err)
-			}
-			log.Println("open..")
-		}
+
 		switch val := raw.Get().(type) {
 		case string:
 			switch val {
 			case "PAIR":
-				pair := raw.GetN(0).(*ColumnPairType)
+				/*pair := raw.GetN(0).(*ColumnPairType)
 				var hashUniqueCount1, hashUniqueCount2 uint64
 
+				vv
 				if pair.column1.ColumnBucket == nil {
 					err = pair.column1.GetOrCreateBucket(storageTx)
 					if err != nil {
@@ -1114,7 +1114,7 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 					pair.column2.TableInfo.ResetBuckets()
 					storageTx = nil
 					transactionCount = 0
-				}
+				}*/
 				//out <-scm.NewMessage().Put(pair)
 			}
 		}
