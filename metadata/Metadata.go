@@ -549,6 +549,7 @@ type TableInfoType struct {
 }
 
 func (ti *TableInfoType) ResetBuckets() {
+	funcName := "TableInfoType.ResetBuckets"
 	ti.TableLabelBucket = nil
 	ti.TableBucket = nil
 	ti.ColumnLabelBucket = nil
@@ -557,6 +558,7 @@ func (ti *TableInfoType) ResetBuckets() {
 			col.ResetBuckets()
 		}
 	}
+	tracelog.Completed(packageName,funcName)
 }
 
 func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
@@ -607,7 +609,7 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 
 			}
 		} else {
-			//			err = errors.New(fmt.Sprintf("Bucket for table id %v does not exist",table.Id))
+			tracelog.Info(packageName,funcName,"Bucket for table id %v has not been created",ti.Id.Value())
 			return
 		}
 	}
@@ -670,6 +672,7 @@ type ColumnInfoType struct {
 	currentTx       *bolt.Tx
 	ColumnBucket    *bolt.Bucket
 }
+
 func (ci *ColumnInfoType) ResetBuckets() {
 	ci.ColumnBucket = nil
 	if ci.DataCategories != nil {
@@ -678,6 +681,7 @@ func (ci *ColumnInfoType) ResetBuckets() {
 		}
 	}
 }
+
 func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 	funcName := "ColumnInfoType.Buckets"
 	if !ci.Id.Valid() {
@@ -718,13 +722,15 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 				tracelog.Error(err,packageName,funcName)
 				return
 			}
-		}
-		if ci.ColumnBucket == nil {
-			err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value", ci.Id))
-			tracelog.Error(err,packageName,funcName)
-			return
+			if ci.ColumnBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value", ci.Id))
+				tracelog.Error(err,packageName,funcName)
+				return
+			} else {
+				tracelog.Info(packageName, funcName, "Bucket for column id %v created", ci.Id)
+			}
 		} else {
-			tracelog.Info(packageName,funcName,"Bucket for column id %v created", ci.Id)
+			tracelog.Info(packageName,funcName,"Bucket for column id %v has not been created", ci.Id)
 		}
 	}
 	tracelog.Completed(packageName,funcName)
@@ -775,6 +781,8 @@ func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 			} else {
 				tracelog.Info(packageName,funcName,"Bucket for column id %v created", ci.Id)
 			}
+		} else {
+			tracelog.Info(packageName,funcName,"Bucket for column id %v has not been created",ci.Id.Value())
 		}
 	}
 	tracelog.Completed(packageName,funcName)
@@ -847,8 +855,8 @@ type ColumnDataCategoryStatsType struct {
 
 
 
-func (cdc *ColumnDataCategoryStatsType) DataCategoryBytes() (result []byte, err error) {
-	funcName := "ColumnDataCategoryStatsType.GetDataCategoryBytes"
+func (cdc *ColumnDataCategoryStatsType) ConvertToBytes() (result []byte, err error) {
+	funcName := "ColumnDataCategoryStatsType.DataCategoryBytes"
 	tracelog.Started(packageName,funcName)
 
 	result = make([]byte, 3, 5)
@@ -933,7 +941,13 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(tx *bolt.Tx, dataCateg
 		return
 	}
 	if dataCategoryBytes == nil {
-		dataCategoryBytes,err = cdc.DataCategoryBytes()
+		dataCategoryBytes,err = cdc.ConvertToBytes()
+		if err != nil {
+			tracelog.Error(err,packageName,funcName)
+			return
+		}
+	} else if !cdc.IsNumeric.Valid() {
+		err = cdc.PopulateFromBytes(dataCategoryBytes)
 		if err != nil {
 			tracelog.Error(err,packageName,funcName)
 			return
@@ -1042,36 +1056,46 @@ func (cdc ColumnDataCategoryStatsType) String() (result string){
 	return
 }
 
-func ColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
-	kLen := len(k)
-	err = errors.New(fmt.Sprintf("Can not explan category for chain of bytes %v. Too short.",k))
-
+func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
 	result = &ColumnDataCategoryStatsType{}
+	if  err = result.PopulateFromBytes(k); err!=nil {
+		return nil,err
+	}
+	return
+}
 
-	result.ByteLength = jsnull.NewNullInt64(
+func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
+	kLen := len(k)
+	if kLen < 2 {
+		err = errors.New(fmt.Sprintf("Can not explan category for chain of bytes %v. Too short.", k))
+		return
+	}
+
+
+	ci.ByteLength = jsnull.NewNullInt64(
 		int64(binary.LittleEndian.Uint16(k[1:2])),
 	)
 
-	result.IsNumeric = jsnull.NewNullBool(k[0] == 0)
-	if !result.IsNumeric.Value() {
-		result.IsSubHash = jsnull.NewNullBool(kLen > 3)
-		if  result.IsSubHash.Value() {
-			result.SubHash = jsnull.NewNullInt64(int64(k[3]))
+	ci.IsNumeric = jsnull.NewNullBool(k[0] == 0)
+	if !ci.IsNumeric.Value() {
+		ci.IsSubHash = jsnull.NewNullBool(kLen > 3)
+		if  ci.IsSubHash.Value() {
+			ci.SubHash = jsnull.NewNullInt64(int64(k[3]))
 		}
 	} else {
-		result.IsNegative = jsnull.NewNullBool( ((k[0]>>0)&0x01) > 0)
+		ci.IsNegative = jsnull.NewNullBool( ((k[0]>>0)&0x01) > 0)
 		isFp := (k[0]>>1) & 0x01 == 0
 		if isFp {
-			result.FloatingPointScale = jsnull.NewNullInt64(int64(k[3]))
-			result.IsSubHash = jsnull.NewNullBool(kLen>4)
-			if result.IsSubHash.Value() {
-				result.SubHash = jsnull.NewNullInt64(int64(k[4]))
+			ci.FloatingPointScale = jsnull.NewNullInt64(int64(k[3]))
+			ci.IsSubHash = jsnull.NewNullBool(kLen>4)
+			if ci.IsSubHash.Value() {
+				ci.SubHash = jsnull.NewNullInt64(int64(k[4]))
 			}
 		} else {
-			result.FloatingPointScale = jsnull.NewNullInt64(int64(0))
-			result.IsSubHash = jsnull.NewNullBool(kLen>3)
-			if result.IsSubHash.Value() {
-				result.SubHash = jsnull.NewNullInt64(int64(k[3]))
+			ci.FloatingPointScale = jsnull.NewNullInt64(int64(0))
+			ci.IsSubHash = jsnull.NewNullBool(kLen>3)
+			if ci.IsSubHash.Value() {
+				ci.SubHash = jsnull.NewNullInt64(int64(k[3]))
 			}
 		}
 	}

@@ -818,6 +818,7 @@ func NewColumnPair(column1,column2 *ColumnInfoType,dataCategory []byte) (result 
 }
 
 func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
+	funcName := "DataAccessType.MakePairs"
 
 	pushPairs := func (metadata1, metadata2 *MetadataType, stage string) {
 		tables1, err := H2.TableInfoByMetadata(metadata1)
@@ -834,30 +835,36 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 			for tables2Index := range tables2 {
 				// TODO: get number of categories
 				pairs := make([]*ColumnPairType, 0, len(tables1[tables1Index].Columns) * len(tables2[tables2Index].Columns))
+				tracelog.Info(packageName,funcName,"Open read-only transaction")
 				tx, _ := HashStorage.Begin(false);
+
 				for _, column1 := range tables1[tables1Index].Columns {
-					col2:
+					column1.TableInfo.ResetBuckets()
+
+					err = column1.GetOrCreateBucket(tx)
+
+					if err != nil {
+						panic(err)
+					}
+					if column1.ColumnBucket == nil {
+						continue
+					}
+
 					for _, column2 := range tables2[tables2Index].Columns {
+						column2.TableInfo.ResetBuckets()
 						if column1.Id.Value() == column2.Id.Value() {
-							continue col2
+							continue
 						}
 						//fmt.Println(column1, column2)
 
-						fmt.Printf("%v,%v\n", column1, column2)
-						err = column1.GetOrCreateBucket(tx)
-
-						if err != nil {
-							panic(err)
-						}
-						if column1.ColumnBucket == nil {
-							continue col2
-						}
+						//fmt.Printf("%v,%v\n", column1, column2)
 						err = column2.GetOrCreateBucket(tx)
 						if err != nil {
 							panic(err)
 						}
+
 						if column2.ColumnBucket == nil {
-							continue col2
+							continue
 						}
 
 						column1.ColumnBucket.ForEach(func(dataCategory, value []byte) error {
@@ -870,7 +877,9 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 							bucket := column2.ColumnBucket.Bucket(dataCategory)
 
 							if bucket != nil {
-								var pair, err = NewColumnPair(column1, column2, dataCategory)
+								dataCategoryCopy := make([]byte,len(dataCategory))
+								copy(dataCategoryCopy, dataCategory)
+								var pair, err = NewColumnPair(column1, column2, dataCategoryCopy)
 								if err != nil {
 									panic(err)
 								}
@@ -881,9 +890,8 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 						})
 					}
 				}
+
 				for _,pair := range pairs {
-					pair.column1.TableInfo.ResetBuckets();
-					pair.column2.TableInfo.ResetBuckets();
 					out <- scm.NewMessageSize(1).Put("PAIR").PutN(0,pair)
 					if pair.IntersectionCount>0 {
 						if (pair.column2.ColumnName.Value() =="INFORMER_DEAL_ID" &&
@@ -894,6 +902,8 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 						}
 					}
 				}
+				tracelog.Info(packageName,funcName,"Open read-only transaction")
+
 				tx.Rollback()
 
 			}
@@ -1072,8 +1082,8 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 					Column:pair.column2,
 				}
 
-				cdc1.GetOrCreateBucket(storageTx,pair.dataCategory)
-				cdc2.GetOrCreateBucket(storageTx,pair.dataCategory)
+				cdc1.GetOrCreateBucket(storageTx, pair.dataCategory)
+				cdc2.GetOrCreateBucket(storageTx, pair.dataCategory)
 				if cdc1.HashStatsBucket != nil {
 					UQKey := cdc1.HashStatsBucket.Get(hashStatsUnqiueCountBucketBytes)
 					if UQKey != nil {
