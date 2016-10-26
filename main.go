@@ -6,9 +6,7 @@ import (
 	//"github.com/urfave/negroni"
 	//"github.com/gorilla/mux"
 	"./metadata"
-	scm "./scm"
 	utils "./utils"
-	jsnull "./jsnull"
 	"os"
 	"runtime"
 	"time"
@@ -17,7 +15,7 @@ import (
 	"github.com/goinggo/tracelog"
 )
 
-var recreate bool = false
+var recreate bool = true
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -66,11 +64,11 @@ func main() {
 	if recreate {
 		da.LoadStorage()
 	}
-	fetchPairs(da);
+	//fetchPairs(da);
 	//metadata.ReportHashStorageContents()
 	log.Printf("%v",time.Since(start))
 }
-
+/*
 func fetchPairs(da metadata.DataAccessType) {
 	mtd := scm.NewChannel();
 	pairs := scm.NewChannel();
@@ -89,4 +87,4 @@ func fetchPairs(da metadata.DataAccessType) {
 	mtd <-scm.NewMessageSize(2).Put("2MD").PutN(0,mtd1).PutN(1,mtd2)
 	close(mtd)
 	<-done
-}
+}*/

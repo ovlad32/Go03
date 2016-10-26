@@ -3,7 +3,6 @@ package metadata
 import (
 	jsnull "./../jsnull"
 	utils "./../utils"
-	scm "./../scm"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -670,11 +669,13 @@ type ColumnInfoType struct {
 	//BinDataPipe     scm.ChannelType
 	storage     *bolt.DB
 	currentTx       *bolt.Tx
-	ColumnBucket    *bolt.Bucket
+	categoriesBucket    *bolt.Bucket
+	statsBucket *bolt.Bucket
 }
 
 func (ci *ColumnInfoType) ResetBuckets() {
-	ci.ColumnBucket = nil
+	ci.categoriesBucket = nil
+	ci.statsBucket = nil
 	if ci.DataCategories != nil {
 		for _, dc := range ci.DataCategories{
 			dc.ResetBuckets()
@@ -714,31 +715,71 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 		}
 	}
 
-	columnBucketIdBytes := utils.Int64ToB8(ci.Id.Value())
-
-	ci.ColumnBucket = ci.currentTx.Bucket(columnBucketIdBytes[:])
-	if ci.ColumnBucket == nil {
+	//columnBucketIdBytes := utils.Int64ToB8(ci.Id.Value())
+	categories := []byte("categories")
+	stats := []byte("stats")
+	ci.categoriesBucket = ci.currentTx.Bucket(categories)
+	if ci.categoriesBucket == nil {
 		if ci.currentTx.Writable() {
-			ci.ColumnBucket, err = ci.currentTx.CreateBucket(columnBucketIdBytes[:])
+			ci.categoriesBucket, err = ci.currentTx.CreateBucket(categories)
 			if err != nil {
 				tracelog.Error(err,packageName,funcName)
 				return
 			}
-			if ci.ColumnBucket == nil {
-				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v. Got empty value", ci.Id))
+			if ci.categoriesBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v data categories. Got empty value", ci.Id))
 				tracelog.Error(err,packageName,funcName)
 				return
 			} else {
-				tracelog.Info(packageName, funcName, "Bucket for column id %v created", ci.Id)
+				tracelog.Info(packageName, funcName, "Bucket for column id %v data categories created", ci.Id)
 			}
 		} else {
-			tracelog.Info(packageName,funcName,"Bucket for column id %v has not been created", ci.Id)
+			tracelog.Info(packageName,funcName,"Bucket for column id %v data categories has not been created", ci.Id)
 		}
 	}
+
+	if ci.statsBucket == nil {
+		if ci.currentTx.Writable() {
+			ci.statsBucket, err = ci.currentTx.CreateBucket(stats)
+			if err != nil {
+				tracelog.Error(err,packageName,funcName)
+				return
+			}
+			if ci.statsBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v statistics. Got empty value", ci.Id))
+				tracelog.Error(err,packageName,funcName)
+				return
+			} else {
+				tracelog.Info(packageName, funcName, "Bucket for column id %v statistics created", ci.Id)
+			}
+		} else {
+			tracelog.Info(packageName,funcName,"Bucket for column id %v statistics has not been created", ci.Id)
+		}
+	}
+
 	tracelog.Completed(packageName,funcName)
 	return
 }
 
+func(cp *ColumnInfoType) CloseStorage(commit bool) (err error){
+	funcName := "ColumnPairType.CommitStorageTransaction"
+	if cp.currentTx != nil{
+		if commit {
+			err = cp.currentTx.Commit()
+		} else {
+			err = cp.currentTx.Rollback()
+		}
+		if err!=nil{
+			tracelog.Error(err,packageName, funcName)
+			return
+		}
+
+		cp.currentTx = nil
+	}
+	cp.ResetBuckets()
+	tracelog.Completed(packageName,funcName)
+	return
+}
 
 /*func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	funcName := "ColumnInfoType.GetOrCreateBuckets"
@@ -937,7 +978,9 @@ func (cdc *ColumnDataCategoryStatsType) ResetBuckets() {
 func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []byte) (err error) {
 	funcName := "ColumnDataCategoryStatsType.GetOrCreateBuckets"
 	tracelog.Started(packageName, funcName)
-
+	if cdc == nil{
+		tracelog.Alert("!!",packageName,funcName,"")
+	}
 	if cdc.Column == nil {
 		err = ColumnInfoNotInitialized
 		return
@@ -955,21 +998,17 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []by
 			return
 		}
 	}
-	if cdc.Column.ColumnBucket == nil {
-		err = cdc.Column.OpenStorage()
-		if err != nil {
-			return
-		}
-		if cdc.Column.ColumnBucket == nil {
-			return
-		}
+	if cdc.Column.categoriesBucket == nil {
+		err = errors.New(fmt.Sprintf("Bucket for data categories has not been initialized! Column %v",cdc.Column.Id.Value()))
+		tracelog.Error(err,packageName,funcName)
+		return
 	}
 	if cdc.CategoryBucket == nil {
 
-		cdc.CategoryBucket = cdc.Column.ColumnBucket.Bucket(dataCategoryBytes)
+		cdc.CategoryBucket = cdc.Column.categoriesBucket.Bucket(dataCategoryBytes)
 		if cdc.CategoryBucket == nil {
 			if cdc.Column.currentTx.Writable() {
-				cdc.CategoryBucket, err = cdc.Column.ColumnBucket.CreateBucket(dataCategoryBytes)
+				cdc.CategoryBucket, err = cdc.Column.categoriesBucket.CreateBucket(dataCategoryBytes)
 				if err != nil {
 					tracelog.Error(err,packageName,funcName)
 					return
