@@ -2,7 +2,6 @@ package main
 
 import (
 	//"net/http"
-	"github.com/boltdb/bolt"
 	//"github.com/urfave/negroni"
 	//"github.com/gorilla/mux"
 	"./metadata"
@@ -30,17 +29,19 @@ func init() {
 	if recreate {
 		os.Remove(boltDbName)
 	}
-	var err error
+	/*var err error
 	metadata.HashStorage, err = bolt.Open(boltDbName,0600,nil)
 	if err != nil {
 		panic(err)
 	}
-
+*/
 	tracelog.Start(tracelog.LevelInfo)
 }
 func main() {
 	start := time.Now()
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	runtime.GOMAXPROCS(16)
+	//runtime.NumCPU()
+
 	/*router := mux.NewRouter()
 	router.HandleFunc("/databaseConfigurations/",controller.GetDC)
 
@@ -57,7 +58,7 @@ func main() {
 			LineSeparator:10,
 		},
 		SubHashByteLengthThreshold: 6,
-		TransactionCountLimit:500*1000,
+		TransactionCountLimit:1000*500,
 		ColumnBucketsCache:utils.New(50),
 
 	}

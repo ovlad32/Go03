@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"encoding/binary"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"hash/fnv"
@@ -25,7 +24,7 @@ const wordSize = uint64(64)
 
 type B9Type [9]byte
 
-var HashStorage *bolt.DB
+//var HashStorage *bolt.DB
 
 var deBruijn = [...]byte{
 	0, 1, 56, 2, 57, 49, 28, 3, 61, 58, 42, 50, 38, 29, 17, 4,
@@ -102,7 +101,7 @@ func (c columnDataType) buildDataCategory() (result []byte, bLen uint16) {
 */
 
 func ReportHashStorageContents() {
-	categoryName := func(k []byte) (result string){
+	/*categoryName := func(k []byte) (result string){
 		kLen := len(k)
 		//fmt.Println(k)
 		if kLen<3 {
@@ -200,11 +199,7 @@ func ReportHashStorageContents() {
 			fmt.Println(id,tbl)
 			fmt.Println("-----------------------------------")
 			tableBucket := b.Bucket(k)
-			/*fmt.Println(string(k),k,columnsLabel)
-			if columns != nil && bytes.Compare(k,columnsLabel)==0 {
-				fmt.Println(string(k))
-				reportColumns(columns)
-			}*/
+
 			tableBucket.ForEach(func(ik,_ []byte) error {
 				if bytes.Compare(ik,columnsLabelBucketBytes) == 0 {
 					columns := tableBucket.Bucket(ik)
@@ -233,7 +228,7 @@ func ReportHashStorageContents() {
 		}
 		return nil
 	})
-	tx.Rollback();
+	tx.Rollback();*/
 
 }
 
@@ -257,7 +252,7 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 	var x0D = []byte{0x0D}
 
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
-	var statsChans,storeChans []ColumnDataChannelType;
+	var statsChans/*,storeChans */[]ColumnDataChannelType;
 	var goBusy sync.WaitGroup
 
 
@@ -324,27 +319,48 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 			for columnIndex := range source.Columns {
 				if lineNumber == 1 {
 					if columnIndex == 0 {
-						statsChans = make([]ColumnDataChannelType, metadataColumnCount);
-						storeChans = make([]ColumnDataChannelType, metadataColumnCount);
-						defer source.Columns[columnIndex].CloseStorage(false)
+						statsChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
+						//storeChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
 					}
-					statsChans[columnIndex] = make(ColumnDataChannelType,1000)
-					storeChans[columnIndex] = make(ColumnDataChannelType,1000)
+					statsChan := make(ColumnDataChannelType,100000)
+					statsChans = append(statsChans,statsChan)
+					storeChan := make(ColumnDataChannelType,100000)
+
 					goBusy.Add(2)
-					go func(index int) {
-						for iVal := range statsChans[index] {
+					go func(cnin,chout ColumnDataChannelType) {
+						for iVal := range cnin {
 							da.CollectDataStats(iVal)
-							storeChans[index] <- iVal
+							//storeChans[index] <- iVal
+							chout <-iVal
 						}
 						goBusy.Done()
-						close(storeChans[index])
-					}(columnIndex)
-					go func(index int) {
-						for iVal := range storeChans[index] {
+						//close(storeChans[index])
+						close(chout)
+					}(statsChan,storeChan)
+					go func(chin ColumnDataChannelType) {
+						transactionCount := uint64(0)
+						//ticker := uint64(0)
+						for iVal := range chin {
+							//tracelog.Info(packageName,funcName,"%v,%v",iVal.column,transactionCount)
+							/*ticker++
+							if ticker > 10000 {
+								ticker = 0
+								tracelog.Info(packageName,funcName,"10000 for column %v",iVal.column)
+							} */
+							iVal.column.bucketLock.Lock()
 							da.storeData(iVal)
+							iVal.column.bucketLock.Unlock()
+							transactionCount++
+							if transactionCount>da.TransactionCountLimit {
+								tracelog.Info(packageName,funcName,"Intermediate commit for column %v",iVal.column)
+								iVal.column.bucketLock.Lock()
+								iVal.column.CloseStorageTransaction(true)
+								iVal.column.bucketLock.Unlock()
+								transactionCount = 0
+							}
 						}
 						goBusy.Done()
-					}(columnIndex)
+					}(storeChan)
 				}
 				statsChans[columnIndex] <- &ColumnDataType{
 						column:     source.Columns[columnIndex],
@@ -360,9 +376,17 @@ func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelTy
 				}*/
 			}
 		}
-		for index := range source.Columns{
-			close(statsChans[index])
-			source.Columns[index].CloseStorage(true)
+		for index := range source.Columns {
+			source.Columns[index].bucketLock.Lock()
+			source.Columns[index].CloseStorageTransaction(true)
+			source.Columns[index].CloseStorage()
+			source.Columns[index].bucketLock.Unlock()
+		}
+		if statsChans != nil {
+			for index := range statsChans {
+				close(statsChans[index])
+			}
+			statsChans = nil
 		}
 		goBusy.Wait()
 		tracelog.Info(packageName,funcName,"Finish processing table %v",source)
@@ -720,10 +744,10 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
            - hash/value (b)
             - row#/position (k/v)
 */
-func(da DataAccessType) storeData(val *ColumnDataType) {
-	funcName := "DataAccessType.storeData"
+func(da *DataAccessType) storeData(val *ColumnDataType) {
+//	funcName := "DataAccessType.storeData"
 	bLen := uint16(len(val.bValue))
-	if bLen == 0 {
+	if bLen == 0 || val.dataCategory == nil {
 		return
 	}
 
@@ -746,17 +770,24 @@ func(da DataAccessType) storeData(val *ColumnDataType) {
 	//val.column.DataCategories[category] = true
 	var err error
 	if val.column.categoriesBucket == nil {
+		//tracelog.Info(packageName, funcName, "Lock for column %v",val.column)
 		err = val.column.OpenStorage(true)
 		if err != nil {
 			panic(err)
 		}
-	}
-	if val.dataCategory == nil {
-		tracelog.Alert("!",packageName,funcName,"col:%v",val.column.Id)
-	}
-	err = val.dataCategory.GetOrCreateBucket(nil)
-	if err != nil {
-		panic(err)
+		if val.dataCategory.CategoryBucket == nil {
+			err = val.dataCategory.GetOrCreateBucket(nil)
+			if err != nil {
+				panic(err)
+			}
+		}
+	} else {
+		if val.dataCategory.CategoryBucket == nil {
+			err = val.dataCategory.GetOrCreateBucket(nil)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 
 	// -"categories"  (+)
@@ -766,7 +797,6 @@ func(da DataAccessType) storeData(val *ColumnDataType) {
 	// -"stats" (+)
 	// -"columns" (+)
 	//  -columnId (b)
-
 	if val.dataCategory.CategoryBucket == nil {
 		panic("Category bucket has not been created!")
 	}
@@ -804,7 +834,6 @@ func(da DataAccessType) storeData(val *ColumnDataType) {
 			)
 		}*/
 	}
-
 	//bitsetBucket.Get()
 
 	baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(hashUIntValue)
@@ -1030,6 +1059,7 @@ func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 			}
 		}
 	}
+
 	if cp.hashBucket == nil {
 		cp.hashBucket = categoryBucket.Bucket(cp.dataBucketName)
 		if cp.hashBucket == nil {
