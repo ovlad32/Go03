@@ -545,6 +545,7 @@ type TableInfoType struct {
 	TableBucket       *bolt.Bucket
 	ColumnLabelBucket *bolt.Bucket
 }
+type TableInfoTypeChannel chan *TableInfoType
 
 func (ti *TableInfoType) ResetBuckets() {
 	funcName := "TableInfoType.ResetBuckets"
@@ -1027,7 +1028,7 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []by
 					tracelog.Error(err, packageName, funcName)
 					return
 				} else {
-					tracelog.Info(packageName, funcName, "Bucket for column id %v and category %v created", cdc.Column.Id, dataCategoryBytes)
+					//tracelog.Info(packageName, funcName, "Bucket for column id %v and category %v created", cdc.Column.Id, dataCategoryBytes)
 				}
 			}
 		}

@@ -2,7 +2,6 @@ package metadata
 
 import (
 	jsnull "./../jsnull"
-	scm "./../scm"
 	sparsebitset "./../sparsebitset"
 	utils "./../utils"
 	"bufio"
@@ -241,160 +240,143 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 	return
 }*/
 
-func (da  DataAccessType) readTableDump(source *TableInfoType) {
-
-}
-func (da DataAccessType) ReadTableDumpData(in scm.ChannelType, out scm.ChannelType) {
+func (da  *DataAccessType) readTableDump(source *TableInfoType) {
 	funcName := "DataAccessType.ReadTableDumpData"
 
-	//	var lineSeparatorArray []byte
-	//	var fieldSeparatorArray = []
 	var x0D = []byte{0x0D}
 
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
 	var statsChans/*,storeChans */[]ColumnDataChannelType;
 	var goBusy sync.WaitGroup
+	tracelog.Info(packageName,funcName,"Start processing table %v",source)
 
-
-
-	for raw := range in {
-		var source *TableInfoType
-		switch val := raw.Get().(type) {
-		case *TableInfoType:
-			source = val
-		default:
-			panic(fmt.Sprintf("Type is not expected %T", raw.Get()))
-
-		}
-		tracelog.Info(packageName,funcName,"Start processing table %v",source)
-
-		gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + source.PathToFile.Value())
-		if err != nil {
-			panic(err)
-		}
-		defer gzfile.Close()
-
-		file, err := gzip.NewReader(gzfile)
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
-
-		rawData := bufio.NewReaderSize(file, da.DumpConfiguration.InputBufferSize)
-		//sLineSeparator := string(da.DumpConfiguration.LineSeparator)
-		//sFieldSeparator := string(da.DumpConfiguration.FieldSeparator)
-
-		lineNumber := uint64(0)
-
-		for {
-			lineImage, err := rawData.ReadSlice(da.DumpConfiguration.LineSeparator)
-
-			if err == io.EOF {
-				break
-			} else if err != nil {
-				panic(err)
-			}
-			lineImage = bytes.TrimSuffix(lineImage, []byte{da.DumpConfiguration.LineSeparator})
-			lineImage = bytes.TrimSuffix(lineImage, x0D)
-			lineImageLen := len(lineImage)
-
-			line := make([]byte, lineImageLen, lineImageLen)
-			copy(line, lineImage)
-			//line := lineImage
-			lineNumber++
-
-			metadataColumnCount := len(source.Columns)
-
-			lineColumns := bytes.Split(line, []byte{da.DumpConfiguration.FieldSeparator})
-			lineColumnCount := len(lineColumns)
-			if metadataColumnCount != lineColumnCount {
-				panic(fmt.Sprintf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
-					lineNumber,
-					metadataColumnCount,
-					lineColumnCount,
-				))
-			}
-
-
-			for columnIndex := range source.Columns {
-				if lineNumber == 1 {
-					if columnIndex == 0 {
-						statsChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
-						//storeChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
-					}
-					statsChan := make(ColumnDataChannelType,100000)
-					statsChans = append(statsChans,statsChan)
-					storeChan := make(ColumnDataChannelType,100000)
-
-					goBusy.Add(2)
-					go func(cnin,chout ColumnDataChannelType) {
-						for iVal := range cnin {
-							da.CollectDataStats(iVal)
-							//storeChans[index] <- iVal
-							chout <-iVal
-						}
-						goBusy.Done()
-						//close(storeChans[index])
-						close(chout)
-					}(statsChan,storeChan)
-					go func(chin ColumnDataChannelType) {
-						transactionCount := uint64(0)
-						//ticker := uint64(0)
-						for iVal := range chin {
-							//tracelog.Info(packageName,funcName,"%v,%v",iVal.column,transactionCount)
-							/*ticker++
-							if ticker > 10000 {
-								ticker = 0
-								tracelog.Info(packageName,funcName,"10000 for column %v",iVal.column)
-							} */
-							iVal.column.bucketLock.Lock()
-							da.storeData(iVal)
-							iVal.column.bucketLock.Unlock()
-							transactionCount++
-							if transactionCount>da.TransactionCountLimit {
-								tracelog.Info(packageName,funcName,"Intermediate commit for column %v",iVal.column)
-								iVal.column.bucketLock.Lock()
-								iVal.column.CloseStorageTransaction(true)
-								iVal.column.bucketLock.Unlock()
-								transactionCount = 0
-							}
-						}
-						goBusy.Done()
-					}(storeChan)
-				}
-				statsChans[columnIndex] <- &ColumnDataType{
-						column:     source.Columns[columnIndex],
-						bValue:     lineColumns[columnIndex],
-						lineNumber: lineNumber,
-					}
-				//<-out
-
-				/*out <-columnDataType{
-					column:     source.Columns[columnIndex],
-					bValue:     lineColumns[columnIndex],
-					lineNumber: lineNumber,
-				}*/
-			}
-		}
-		for index := range source.Columns {
-			source.Columns[index].bucketLock.Lock()
-			source.Columns[index].CloseStorageTransaction(true)
-			source.Columns[index].CloseStorage()
-			source.Columns[index].bucketLock.Unlock()
-		}
-		if statsChans != nil {
-			for index := range statsChans {
-				close(statsChans[index])
-			}
-			statsChans = nil
-		}
-		goBusy.Wait()
-		tracelog.Info(packageName,funcName,"Finish processing table %v",source)
+	gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + source.PathToFile.Value())
+	if err != nil {
+		panic(err)
 	}
-	close(out)
+	defer gzfile.Close()
+
+	file, err := gzip.NewReader(gzfile)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	rawData := bufio.NewReaderSize(file, da.DumpConfiguration.InputBufferSize)
+	//sLineSeparator := string(da.DumpConfiguration.LineSeparator)
+	//sFieldSeparator := string(da.DumpConfiguration.FieldSeparator)
+
+	lineNumber := uint64(0)
+
+	for {
+		lineImage, err := rawData.ReadSlice(da.DumpConfiguration.LineSeparator)
+
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			panic(err)
+		}
+		lineImage = bytes.TrimSuffix(lineImage, []byte{da.DumpConfiguration.LineSeparator})
+		lineImage = bytes.TrimSuffix(lineImage, x0D)
+		lineImageLen := len(lineImage)
+
+		line := make([]byte, lineImageLen, lineImageLen)
+		copy(line, lineImage)
+		//line := lineImage
+		lineNumber++
+
+		metadataColumnCount := len(source.Columns)
+
+		lineColumns := bytes.Split(line, []byte{da.DumpConfiguration.FieldSeparator})
+		lineColumnCount := len(lineColumns)
+		if metadataColumnCount != lineColumnCount {
+			panic(fmt.Sprintf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+				lineNumber,
+				metadataColumnCount,
+				lineColumnCount,
+			))
+		}
+
+
+		for columnIndex := range source.Columns {
+			if lineNumber == 1 {
+				if columnIndex == 0 {
+					statsChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
+					//storeChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
+				}
+				statsChan := make(ColumnDataChannelType,100)
+				statsChans = append(statsChans,statsChan)
+				storeChan := make(ColumnDataChannelType,100)
+
+				goBusy.Add(2)
+				go func(cnin,chout ColumnDataChannelType) {
+					for iVal := range cnin {
+						da.collectDataStats(iVal)
+						//storeChans[index] <- iVal
+						chout <-iVal
+					}
+					goBusy.Done()
+					//close(storeChans[index])
+					close(chout)
+				}(statsChan,storeChan)
+				go func(chin ColumnDataChannelType) {
+					transactionCount := uint64(0)
+					//ticker := uint64(0)
+					for iVal := range chin {
+						//tracelog.Info(packageName,funcName,"%v,%v",iVal.column,transactionCount)
+						/*ticker++
+						if ticker > 10000 {
+							ticker = 0
+							tracelog.Info(packageName,funcName,"10000 for column %v",iVal.column)
+						}*/
+						iVal.column.bucketLock.Lock()
+						da.storeData(iVal)
+						iVal.column.bucketLock.Unlock()
+						transactionCount++
+						if transactionCount>da.TransactionCountLimit {
+							//tracelog.Info(packageName,funcName,"Intermediate commit for column %v",iVal.column)
+							iVal.column.bucketLock.Lock()
+							iVal.column.CloseStorageTransaction(true)
+							iVal.column.bucketLock.Unlock()
+							transactionCount = 0
+						}
+					}
+					goBusy.Done()
+				}(storeChan)
+			}
+			statsChans[columnIndex] <- &ColumnDataType{
+				column:     source.Columns[columnIndex],
+				bValue:     lineColumns[columnIndex],
+				lineNumber: lineNumber,
+			}
+			//<-out
+
+			/*out <-columnDataType{
+				column:     source.Columns[columnIndex],
+				bValue:     lineColumns[columnIndex],
+				lineNumber: lineNumber,
+			}*/
+		}
+	}
+
+	if statsChans != nil {
+		for index := range statsChans {
+			close(statsChans[index])
+		}
+		statsChans = nil
+	}
+	goBusy.Wait()
+	for index := range source.Columns {
+		source.Columns[index].bucketLock.Lock()
+		source.Columns[index].CloseStorageTransaction(true)
+		source.Columns[index].CloseStorage()
+		source.Columns[index].bucketLock.Unlock()
+	}
+	tracelog.Info(packageName,funcName,"Finish processing table %v",source)
 }
 
-func (da *DataAccessType) CollectDataStats(val *ColumnDataType) {
+
+func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 //	funcName := "DataAccessType.CollectDataStats"
 //	tracelog.Started(packageName,funcName)
 	column := val.column
@@ -1452,10 +1434,14 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 
 */
 func (da DataAccessType) LoadStorage() {
-	tableChannel := scm.NewChannel();
-	done := scm.NewChannel();
-
-	go da.ReadTableDumpData(tableChannel,done);
+	var goBusy sync.WaitGroup
+	tableСhannel := make(TableInfoTypeChannel)
+	goProcess :=  func (chin TableInfoTypeChannel) {
+		for ti := range chin {
+			da.readTableDump(ti)
+		}
+		goBusy.Done()
+	}
 	err := H2.CreateDataCategoryTable()
 	if err != nil {
 		panic(err)
@@ -1470,23 +1456,25 @@ func (da DataAccessType) LoadStorage() {
 	if err != nil {
 		panic(err)
 	}
+	for i:=0;i<3;i++ {
+		goBusy.Add(1)
+		go goProcess(tableСhannel)
+	}
 
 	tables,err := H2.TableInfoByMetadata(mtd1)
 	for _,tableInfo := range tables {
 		//if tableInfo.Id.Value() == int64(268) {
-		tableChannel <- scm.NewMessage().Put(tableInfo)
+		tableСhannel <- tableInfo
 		//}
 	}
 	tables,err = H2.TableInfoByMetadata(mtd2)
 	for _,tableInfo := range tables {
 		//if tableInfo.Id.Value() == int64(291) {
-		tableChannel <- scm.NewMessage().Put(tableInfo)
+		tableСhannel <- tableInfo
 		//}
 	}
-
-	close(tableChannel)
-
-	<-done
+	close(tableСhannel)
+	goBusy.Wait()
 	for _,t := range tables {
 		for _,c := range t.Columns {
 			err = H2.SaveColumnCategory(c)

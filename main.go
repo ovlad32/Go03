@@ -39,8 +39,8 @@ func init() {
 }
 func main() {
 	start := time.Now()
-	runtime.GOMAXPROCS(16)
-	//runtime.NumCPU()
+	runtime.GOMAXPROCS(runtime.NumCPU())
+	//
 
 	/*router := mux.NewRouter()
 	router.HandleFunc("/databaseConfigurations/",controller.GetDC)
@@ -58,7 +58,7 @@ func main() {
 			LineSeparator:10,
 		},
 		SubHashByteLengthThreshold: 6,
-		TransactionCountLimit:1000*500,
+		TransactionCountLimit:1000*50,
 		ColumnBucketsCache:utils.New(50),
 
 	}
