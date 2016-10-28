@@ -828,17 +828,6 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 		//TODO: switch to real file offset to column value instead of lineNumber
 		utils.UInt64ToB8(val.lineNumber),
 	)
-	/*transactionCount++
-	if transactionCount >= da.TransactionCountLimit {
-		tracelog.Info(packageName,funcName,"Сommit %v txs",transactionCount)
-		err = storageTx.Commit()
-		if err != nil {
-			panic(err)
-		}
-		storageTx = nil
-		transactionCount = 0
-		val.column.TableInfo.ResetBuckets()
-	} */
 }
 
 /*
@@ -973,151 +962,53 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 }*/
 
-type ColumnPairType struct {
-	dataCategory      []byte
-	column1           *ColumnInfoType
-	column2           *ColumnInfoType
-	IntersectionCount uint64
-	dataBucketName    []byte
-	storage           *bolt.DB
-	currentTx         *bolt.Tx
-	hashBucket        *bolt.Bucket
-}
 
-func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
-	funcName := "ColumnPairType.OpenStorage"
-	if cp.column1 == nil || cp.column2 == nil ||
-		!cp.column1.Id.Valid() || !cp.column2.Id.Valid() {
-		err = ColumnInfoNotInitialized
-		tracelog.Error(err, packageName, funcName)
-		return
+func (da DataAccessType) makeColumnPairs(metadata1,metadata2 MetadataType, stage string) {
+	tables1, err := H2.TableInfoByMetadata(metadata1)
+
+
+	if err != nil {
+		panic(err)
+	}
+	tables2, err := H2.TableInfoByMetadata(metadata2)
+	if err != nil {
+		panic(err)
 	}
 
-	if cp.storage == nil {
-		path := "./DBS"
-		err = os.MkdirAll(path, 0600)
-		if err != nil {
-			tracelog.Error(err, packageName, funcName)
-			return
-		}
-		file := fmt.Sprintf("%v/%v-%v.boltdb", path, cp.column1.Id.Value(), cp.column2.Id.Value())
-
-		cp.storage, err = bolt.Open(file, 0600, nil)
-		if err != nil {
-			tracelog.Error(err, packageName, funcName)
-			return
-		}
-		if cp.storage == nil {
-			tracelog.Warning(packageName, funcName, "Storage has not been created for pair id=[%v,%v]", cp.column1.Id, cp.column2.Id)
-			return
-		}
-	}
-
-	if cp.currentTx == nil {
-		cp.currentTx, err = cp.storage.Begin(writable)
-		if err != nil {
-			tracelog.Error(err, packageName, funcName)
-			return err
-		}
-		if cp.currentTx == nil {
-			tracelog.Warning(packageName, funcName, "Transaction has not been opened for pair id=[%v,%v]", cp.column1.Id, cp.column2.Id)
-			return
-		}
-	}
-	categoryBucket := cp.currentTx.Bucket(cp.dataCategory)
-	if categoryBucket == nil {
-		if cp.currentTx.Writable() {
-			categoryBucket, err = categoryBucket.CreateBucket(cp.dataCategory)
-			if err != nil {
-				tracelog.Error(err, packageName, funcName)
-				return
+	for _,table1 := range tables1 {
+		for _,column1 := range table1.Columns {
+			err = column1.OpenStorage(false)
+			if err!=nil {
+				panic(err)
 			}
-			if cp.hashBucket == nil {
-				err = errors.New("DataCategory bucket has not been created for pair...")
-				tracelog.Error(err, packageName, funcName)
-				return
-			}
-		}
-	}
+			for _, table2 := range tables2 {
+				for _,column2 := range table2.Columns {
+					err = column2.OpenStorage(false)
+					if err != nil {
+						panic(err)
+					}
 
-	if cp.hashBucket == nil {
-		cp.hashBucket = categoryBucket.Bucket(cp.dataBucketName)
-		if cp.hashBucket == nil {
-			if cp.currentTx.Writable() {
-				cp.hashBucket, err = categoryBucket.CreateBucket(cp.dataBucketName)
-				if err != nil {
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-				if cp.hashBucket == nil {
-					err = errors.New("Hash bucket has not been created for pair...")
-					tracelog.Error(err, packageName, funcName)
-					return
+					column1.categoriesBucket.ForEach(
+						func(dataCategory,v []byte) error {
+							if column2.categoriesBucket.Bucket(dataCategory) != nil {
+								dataCategoryCopy := make([]byte,len(dataCategory))
+								copy(dataCategoryCopy, dataCategory)
+								var pair, err = NewColumnPair(column1, column2, dataCategoryCopy)
+								if err != nil {
+									panic(err)
+								}
+								pair.OpenStorage(true)
+
+							}
+							return nil
+						} ,
+					)
 				}
 			}
 		}
 	}
-	tracelog.Completed(packageName, funcName)
-	return
 }
-
-func (cp *ColumnPairType) CloseStorage(commit bool) (err error) {
-	funcName := "ColumnPairType.CommitStorageTransaction"
-	if cp.currentTx != nil {
-		if commit {
-			err = cp.currentTx.Commit()
-		} else {
-			err = cp.currentTx.Rollback()
-		}
-		if err != nil {
-			tracelog.Error(err, packageName, funcName)
-			return
-		}
-		cp.currentTx = nil
-		cp.hashBucket = nil
-	}
-	tracelog.Completed(packageName, funcName)
-	return
-}
-
-func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (result *ColumnPairType, err error) {
-	funcName := "NewColumnPair"
-	if column1 == nil || column2 == nil ||
-		!column1.Id.Valid() || !column2.Id.Valid() {
-		err = ColumnInfoNotInitialized
-		tracelog.Error(err, packageName, funcName)
-		return
-	}
-	if dataCategory == nil {
-		err = errors.New("DataCategory is empty!")
-		tracelog.Error(err, packageName, funcName)
-		return
-	}
-	result = &ColumnPairType{
-		dataCategory: dataCategory,
-	}
-	if column1.Id.Value() < column2.Id.Value() {
-		result.column1 = column1
-		result.column2 = column2
-	} else {
-		result.column2 = column1
-		result.column1 = column2
-	}
-
-	result.dataBucketName = make([]byte, 8*2, 8*2)
-	b81 := utils.Int64ToB8(result.column1.Id.Value())
-	copy(result.dataBucketName, b81)
-
-	b82 := utils.Int64ToB8(result.column2.Id.Value())
-	copy(result.dataBucketName[8:], b82)
-
-	tracelog.Completed(packageName, funcName)
-	return
-}
-
-func (da DataAccessType) makepairs(mtd1,mtd2 MetadataType) {
-
-}
+/*
 func (da DataAccessType) BuildDataBitsetIntersections() {
 	md1 := raw.GetN(0).(*MetadataType)
 	md2 := raw.GetN(1).(*MetadataType)
