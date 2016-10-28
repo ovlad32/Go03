@@ -7,14 +7,14 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
+	"github.com/goinggo/tracelog"
 	"hash/fnv"
 	"io"
 	"os"
 	"strings"
-	"errors"
-	"github.com/goinggo/tracelog"
 	"sync"
 )
 
@@ -49,19 +49,19 @@ func trailingZeroes64(v uint64) uint64 {
 }
 
 type DataAccessType struct {
-	DumpConfiguration     DumpConfigurationType
-	ColumnBucketsCache *utils.Cache
-	TransactionCountLimit uint64
+	DumpConfiguration          DumpConfigurationType
+	ColumnBucketsCache         *utils.Cache
+	TransactionCountLimit      uint64
 	SubHashByteLengthThreshold int
 }
 
 type ColumnDataType struct {
-	column     *ColumnInfoType
+	column       *ColumnInfoType
 	dataCategory *ColumnDataCategoryStatsType
-	lineNumber uint64
-	bValue     []byte
+	lineNumber   uint64
+	bValue       []byte
 }
-type ColumnDataChannelType chan *ColumnDataType;
+type ColumnDataChannelType chan *ColumnDataType
 
 /*
 func (c columnDataType) buildDataCategory() (result []byte, bLen uint16) {
@@ -240,15 +240,15 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 	return
 }*/
 
-func (da  *DataAccessType) readTableDump(source *TableInfoType) {
+func (da *DataAccessType) readTableDump(source *TableInfoType) {
 	funcName := "DataAccessType.ReadTableDumpData"
 
 	var x0D = []byte{0x0D}
 
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
-	var statsChans/*,storeChans */[]ColumnDataChannelType;
+	var statsChans /*,storeChans */ []ColumnDataChannelType
 	var goBusy sync.WaitGroup
-	tracelog.Info(packageName,funcName,"Start processing table %v",source)
+	tracelog.Info(packageName, funcName, "Start processing table %v", source)
 
 	gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + source.PathToFile.Value())
 	if err != nil {
@@ -297,28 +297,27 @@ func (da  *DataAccessType) readTableDump(source *TableInfoType) {
 			))
 		}
 
-
 		for columnIndex := range source.Columns {
 			if lineNumber == 1 {
 				if columnIndex == 0 {
-					statsChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
+					statsChans = make([]ColumnDataChannelType, 0, metadataColumnCount)
 					//storeChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
 				}
-				statsChan := make(ColumnDataChannelType,100)
-				statsChans = append(statsChans,statsChan)
-				storeChan := make(ColumnDataChannelType,100)
+				statsChan := make(ColumnDataChannelType, 100)
+				statsChans = append(statsChans, statsChan)
+				storeChan := make(ColumnDataChannelType, 100)
 
 				goBusy.Add(2)
-				go func(cnin,chout ColumnDataChannelType) {
+				go func(cnin, chout ColumnDataChannelType) {
 					for iVal := range cnin {
 						da.collectDataStats(iVal)
 						//storeChans[index] <- iVal
-						chout <-iVal
+						chout <- iVal
 					}
 					goBusy.Done()
 					//close(storeChans[index])
 					close(chout)
-				}(statsChan,storeChan)
+				}(statsChan, storeChan)
 				go func(chin ColumnDataChannelType) {
 					transactionCount := uint64(0)
 					//ticker := uint64(0)
@@ -333,7 +332,7 @@ func (da  *DataAccessType) readTableDump(source *TableInfoType) {
 						da.storeData(iVal)
 						iVal.column.bucketLock.Unlock()
 						transactionCount++
-						if transactionCount>da.TransactionCountLimit {
+						if transactionCount > da.TransactionCountLimit {
 							//tracelog.Info(packageName,funcName,"Intermediate commit for column %v",iVal.column)
 							iVal.column.bucketLock.Lock()
 							iVal.column.CloseStorageTransaction(true)
@@ -372,15 +371,14 @@ func (da  *DataAccessType) readTableDump(source *TableInfoType) {
 		source.Columns[index].CloseStorage()
 		source.Columns[index].bucketLock.Unlock()
 	}
-	tracelog.Info(packageName,funcName,"Finish processing table %v",source)
+	tracelog.Info(packageName, funcName, "Finish processing table %v", source)
 }
 
-
 func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
-//	funcName := "DataAccessType.CollectDataStats"
-//	tracelog.Started(packageName,funcName)
+	//	funcName := "DataAccessType.CollectDataStats"
+	//	tracelog.Started(packageName,funcName)
 	column := val.column
-//	tracelog.Info(packageName,funcName,"Collecting statistics for line %v of column %v[%v]...",val.lineNumber,column,column.Id)
+	//	tracelog.Info(packageName,funcName,"Collecting statistics for line %v of column %v[%v]...",val.lineNumber,column,column.Id)
 	byteLength := len(val.bValue)
 	if byteLength == 0 {
 		if !column.NullCount.Valid() {
@@ -393,13 +391,13 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 
 	sValue := string(val.bValue)
 	var err error
-	var nValue     float64
-	var fpScale    int
+	var nValue float64
+	var fpScale int
 	var isNegative bool
 
 	isSubHash := byteLength > da.SubHashByteLengthThreshold
 	//nValue, err = strconv.ParseFloat(sValue, 64)
-	nValue =float64(0)
+	nValue = float64(0)
 	isNumeric := err == nil
 
 	if isNumeric {
@@ -438,9 +436,9 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 	bSubHash := uint8(0)
 	if isSubHash {
 
-		for _,bChar := range val.bValue{
-			if bChar>0 {
-				bSubHash = ((uint8(37) * bSubHash) + uint8(bChar)) & 0xff;
+		for _, bChar := range val.bValue {
+			if bChar > 0 {
+				bSubHash = ((uint8(37) * bSubHash) + uint8(bChar)) & 0xff
 			}
 		}
 	}
@@ -453,7 +451,6 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 	}
 	val.bStatsStdv = uint8(math.Sqrt(bSum))
 	*/
-
 
 	if !column.MaxStringValue.Valid() || column.MaxStringValue.Value() < sValue {
 		column.MaxStringValue = jsnull.NewNullString(sValue)
@@ -509,16 +506,16 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 			IsNegative:         jsnull.NewNullBool(isNegative),
 			NonNullCount:       jsnull.NewNullInt64(int64(0)),
 			HashUniqueCount:    jsnull.NewNullInt64(int64(0)),
-			IsSubHash:jsnull.NewNullBool(isSubHash),
-			SubHash:jsnull.NewNullInt64(int64(bSubHash)),
+			IsSubHash:          jsnull.NewNullBool(isSubHash),
+			SubHash:            jsnull.NewNullInt64(int64(bSubHash)),
 		}
-	//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] created",found,column,column.Id)
+		//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] created",found,column,column.Id)
 		if column.DataCategories == nil {
 			column.DataCategories = make([]*ColumnDataCategoryStatsType, 0, 2)
 		}
 		column.DataCategories = append(column.DataCategories, found)
 	} else {
-	//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] found",found,column,column.Id)
+		//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] found",found,column,column.Id)
 	}
 	val.dataCategory = found
 	(*found.NonNullCount.Reference())++
@@ -544,10 +541,11 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 			(*found.MinNumericValue.Reference()) = nValue
 		}
 	}
-//	tracelog.Info(packageName,funcName,"Statistics for line %v of column %v[%v] collected",val.lineNumber,column,column.Id)
-//	tracelog.Completed(packageName,funcName)
+	//	tracelog.Info(packageName,funcName,"Statistics for line %v of column %v[%v] collected",val.lineNumber,column,column.Id)
+	//	tracelog.Completed(packageName,funcName)
 
 }
+
 /*
 func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelType) {
 	for raw := range in {
@@ -726,8 +724,8 @@ func (da DataAccessType) CollectMinMaxStats(in scm.ChannelType, out scm.ChannelT
            - hash/value (b)
             - row#/position (k/v)
 */
-func(da *DataAccessType) storeData(val *ColumnDataType) {
-//	funcName := "DataAccessType.storeData"
+func (da *DataAccessType) storeData(val *ColumnDataType) {
+	//	funcName := "DataAccessType.storeData"
 	bLen := uint16(len(val.bValue))
 	if bLen == 0 || val.dataCategory == nil {
 		return
@@ -782,7 +780,7 @@ func(da *DataAccessType) storeData(val *ColumnDataType) {
 	if val.dataCategory.CategoryBucket == nil {
 		panic("Category bucket has not been created!")
 	}
-	if val.dataCategory.HashValuesBucket== nil {
+	if val.dataCategory.HashValuesBucket == nil {
 		panic("HashValues bucket has not been created!")
 	}
 	if val.dataCategory.HashStatsBucket == nil {
@@ -975,15 +973,15 @@ func (da DataAccessType) SplitDataToBuckets(in scm.ChannelType, out scm.ChannelT
 
 }*/
 
-type ColumnPairType struct{
-	dataCategory []byte
-	column1 *ColumnInfoType
-	column2 *ColumnInfoType
+type ColumnPairType struct {
+	dataCategory      []byte
+	column1           *ColumnInfoType
+	column2           *ColumnInfoType
 	IntersectionCount uint64
-	dataBucketName []byte
-	storage *bolt.DB
-	currentTx *bolt.Tx
-	hashBucket *bolt.Bucket
+	dataBucketName    []byte
+	storage           *bolt.DB
+	currentTx         *bolt.Tx
+	hashBucket        *bolt.Bucket
 }
 
 func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
@@ -991,38 +989,38 @@ func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 	if cp.column1 == nil || cp.column2 == nil ||
 		!cp.column1.Id.Valid() || !cp.column2.Id.Valid() {
 		err = ColumnInfoNotInitialized
-		tracelog.Error(err,packageName,funcName)
+		tracelog.Error(err, packageName, funcName)
 		return
 	}
 
 	if cp.storage == nil {
 		path := "./DBS"
-		err = os.MkdirAll(path,0600)
+		err = os.MkdirAll(path, 0600)
 		if err != nil {
-			tracelog.Error(err,packageName,funcName)
+			tracelog.Error(err, packageName, funcName)
 			return
 		}
-		file := fmt.Sprintf("%v/%v-%v.boltdb",path,cp.column1.Id.Value(),cp.column2.Id.Value())
+		file := fmt.Sprintf("%v/%v-%v.boltdb", path, cp.column1.Id.Value(), cp.column2.Id.Value())
 
 		cp.storage, err = bolt.Open(file, 0600, nil)
 		if err != nil {
-			tracelog.Error(err,packageName,funcName)
+			tracelog.Error(err, packageName, funcName)
 			return
 		}
 		if cp.storage == nil {
-			tracelog.Warning(packageName,funcName,"Storage has not been created for pair id=[%v,%v]",cp.column1.Id,cp.column2.Id)
+			tracelog.Warning(packageName, funcName, "Storage has not been created for pair id=[%v,%v]", cp.column1.Id, cp.column2.Id)
 			return
 		}
 	}
 
 	if cp.currentTx == nil {
-		cp.currentTx,err = cp.storage.Begin(writable)
+		cp.currentTx, err = cp.storage.Begin(writable)
 		if err != nil {
-			tracelog.Error(err,packageName,funcName)
+			tracelog.Error(err, packageName, funcName)
 			return err
 		}
 		if cp.currentTx == nil {
-			tracelog.Warning(packageName,funcName,"Transaction has not been opened for pair id=[%v,%v]",cp.column1.Id,cp.column2.Id)
+			tracelog.Warning(packageName, funcName, "Transaction has not been opened for pair id=[%v,%v]", cp.column1.Id, cp.column2.Id)
 			return
 		}
 	}
@@ -1059,44 +1057,44 @@ func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 			}
 		}
 	}
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 	return
 }
 
-func(cp *ColumnPairType) CloseStorage(commit bool) (err error){
+func (cp *ColumnPairType) CloseStorage(commit bool) (err error) {
 	funcName := "ColumnPairType.CommitStorageTransaction"
-	if cp.currentTx != nil{
+	if cp.currentTx != nil {
 		if commit {
 			err = cp.currentTx.Commit()
 		} else {
 			err = cp.currentTx.Rollback()
 		}
-		if err!=nil{
-			tracelog.Error(err,packageName, funcName)
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
 			return
 		}
 		cp.currentTx = nil
 		cp.hashBucket = nil
 	}
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 	return
 }
 
-func NewColumnPair(column1,column2 *ColumnInfoType,dataCategory []byte) (result *ColumnPairType,err error) {
+func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (result *ColumnPairType, err error) {
 	funcName := "NewColumnPair"
 	if column1 == nil || column2 == nil ||
 		!column1.Id.Valid() || !column2.Id.Valid() {
 		err = ColumnInfoNotInitialized
-		tracelog.Error(err,packageName,funcName)
+		tracelog.Error(err, packageName, funcName)
 		return
 	}
 	if dataCategory == nil {
 		err = errors.New("DataCategory is empty!")
-		tracelog.Error(err,packageName,funcName)
+		tracelog.Error(err, packageName, funcName)
 		return
 	}
 	result = &ColumnPairType{
-		dataCategory:dataCategory,
+		dataCategory: dataCategory,
 	}
 	if column1.Id.Value() < column2.Id.Value() {
 		result.column1 = column1
@@ -1106,17 +1104,30 @@ func NewColumnPair(column1,column2 *ColumnInfoType,dataCategory []byte) (result 
 		result.column1 = column2
 	}
 
-	result.dataBucketName = make([]byte,8*2,8*2)
+	result.dataBucketName = make([]byte, 8*2, 8*2)
 	b81 := utils.Int64ToB8(result.column1.Id.Value())
-	copy(result.dataBucketName,b81)
+	copy(result.dataBucketName, b81)
 
 	b82 := utils.Int64ToB8(result.column2.Id.Value())
-	copy(result.dataBucketName[8:],b82)
+	copy(result.dataBucketName[8:], b82)
 
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 	return
 }
-/*
+
+func (da DataAccessType) makepairs(mtd1,mtd2 MetadataType) {
+
+}
+func (da DataAccessType) BuildDataBitsetIntersections() {
+	md1 := raw.GetN(0).(*MetadataType)
+	md2 := raw.GetN(1).(*MetadataType)
+
+	//fmt.Println(md1)
+	//fmt.Println(md2)
+	pushPairs(md1,md2,"CHAR")
+	pushPairs(md1,md2,"NUMBER")
+}
+
 func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 	funcName := "DataAccessType.MakePairs"
 
@@ -1234,7 +1245,7 @@ func (da DataAccessType) MakePairs(in, out scm.ChannelType) {
 var  dataIntersectionLabel []byte = []byte("dataIntersection")
 //var  dataIntersectionStatsLabel []byte = []byte("stats")
 var  dataIntersectionHashLabel []byte = []byte("hash")
-*/
+
 /*
 func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 	var storageTx *bolt.Tx
@@ -1436,7 +1447,7 @@ func (da DataAccessType) BuildDataBitsets(in, out scm.ChannelType) {
 func (da DataAccessType) LoadStorage() {
 	var goBusy sync.WaitGroup
 	tableСhannel := make(TableInfoTypeChannel)
-	goProcess :=  func (chin TableInfoTypeChannel) {
+	goProcess := func(chin TableInfoTypeChannel) {
 		for ti := range chin {
 			da.readTableDump(ti)
 		}
@@ -1447,36 +1458,36 @@ func (da DataAccessType) LoadStorage() {
 		panic(err)
 	}
 
-	mtd1,err := H2.MetadataById(jsnull.NewNullInt64(10))
+	mtd1, err := H2.MetadataById(jsnull.NewNullInt64(10))
 	if err != nil {
 		panic(err)
 	}
 
-	mtd2,err := H2.MetadataById(jsnull.NewNullInt64(11))
+	mtd2, err := H2.MetadataById(jsnull.NewNullInt64(11))
 	if err != nil {
 		panic(err)
 	}
-	for i:=0;i<3;i++ {
+	for i := 0; i < 3; i++ {
 		goBusy.Add(1)
 		go goProcess(tableСhannel)
 	}
 
-	tables,err := H2.TableInfoByMetadata(mtd1)
-	for _,tableInfo := range tables {
+	tables, err := H2.TableInfoByMetadata(mtd1)
+	for _, tableInfo := range tables {
 		//if tableInfo.Id.Value() == int64(268) {
 		tableСhannel <- tableInfo
 		//}
 	}
-	tables,err = H2.TableInfoByMetadata(mtd2)
-	for _,tableInfo := range tables {
+	tables, err = H2.TableInfoByMetadata(mtd2)
+	for _, tableInfo := range tables {
 		//if tableInfo.Id.Value() == int64(291) {
 		tableСhannel <- tableInfo
 		//}
 	}
 	close(tableСhannel)
 	goBusy.Wait()
-	for _,t := range tables {
-		for _,c := range t.Columns {
+	for _, t := range tables {
+		for _, c := range t.Columns {
 			err = H2.SaveColumnCategory(c)
 			if err != nil {
 				panic(err)
