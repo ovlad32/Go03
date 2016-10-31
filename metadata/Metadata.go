@@ -8,12 +8,9 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	//_ "github.com/lxn/go-pgsql"
-	"encoding/binary"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
-	"os"
 	"strings"
-	"sync"
 )
 
 var H2 H2Type
@@ -34,10 +31,7 @@ const packageName = "metadata"
 var tablesLabelBucketBytes = []byte("tables")
 var columnsLabelBucketBytes = []byte("columns")
 
-var bitsetBucketBytes = []byte("bitset")
-var hashValuesBucketBytes = []byte("hashValues")
 
-var statsBucketBytes = []byte("stats")
 var hashStatsUnqiueCountBucketBytes = []byte("hashUniqueCount")
 
 func (h2 *H2Type) InitDb() (idb *sql.DB) {

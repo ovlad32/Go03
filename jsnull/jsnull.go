@@ -1,13 +1,13 @@
 package jsnull
 
 import (
-	"encoding/json"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
 
 //-------------------------------------------------------------------------------
-type NullString struct{
+type NullString struct {
 	internal sql.NullString
 }
 
@@ -28,17 +28,14 @@ func (n *NullString) Valid() bool {
 	return n.internal.Valid
 }
 
-
-
-func(v NullString) String() (result string) {
-	if v.Valid() {
-		result  = fmt.Sprintf("'%v'",v.internal.String)
+func (n NullString) String() (result string) {
+	if n.Valid() {
+		result = fmt.Sprintf("%v", n.internal.String)
 	} else {
 		result = "null"
 	}
 	return
 }
-
 
 func (s NullString) MarshalJSON() ([]byte, error) {
 	if s.internal.Valid {
@@ -47,7 +44,6 @@ func (s NullString) MarshalJSON() ([]byte, error) {
 		return json.Marshal(nil)
 	}
 }
-
 
 //-------------------------------------------------------------------------------
 type NullInt64 struct {
@@ -70,20 +66,20 @@ func (n *NullInt64) Value() int64 {
 func (n *NullInt64) Valid() bool {
 	return n.internal.Valid
 }
-func( v NullInt64) String() (string) {
-	if v.Valid() {
-		return fmt.Sprintf("%v",v.internal.Int64)
+func (n NullInt64) String() string {
+	if n.Valid() {
+		return fmt.Sprintf("%v", n.internal.Int64)
 	}
 	return "null"
 }
 
-func(v NullInt64) Reference() *int64 {
-	return &v.internal.Int64
+func (n *NullInt64) Reference() *int64 {
+	return &n.internal.Int64
 }
 
-func (s NullInt64) MarshalJSON() ([]byte, error) {
-	if s.Valid() {
-		return json.Marshal(s.internal.Int64)
+func (n *NullInt64) MarshalJSON() ([]byte, error) {
+	if n.Valid() {
+		return json.Marshal(n.internal.Int64)
 	} else {
 		return json.Marshal(nil)
 	}
@@ -110,20 +106,20 @@ func (n *NullFloat64) Value() float64 {
 func (n *NullFloat64) Valid() bool {
 	return n.internal.Valid
 }
-func( v NullFloat64) String() (string) {
-	if v.Valid() {
-		return fmt.Sprintf("%v",v.internal.Float64)
+func (n NullFloat64) String() string {
+	if n.Valid() {
+		return fmt.Sprintf("%v", n.internal.Float64)
 	}
 	return "null"
 }
 
-func(v NullFloat64) Reference() *float64 {
+func (v *NullFloat64) Reference() *float64 {
 	return &v.internal.Float64
 }
 
-func (s NullFloat64) MarshalJSON() ([]byte, error) {
-	if s.internal.Valid {
-		return json.Marshal(s.internal.Float64)
+func (n NullFloat64) MarshalJSON() ([]byte, error) {
+	if n.internal.Valid {
+		return json.Marshal(n.internal.Float64)
 	} else {
 		return json.Marshal(nil)
 	}
@@ -140,9 +136,9 @@ func NewNullBool(val bool) (result NullBool) {
 	return
 }
 
-func( v NullBool) String() (string) {
-	if v.Valid() {
-		return fmt.Sprintf("%v",v.internal.Bool)
+func (n NullBool) String() string {
+	if n.Valid() {
+		return fmt.Sprintf("%v", n.internal.Bool)
 	}
 	return "null"
 }
@@ -158,16 +154,14 @@ func (n *NullBool) Valid() bool {
 	return n.internal.Valid
 }
 
-func(v NullBool) Reference() *bool {
-	return &v.internal.Bool
+func (n NullBool) Reference() *bool {
+	return &n.internal.Bool
 }
 
-func (s NullBool) MarshalJSON() ([]byte, error) {
-	if s.Valid() {
-		return json.Marshal(s.internal.Bool)
+func (n NullBool) MarshalJSON() ([]byte, error) {
+	if n.Valid() {
+		return json.Marshal(n.internal.Bool)
 	} else {
 		return json.Marshal(nil)
 	}
 }
-
-

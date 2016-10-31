@@ -11,7 +11,8 @@ import (
 
 var columnPairCategoriesBucket = []byte("categories")
 var columnPairStatsBucket = []byte("stats")
-
+var columnPairStatsNonNullCountKey = []byte("nonNullCount")
+var columnPairStatsHashUniqueCountKey = []byte("uniqueHashCount")
 
 type ColumnPairType struct {
 	dataCategory      []byte
@@ -142,7 +143,6 @@ func (cp *ColumnPairType) OpenCategoriesBucket() (err error)  {
 
 		}
 	}
-	result = cp.CategoriesBucket
 	return
 }
 
@@ -166,7 +166,7 @@ func (cp *ColumnPairType) OpenStatsBucket() (err error)  {
 	return
 }
 
-func (cp *ColumnPairType) CurrentCategoryBucket() (result *bolt.Bucket, err error)  {
+func (cp *ColumnPairType) OpenCurrentCategoryBucket() ( err error)  {
 	funcName := "ColumnPairType.OpenCurrentCategoryBucket"
 	cp.CategoryBucket = cp.CategoriesBucket.Bucket(cp.dataCategory)
 	if cp.CategoryBucket == nil {
@@ -183,7 +183,6 @@ func (cp *ColumnPairType) CurrentCategoryBucket() (result *bolt.Bucket, err erro
 			}
 		}
 	}
-	result = cp.CategoryBucket
 	return nil
 }
 

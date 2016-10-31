@@ -12,6 +12,8 @@ import (
 
 var columnInfoCategoriesBucket = []byte("categories")
 var columnInfoStatsBucket = []byte("stats")
+var columnInfoStatsNonNullCountKey = []byte("nonNullCount")
+var columnInfoStatsHashUniqueCountKey = []byte("uniqueHashCount")
 
 type ColumnInfoType struct {
 	Id               jsnull.NullInt64  `json:"column-id"`
@@ -36,7 +38,7 @@ type ColumnInfoType struct {
 	IsAllInteger     jsnull.NullString
 	MinNumericValue  jsnull.NullFloat64
 	MaxNumericValue  jsnull.NullFloat64
-	NullCount        jsnull.NullInt64
+	NonNullCount     jsnull.NullInt64
 	DistinctCount    jsnull.NullInt64
 	TableInfo        *TableInfoType
 	DataCategories   []*ColumnDataCategoryStatsType
@@ -81,6 +83,26 @@ func (ci *ColumnInfoType) ResetBuckets() {
 		}
 	}
 }
+func (ci *ColumnInfoType) CleanStorage() (err error) {
+	bucket := ci.currentTx.Bucket(columnInfoCategoriesBucket);
+	if bucket != nil {
+		err = ci.currentTx.DeleteBucket(columnInfoCategoriesBucket);
+		if err != nil {
+			return
+		}
+	}
+
+	bucket = ci.currentTx.Bucket(columnInfoStatsBucket);
+	if bucket != nil {
+		ci.currentTx.DeleteBucket(columnInfoStatsBucket);
+		if err != nil {
+			return
+		}
+	}
+
+	return
+}
+
 
 func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 	funcName := "ColumnInfoType.Buckets"
@@ -114,6 +136,14 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 		}
 	}
 	//columnBucketIdBytes := utils.Int64ToB8(ci.Id.Value())
+
+
+	tracelog.Completed(packageName, funcName)
+	return
+}
+
+func (ci *ColumnInfoType) OpenCategoriesBucket() (err error) {
+	funcName := "ColumnInfoType.OpenCategoriesBucket"
 	ci.categoriesBucket = ci.currentTx.Bucket(columnInfoCategoriesBucket)
 	if ci.categoriesBucket == nil {
 		if ci.currentTx.Writable() {
@@ -133,6 +163,11 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 			tracelog.Info(packageName, funcName, "Bucket for column id %v data categories has not been created", ci.Id)
 		}
 	}
+	return
+}
+
+func (ci *ColumnInfoType) OpenStatsBucket() (err error) {
+	funcName := "ColumnInfoType.OpenStatsBucket"
 
 	ci.statsBucket = ci.currentTx.Bucket(columnInfoStatsBucket)
 	if ci.statsBucket == nil {
@@ -153,13 +188,11 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 			tracelog.Info(packageName, funcName, "Bucket for column id %v statistics has not been created", ci.Id)
 		}
 	}
-
-	tracelog.Completed(packageName, funcName)
 	return
 }
 
 func (cp *ColumnInfoType) CloseStorageTransaction(commit bool) (err error) {
-	funcName := "ColumnPairType.CloseStorageTransaction"
+	funcName := "ColumnInfoType.CloseStorageTransaction"
 	if cp.currentTx != nil {
 
 		if commit {
