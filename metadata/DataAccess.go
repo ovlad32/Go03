@@ -242,11 +242,11 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 
 func (da *DataAccessType) cleanupColumnStorage(table *TableInfoType) {
 	funcName := "DataAccessType.cleanupColumnStorage"
-	tracelog.Startedf(packageName,funcName," for table %v",table)
-	tracelog.Info(packageName,funcName," for table %v",table)
-	for _,column := range table.Columns {
+	tracelog.Startedf(packageName, funcName, " for table %v", table)
+	tracelog.Info(packageName, funcName, " for table %v", table)
+	for _, column := range table.Columns {
 
-		err := column.OpenStorage(true);
+		err := column.OpenStorage(true)
 		if err != nil {
 			panic(err)
 		}
@@ -260,30 +260,30 @@ func (da *DataAccessType) cleanupColumnStorage(table *TableInfoType) {
 		if err != nil {
 			panic(err)
 		}
-		err = column.CloseStorage();
+		err = column.CloseStorage()
 		if err != nil {
 			panic(err)
 		}
 	}
-	tracelog.Completedf(packageName,funcName," for table %v",)
+	tracelog.Completedf(packageName, funcName, " for table %v")
 }
 
 func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 	funcName := "DataAccessType.updateColumnStats"
-	tracelog.Startedf(packageName,funcName," for table %v",table)
-	tracelog.Info(packageName,funcName," for table %v",table)
+	tracelog.Startedf(packageName, funcName, " for table %v", table)
+	tracelog.Info(packageName, funcName, " for table %v", table)
 
-	for _,column := range table.Columns {
-		err := column.OpenStorage(true);
+	for _, column := range table.Columns {
+		err := column.OpenStorage(true)
 		if err != nil {
 			panic(err)
 		}
 		column.NonNullCount = jsnull.NewNullInt64(0)
 		column.HashUniqueCount = jsnull.NewNullInt64(0)
 		for _, dc := range column.DataCategories {
-			(*column.NonNullCount.Reference()) = (*column.NonNullCount.Reference()) + dc.NonNullCount.Value();
-			(*column.HashUniqueCount.Reference()) = (*column.HashUniqueCount.Reference()) + dc.HashUniqueCount.Value();
-			err = dc.GetOrCreateBucket(nil);
+			(*column.NonNullCount.Reference()) = (*column.NonNullCount.Reference()) + dc.NonNullCount.Value()
+			(*column.HashUniqueCount.Reference()) = (*column.HashUniqueCount.Reference()) + dc.HashUniqueCount.Value()
+			err = dc.GetOrCreateBucket(nil)
 			if err != nil {
 				panic(err)
 			}
@@ -295,9 +295,8 @@ func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 		column.CloseStorageTransaction(true)
 		column.CloseStorage()
 	}
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 }
-
 
 func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 	funcName := "DataAccessType.fillColumnStorage"
@@ -307,7 +306,7 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
 	var statsChans /*,storeChans */ []ColumnDataChannelType
 	var goBusy sync.WaitGroup
-	tracelog.Startedf(packageName,funcName," for table %v",table)
+	tracelog.Startedf(packageName, funcName, " for table %v", table)
 
 	gzfile, err := os.Open(da.DumpConfiguration.DumpBasePath + table.PathToFile.Value())
 	if err != nil {
@@ -599,8 +598,6 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 	//	tracelog.Completed(packageName,funcName)
 }
 
-
-
 /*
   +hashStorageRoot
    -"tables"  (+)
@@ -710,11 +707,10 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	)
 }
 
+func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, stage string) {
+	var emptyValue []byte = make([]byte, 0, 0)
 
-
-func (da DataAccessType) makeColumnPairs(metadata1,metadata2 *MetadataType, stage string) {
 	tables1, err := H2.TableInfoByMetadata(metadata1)
-
 
 	if err != nil {
 		panic(err)
@@ -724,45 +720,80 @@ func (da DataAccessType) makeColumnPairs(metadata1,metadata2 *MetadataType, stag
 		panic(err)
 	}
 
-	for _,table1 := range tables1 {
-		for _,column1 := range table1.Columns {
+	for _, table1 := range tables1 {
+		for _, column1 := range table1.Columns {
 			err = column1.OpenStorage(false)
-			if err!=nil {
+			if err != nil {
 				panic(err)
 			}
+
+			column1.OpenCategoriesBucket()
+			if column1.categoriesBucket == nil {
+				continue
+			}
+
 			for _, table2 := range tables2 {
-				for _,column2 := range table2.Columns {
+				for _, column2 := range table2.Columns {
 					err = column2.OpenStorage(false)
 					if err != nil {
 						panic(err)
 					}
-
+					var pair *ColumnPairType
+					column2.OpenCategoriesBucket()
 					column1.categoriesBucket.ForEach(
-						func(dataCategory,v []byte) error {
+						func(dataCategory, v []byte) error {
+							if column2.categoriesBucket == nil {
+								return nil
+							}
 							if column2.categoriesBucket.Bucket(dataCategory) != nil {
-								dataCategoryCopy := make([]byte,len(dataCategory))
+								dataCategoryCopy := make([]byte, len(dataCategory))
+
 								copy(dataCategoryCopy, dataCategory)
+
 								var pair, err = NewColumnPair(column1, column2, dataCategoryCopy)
 								if err != nil {
 									panic(err)
 								}
-								pair.OpenStorage(true)
-								pair.OpenCategoriesBucket()
-								pair.CategoryBucket = pair.CategoriesBucket.Bucket(pair.dataCategory)
-								if pair.CategoryBucket == nil {
-									pair.CategoryBucket, err  = pair.CategoriesBucket.CreateBucket(pair.dataCategory)
-
+								err = pair.OpenStorage(true)
+								if err != nil {
+									panic(err)
 								}
-								//TODO: Continue here...
+								err = pair.OpenCategoriesBucket()
+								if err != nil {
+									panic(err)
+								}
+								err = pair.OpenCurrentCategoryBucket()
+								if err != nil {
+									panic(err)
+								}
+								err = pair.CategoryBucket.Put(dataCategoryCopy, emptyValue)
+								if err != nil {
+									panic(err)
+								}
+								pair.IntersectionCount++
 							}
 							return nil
-						} ,
+						},
 					)
+					if pair != nil {
+						err = pair.OpenStatsBucket()
+						if err != nil {
+							panic(err)
+						}
+						err = pair.StatsBucket.Put([]byte("intersectionCount"), utils.UInt64ToB8(pair.IntersectionCount))
+						if err != nil {
+							panic(err)
+						}
+						pair.CloseStorageTransaction(true)
+						pair.CloseStorage()
+						fmt.Printf("%v <-%v->%v\n", pair.column1, pair.IntersectionCount, pair.column2)
+					}
 				}
 			}
 		}
 	}
 }
+
 /*
 func (da DataAccessType) BuildDataBitsetIntersections() {
 	md1 := raw.GetN(0).(*MetadataType)
@@ -1104,10 +1135,8 @@ func (da DataAccessType) LoadStorage() {
 		panic(err)
 	}
 
-
-
 	{
-		tableСhannel := make(TableInfoTypeChannel)
+		tableСhannel := make(TableInfoTypeChannel, 10)
 		goProcess := func(chin TableInfoTypeChannel) {
 			for ti := range chin {
 				da.cleanupColumnStorage(ti)
@@ -1140,9 +1169,8 @@ func (da DataAccessType) LoadStorage() {
 
 	}
 
-
 	{
-		tableСhannel := make(TableInfoTypeChannel)
+		tableСhannel := make(TableInfoTypeChannel, 10)
 		goProcess := func(chin TableInfoTypeChannel) {
 			for ti := range chin {
 				da.fillColumnStorage(ti)
@@ -1186,7 +1214,7 @@ func (da DataAccessType) LoadStorage() {
 	}
 
 	{
-		tableСhannel := make(TableInfoTypeChannel)
+		tableСhannel := make(TableInfoTypeChannel, 10)
 		goProcess := func(chin TableInfoTypeChannel) {
 			for ti := range chin {
 				da.updateColumnStats(ti)

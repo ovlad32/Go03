@@ -166,7 +166,7 @@ func (cp *ColumnPairType) OpenStatsBucket() (err error)  {
 	return
 }
 
-func (cp *ColumnPairType) OpenCurrentCategoryBucket() ( err error)  {
+func (cp *ColumnPairType) OpenCurrentCategoryBucket() (err error)  {
 	funcName := "ColumnPairType.OpenCurrentCategoryBucket"
 	cp.CategoryBucket = cp.CategoriesBucket.Bucket(cp.dataCategory)
 	if cp.CategoryBucket == nil {
@@ -183,7 +183,7 @@ func (cp *ColumnPairType) OpenCurrentCategoryBucket() ( err error)  {
 			}
 		}
 	}
-	return nil
+	return
 }
 
 
