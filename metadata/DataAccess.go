@@ -240,9 +240,10 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 	return
 }*/
 
-func (da *DataAccessType) cleanColumnStorage(table *TableInfoType) {
-	funcName := "DataAccessType.cleanColumnStorage"
+func (da *DataAccessType) cleanupColumnStorage(table *TableInfoType) {
+	funcName := "DataAccessType.cleanupColumnStorage"
 	tracelog.Startedf(packageName,funcName," for table %v",table)
+	tracelog.Info(packageName,funcName," for table %v",table)
 	for _,column := range table.Columns {
 
 		err := column.OpenStorage(true);
@@ -270,6 +271,7 @@ func (da *DataAccessType) cleanColumnStorage(table *TableInfoType) {
 func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 	funcName := "DataAccessType.updateColumnStats"
 	tracelog.Startedf(packageName,funcName," for table %v",table)
+	tracelog.Info(packageName,funcName," for table %v",table)
 
 	for _,column := range table.Columns {
 		err := column.OpenStorage(true);
@@ -1108,7 +1110,7 @@ func (da DataAccessType) LoadStorage() {
 		tableСhannel := make(TableInfoTypeChannel)
 		goProcess := func(chin TableInfoTypeChannel) {
 			for ti := range chin {
-				da.cleanColumnStorage(ti)
+				da.cleanupColumnStorage(ti)
 			}
 			goBusy.Done()
 		}
