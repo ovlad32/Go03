@@ -1,10 +1,12 @@
 package metadata
 
 import (
+	jsnull "./../jsnull"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"encoding/binary"
 	"fmt"
+	"errors"
 )
 
 type ColumnDataCategoryStatsType struct {

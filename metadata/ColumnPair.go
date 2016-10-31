@@ -21,9 +21,9 @@ type ColumnPairType struct {
 	dataBucketName    []byte
 	storage           *bolt.DB
 	currentTx         *bolt.Tx
-	categoriesBucket  *bolt.Bucket
-	categoryBucket    *bolt.Bucket
-	statsBucket       *bolt.Bucket
+	CategoriesBucket  *bolt.Bucket
+	CategoryBucket    *bolt.Bucket
+	StatsBucket       *bolt.Bucket
 }
 
 
@@ -124,17 +124,17 @@ func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 	return
 }
 
-func (cp *ColumnPairType) CategoriesBucket() (result *bolt.Bucket, err error)  {
+func (cp *ColumnPairType) OpenCategoriesBucket() (err error)  {
 	funcName := "ColumnPairType.OpenCategoriesBucket"
-	cp.categoriesBucket = cp.currentTx.Bucket(columnPairCategoriesBucket)
-	if cp.categoriesBucket == nil {
+	cp.CategoriesBucket = cp.currentTx.Bucket(columnPairCategoriesBucket)
+	if cp.CategoriesBucket == nil {
 		if cp.currentTx.Writable() {
-			cp.categoriesBucket, err = cp.currentTx.CreateBucket(columnPairCategoriesBucket)
+			cp.CategoriesBucket, err = cp.currentTx.CreateBucket(columnPairCategoriesBucket)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
-			if cp.categoriesBucket == nil {
+			if cp.CategoriesBucket == nil {
 				err = errors.New("Categories bucket has not been created for pair...")
 				tracelog.Error(err, packageName, funcName)
 				return
@@ -142,49 +142,48 @@ func (cp *ColumnPairType) CategoriesBucket() (result *bolt.Bucket, err error)  {
 
 		}
 	}
-	result = cp.categoriesBucket
+	result = cp.CategoriesBucket
 	return
 }
 
-func (cp *ColumnPairType) StatsBucket() (result *bolt.Bucket, err error)  {
+func (cp *ColumnPairType) OpenStatsBucket() (err error)  {
 	funcName := "ColumnPairType.OpenStatsBucket"
-	cp.statsBucket = cp.currentTx.Bucket(columnPairStatsBucket)
-	if cp.statsBucket == nil {
+	cp.StatsBucket = cp.currentTx.Bucket(columnPairStatsBucket)
+	if cp.StatsBucket == nil {
 		if cp.currentTx.Writable() {
-			cp.statsBucket, err = cp.currentTx.CreateBucket(columnPairStatsBucket)
+			cp.StatsBucket, err = cp.currentTx.CreateBucket(columnPairStatsBucket)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
-			if cp.statsBucket == nil {
+			if cp.StatsBucket == nil {
 				err = errors.New("Stats bucket has not been created for pair...")
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
 		}
 	}
-	result = cp.statsBucket
 	return
 }
 
 func (cp *ColumnPairType) CurrentCategoryBucket() (result *bolt.Bucket, err error)  {
 	funcName := "ColumnPairType.OpenCurrentCategoryBucket"
-	cp.categoryBucket = cp.categoriesBucket.Bucket(cp.dataCategory)
-	if cp.categoryBucket == nil {
+	cp.CategoryBucket = cp.CategoriesBucket.Bucket(cp.dataCategory)
+	if cp.CategoryBucket == nil {
 		if cp.currentTx.Writable() {
-			cp.categoryBucket, err = cp.categoriesBucket.CreateBucket(cp.dataCategory)
+			cp.CategoryBucket, err = cp.CategoriesBucket.CreateBucket(cp.dataCategory)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
-			if cp.categoryBucket == nil {
+			if cp.CategoryBucket == nil {
 				err = errors.New("DataCategory bucket has not been created for pair...")
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
 		}
 	}
-	result = cp.categoryBucket
+	result = cp.CategoryBucket
 	return nil
 }
 
@@ -203,9 +202,9 @@ func (cp *ColumnPairType) CloseStorageTransaction(commit bool) (err error) {
 			return
 		}
 		cp.currentTx = nil
-		cp.categoriesBucket = nil
-		cp.categoryBucket = nil
-		cp.statsBucket = nil
+		cp.CategoriesBucket = nil
+		cp.CategoryBucket = nil
+		cp.StatsBucket = nil
 	}
 	tracelog.Completed(packageName, funcName)
 	return

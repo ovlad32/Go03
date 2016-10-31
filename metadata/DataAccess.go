@@ -998,7 +998,8 @@ func (da DataAccessType) makeColumnPairs(metadata1,metadata2 MetadataType, stage
 									panic(err)
 								}
 								pair.OpenStorage(true)
-
+								pair.OpenCategoriesBucket()
+								//TODO: Continue here...
 							}
 							return nil
 						} ,
