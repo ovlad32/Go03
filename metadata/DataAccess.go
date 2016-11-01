@@ -710,6 +710,151 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, stage string) {
 	var emptyValue []byte = make([]byte, 0, 0)
 
+
+
+	processPair := func(column1, column2 *ColumnInfoType) {
+		var pair *ColumnPairType
+		var err error
+
+		column1.categoriesBucket.ForEach(
+			func(dataCategory, v []byte) error {
+				if column2.categoriesBucket == nil {
+					return nil
+				}
+				if column2.categoriesBucket.Bucket(dataCategory) != nil {
+
+					dataCategoryCopy := make([]byte, len(dataCategory))
+					//fmt.Println("%v",dataCategory)
+					copy(dataCategoryCopy, dataCategory)
+
+					dc1 := ColumnDataCategoryStatsType{Column:column1}
+					dc2 := ColumnDataCategoryStatsType{Column:column2}
+					dc1.GetOrCreateBucket(dataCategoryCopy)
+					dc2.GetOrCreateBucket(dataCategoryCopy)
+					if dc1.BitsetBucket == nil && dc2.BitsetBucket == nil {
+						return nil
+					}
+					if pair == nil {
+						pair, err = NewColumnPair(column1, column2, dataCategoryCopy)
+						if err != nil {
+							panic(err)
+						}
+						err = pair.OpenStorage(true)
+						if err != nil {
+							panic(err)
+						}
+						err = pair.OpenCategoriesBucket()
+						if err != nil {
+							panic(err)
+						}
+					}
+					pair.CategoryBucket = nil
+					var uqCnt1,uqCnt2 uint64
+					if dc1.StatsBucket != nil {
+						uqCnt1,_ = utils.B8ToUInt64(dc1.StatsBucket.Get(columnInfoStatsHashUniqueCountKey))
+						//fmt.Println(uqCnt1)
+					}
+					if dc2.StatsBucket != nil {
+						uqCnt2,_ = utils.B8ToUInt64(dc2.StatsBucket.Get(columnInfoStatsHashUniqueCountKey))
+						//fmt.Println(uqCnt2)
+					}
+					if uqCnt1 > uqCnt2 {
+						dc2,dc1 = dc1,dc2
+					}
+
+					dc1.BitsetBucket.ForEach(
+						func(base, offset1 []byte) error {
+							offset2 := dc2.BitsetBucket.Get(base)
+							if offset2 == nil {
+								return nil
+							}
+							baseUInt, _ := utils.B8ToUInt64(base)
+
+							var offsetIntersection utils.B8Type
+							for index := range offset1 {
+								offsetIntersection[index] = offset1[index] & offset2[index]
+							}
+							intersection, _ := utils.B8ToUInt64(offsetIntersection[:])
+
+							prod := baseUInt * wordSize
+							rsh := uint64(0)
+							prev := uint64(0)
+							for {
+								w := intersection >> rsh
+								if w == 0 {
+									break
+								}
+								result := rsh + trailingZeroes64(w) + prod
+								if result != prev {
+									if pair.CategoryBucket == nil {
+										err = pair.OpenCurrentCategoryBucket()
+										if err != nil {
+											panic(err)
+										}
+									}
+
+									pair.IntersectionCount++
+									hashB8 := utils.UInt64ToB8(result)
+									err = pair.CategoryBucket.Put(hashB8, emptyValue)
+									if err != nil {
+										panic(err)
+									}
+									prev = result
+
+								}
+								rsh++
+							}
+
+							return nil
+						},
+					)
+
+
+					/*err = pair.OpenCurrentCategoryBucket()
+				if err != nil {
+					panic(err)
+				}
+
+
+				err = pair.CategoryBucket.Put(dataCategoryCopy, emptyValue)
+				if err != nil {
+					panic(err)
+				}
+				pair.IntersectionCount++*/
+				}
+				return nil
+			},
+		)
+		if pair != nil && pair.IntersectionCount > 0 {
+			err = pair.OpenStatsBucket()
+			if err != nil {
+				panic(err)
+			}
+			err = pair.StatsBucket.Put([]byte("intersectionCount"), utils.UInt64ToB8(pair.IntersectionCount))
+			if err != nil {
+				panic(err)
+			}
+			pair.CloseStorageTransaction(true)
+			pair.CloseStorage()
+			fmt.Printf("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
+		}
+	}
+
+	var goBusy sync.WaitGroup
+	type chinType chan [2]*ColumnInfoType
+	var pairChannel = make(chinType, 10)
+
+	for index := 0; index<3; index ++ {
+		goBusy.Add(1)
+		go func(chin chinType) {
+			for pair := range chin {
+				processPair(pair[0],pair[1])
+			}
+		}(pairChannel)
+		goBusy.Done()
+	}
+
+
 	tables1, err := H2.TableInfoByMetadata(metadata1)
 
 	if err != nil {
@@ -722,6 +867,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 	for _, table1 := range tables1 {
 		for _, column1 := range table1.Columns {
+//			fmt.Printf("-1- %v:\n",column1)
 			err = column1.OpenStorage(false)
 			if err != nil {
 				panic(err)
@@ -731,64 +877,58 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 			if column1.categoriesBucket == nil {
 				continue
 			}
-
+			column1.OpenStatsBucket()
 			for _, table2 := range tables2 {
 				for _, column2 := range table2.Columns {
+					//fmt.Printf("-2- %v\n",column2)
 					err = column2.OpenStorage(false)
 					if err != nil {
 						panic(err)
 					}
-					var pair *ColumnPairType
 					column2.OpenCategoriesBucket()
-					column1.categoriesBucket.ForEach(
-						func(dataCategory, v []byte) error {
-							if column2.categoriesBucket == nil {
-								return nil
-							}
-							if column2.categoriesBucket.Bucket(dataCategory) != nil {
-								dataCategoryCopy := make([]byte, len(dataCategory))
-
-								copy(dataCategoryCopy, dataCategory)
-
-								var pair, err = NewColumnPair(column1, column2, dataCategoryCopy)
-								if err != nil {
-									panic(err)
-								}
-								err = pair.OpenStorage(true)
-								if err != nil {
-									panic(err)
-								}
-								err = pair.OpenCategoriesBucket()
-								if err != nil {
-									panic(err)
-								}
-								err = pair.OpenCurrentCategoryBucket()
-								if err != nil {
-									panic(err)
-								}
-								err = pair.CategoryBucket.Put(dataCategoryCopy, emptyValue)
-								if err != nil {
-									panic(err)
-								}
-								pair.IntersectionCount++
-							}
-							return nil
-						},
-					)
-					if pair != nil {
-						err = pair.OpenStatsBucket()
-						if err != nil {
-							panic(err)
-						}
-						err = pair.StatsBucket.Put([]byte("intersectionCount"), utils.UInt64ToB8(pair.IntersectionCount))
-						if err != nil {
-							panic(err)
-						}
-						pair.CloseStorageTransaction(true)
-						pair.CloseStorage()
-						fmt.Printf("%v <-%v->%v\n", pair.column1, pair.IntersectionCount, pair.column2)
+					if column2.categoriesBucket == nil {
+						continue
 					}
+					column2.OpenStatsBucket()
+					var pair [2]*ColumnInfoType;
+					var uqCnt1,uqCnt2 uint64
+					if column1.statsBucket != nil {
+						uqCnt1, _ = utils.B8ToUInt64(column1.statsBucket.Get(columnInfoStatsHashUniqueCountKey))
+						fmt.Println(uqCnt1)
+
+					}
+					if column2.statsBucket != nil {
+						uqCnt2,_ = utils.B8ToUInt64(column2.statsBucket.Get(columnInfoStatsHashUniqueCountKey))
+						fmt.Println(uqCnt2)
+					}
+
+					if uqCnt1<uqCnt2 {
+						pair[0] = column1
+						pair[1] = column2
+					} else{
+						pair[0] = column2
+						pair[1] = column1
+					}
+
+					pairChannel <- pair
+
 				}
+			}
+		}
+	}
+	close(pairChannel)
+
+	for _, table1 := range tables1 {
+		for _, column1 := range table1.Columns {
+			if column1.storage != nil{
+				column1.CloseStorage()
+			}
+		}
+	}
+	for _, table2 := range tables2 {
+		for _, column2 := range table2.Columns {
+			if column2.storage != nil{
+				column2.CloseStorage()
 			}
 		}
 	}

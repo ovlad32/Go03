@@ -160,7 +160,7 @@ func (ci *ColumnInfoType) OpenCategoriesBucket() (err error) {
 				tracelog.Info(packageName, funcName, "Bucket for column id %v data categories created", ci.Id)
 			}
 		} else {
-			tracelog.Info(packageName, funcName, "Bucket for column id %v data categories has not been created", ci.Id)
+			//tracelog.Info(packageName, funcName, "Bucket for column id %v data categories has not been created", ci.Id)
 		}
 	}
 	return
@@ -185,7 +185,7 @@ func (ci *ColumnInfoType) OpenStatsBucket() (err error) {
 				tracelog.Info(packageName, funcName, "Bucket for column id %v statistics created", ci.Id)
 			}
 		} else {
-			tracelog.Info(packageName, funcName, "Bucket for column id %v statistics has not been created", ci.Id)
+			//tracelog.Info(packageName, funcName, "Bucket for column id %v statistics has not been created", ci.Id)
 		}
 	}
 	return
@@ -225,7 +225,9 @@ func (cp *ColumnInfoType) CloseStorage() (err error) {
 	cp.ResetBuckets()
 	if cp.storage != nil {
 		cp.storage.Close()
+		cp.storage = nil
 	}
+
 	tracelog.Completed(packageName, funcName)
 	return
 }

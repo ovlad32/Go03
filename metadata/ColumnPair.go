@@ -214,6 +214,7 @@ func (cp *ColumnPairType) CloseStorage() (err error) {
 	cp.CloseStorageTransaction(false)
 	if cp.storage != nil {
 		cp.storage.Close()
+		cp.storage = nil
 	}
 	tracelog.Completed(packageName, funcName)
 	return

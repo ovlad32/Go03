@@ -37,6 +37,16 @@ type ColumnDataCategoryStatsType struct {
 	HashValuesBucket   *bolt.Bucket
 }
 
+func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
+	result = &ColumnDataCategoryStatsType{}
+	if err = result.PopulateFromBytes(k); err != nil {
+		return nil, err
+	}
+	return
+}
+
+
+
 func (cdc *ColumnDataCategoryStatsType) ConvertToBytes() (result []byte, err error) {
 	funcName := "ColumnDataCategoryStatsType.DataCategoryBytes"
 	tracelog.Started(packageName, funcName)
@@ -155,7 +165,7 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []by
 					tracelog.Error(err, packageName, funcName)
 					return
 				} else {
-					tracelog.Info(packageName, funcName, "Bucket for column id %v and category %v created", cdc.Column.Id, dataCategoryBytes)
+					//tracelog.Info(packageName, funcName, "Bucket for column id %v and category %v created", cdc.Column.Id, dataCategoryBytes)
 				}
 			}
 		}
@@ -234,13 +244,6 @@ func (cdc ColumnDataCategoryStatsType) String() (result string) {
 	return
 }
 
-func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
-	result = &ColumnDataCategoryStatsType{}
-	if err = result.PopulateFromBytes(k); err != nil {
-		return nil, err
-	}
-	return
-}
 
 func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
 	kLen := len(k)
