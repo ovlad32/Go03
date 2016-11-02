@@ -10,9 +10,9 @@ import (
 )
 
 
-var columnDataCategoryBitsetBucket = []byte("bitset")
-var columnDataCategoryHashBucket = []byte("hash")
-var columnDataCategoryStatsBucket = []byte("stats")
+
+
+
 
 
 
@@ -35,6 +35,9 @@ type ColumnDataCategoryStatsType struct {
 	BitsetBucket       *bolt.Bucket
 	StatsBucket        *bolt.Bucket
 	HashValuesBucket   *bolt.Bucket
+	CurrentHashBucket  *bolt.Bucket
+	HashSourceBucket   *bolt.Bucket
+	HashStatsBucket    *bolt.Bucket
 }
 
 func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
@@ -118,10 +121,14 @@ func (cdc *ColumnDataCategoryStatsType) ResetBuckets() {
 	cdc.BitsetBucket = nil
 	cdc.StatsBucket = nil
 	cdc.HashValuesBucket = nil
+	cdc.CurrentHashBucket = nil
+	cdc.HashSourceBucket = nil
+	cdc.HashStatsBucket = nil
+
 }
 
-func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []byte) (err error) {
-	funcName := "ColumnDataCategoryStatsType.GetOrCreateBuckets"
+func (cdc *ColumnDataCategoryStatsType) OpenBucket(dataCategoryBytes []byte) (newInstance bool, err error) {
+	funcName := "ColumnDataCategoryStatsType.OpenBucket"
 	tracelog.Started(packageName, funcName)
 	if cdc == nil {
 		tracelog.Alert("!!", packageName, funcName, "")
@@ -149,7 +156,6 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []by
 		return
 	}
 
-
 	if cdc.CategoryBucket == nil {
 
 		cdc.CategoryBucket = cdc.Column.categoriesBucket.Bucket(dataCategoryBytes)
@@ -165,57 +171,122 @@ func (cdc *ColumnDataCategoryStatsType) GetOrCreateBucket(dataCategoryBytes []by
 					tracelog.Error(err, packageName, funcName)
 					return
 				} else {
+					newInstance = true
 					//tracelog.Info(packageName, funcName, "Bucket for column id %v and category %v created", cdc.Column.Id, dataCategoryBytes)
 				}
 			}
 		}
+	}
+	return
+}
 
-		cdc.BitsetBucket = cdc.CategoryBucket.Bucket(columnDataCategoryBitsetBucket)
-		if cdc.BitsetBucket == nil {
-			if cdc.Column.currentTx.Writable() {
-				cdc.BitsetBucket, err = cdc.CategoryBucket.CreateBucket(columnDataCategoryBitsetBucket)
-				if err != nil {
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-			}
-			if cdc.BitsetBucket == nil {
+func (cdc *ColumnDataCategoryStatsType) OpenBitsetBucket() (err error) {
+	funcName := "ColumnDataCategoryStatsType.OpenBitsetBucket"
+	tracelog.Started(packageName, funcName)
+	cdc.BitsetBucket = cdc.CategoryBucket.Bucket(columnInfoCategoryBitsetBucket)
+	if cdc.BitsetBucket == nil {
+		if cdc.Column.currentTx.Writable() {
+			cdc.BitsetBucket, err = cdc.CategoryBucket.CreateBucket(columnInfoCategoryBitsetBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
 				return
 			}
 		}
+	}
+	return
+}
 
-		cdc.HashValuesBucket = cdc.CategoryBucket.Bucket(columnDataCategoryHashBucket)
-		if cdc.HashValuesBucket == nil {
-			if cdc.Column.currentTx.Writable() {
-				cdc.HashValuesBucket, err = cdc.CategoryBucket.CreateBucket(columnDataCategoryHashBucket)
-				if err != nil {
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-			}
-			if cdc.HashValuesBucket == nil {
-				return
-			}
-		}
-
-		cdc.StatsBucket = cdc.CategoryBucket.Bucket(columnDataCategoryStatsBucket)
-		if cdc.StatsBucket == nil {
-			if cdc.Column.currentTx.Writable() {
-				cdc.StatsBucket, err = cdc.CategoryBucket.CreateBucket(columnDataCategoryStatsBucket)
-				if err != nil {
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-			}
-			if cdc.StatsBucket == nil {
+func (cdc *ColumnDataCategoryStatsType) OpenHashValuesBucket() (err error) {
+	funcName := "ColumnDataCategoryStatsType.OpenHashValuesBucket"
+	tracelog.Started(packageName, funcName)
+	cdc.HashValuesBucket = cdc.CategoryBucket.Bucket(columnInfoCategoryHashBucket)
+	if cdc.HashValuesBucket == nil {
+		if cdc.Column.currentTx.Writable() {
+			cdc.HashValuesBucket, err = cdc.CategoryBucket.CreateBucket(columnInfoCategoryHashBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
 				return
 			}
 		}
 	}
 	tracelog.Completed(packageName, funcName)
 	return
-
 }
+
+func (cdc *ColumnDataCategoryStatsType) OpenHashBucket(hashCode []byte) (newInstance bool, err error) {
+	funcName := "ColumnDataCategoryStatsType.OpenHashBucket"
+	tracelog.Started(packageName, funcName)
+	cdc.CurrentHashBucket = cdc.HashValuesBucket.Bucket(hashCode)
+	if cdc.CurrentHashBucket == nil {
+		if cdc.Column.currentTx.Writable() {
+			cdc.CurrentHashBucket, err = cdc.HashValuesBucket.CreateBucket(hashCode)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+			if cdc.CurrentHashBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v and hash value %v. Got empty value", cdc.Column.Id, hashCode))
+				tracelog.Error(err, packageName, funcName)
+			} else {
+				newInstance = true
+			}
+		}
+	}
+	tracelog.Completed(packageName, funcName)
+	return
+}
+
+func (cdc *ColumnDataCategoryStatsType) OpenHashSourceBucket() (err error) {
+	funcName := "ColumnDataCategoryStatsType.OpenHashSourceBucket"
+	tracelog.Started(packageName, funcName)
+	cdc.HashSourceBucket = cdc.CurrentHashBucket.Bucket(columnInfoCategoryHashSourceBucket)
+	if cdc.HashSourceBucket == nil {
+		if cdc.Column.currentTx.Writable() {
+			cdc.HashSourceBucket, err = cdc.CurrentHashBucket.CreateBucket(columnInfoCategoryHashSourceBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+		}
+	}
+	tracelog.Completed(packageName, funcName)
+	return
+}
+
+func (cdc *ColumnDataCategoryStatsType) OpenHashStatsBucket() (err error) {
+	funcName := "ColumnDataCategoryStatsType.OpenHashStatsBucket"
+	tracelog.Started(packageName, funcName)
+	cdc.HashStatsBucket = cdc.CurrentHashBucket.Bucket(columnInfoCategoryHashSourceBucket)
+	if cdc.HashStatsBucket == nil {
+		if cdc.Column.currentTx.Writable() {
+			cdc.HashStatsBucket, err = cdc.CurrentHashBucket.CreateBucket(columnInfoCategoryHashStatsBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+		}
+	}
+	tracelog.Completed(packageName, funcName)
+	return
+}
+
+func (cdc *ColumnDataCategoryStatsType) OpenStatsBucket() (err error) {
+	funcName := "ColumnDataCategoryStatsType.OpenStatsBucket"
+	tracelog.Started(packageName, funcName)
+	cdc.StatsBucket = cdc.CategoryBucket.Bucket(columnInfoCategoryStatsBucket)
+	if cdc.StatsBucket == nil {
+		if cdc.Column.currentTx.Writable() {
+			cdc.StatsBucket, err = cdc.CategoryBucket.CreateBucket(columnInfoCategoryStatsBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+		}
+	}
+	tracelog.Completed(packageName, funcName)
+	return
+}
+
 func (cdc ColumnDataCategoryStatsType) String() (result string) {
 	if !cdc.IsNumeric.Value() {
 		result = fmt.Sprintf("char[%v]", cdc.ByteLength.Value())
@@ -264,7 +335,7 @@ func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
 		}
 	} else {
 		ci.IsNegative = jsnull.NewNullBool(((k[0] >> 0) & 0x01) > 0)
-		isFp := (k[0]>>1)&0x01 == 0
+		isFp := ( k[0] >>1 ) & 0x01 == 0
 		if isFp {
 			ci.FloatingPointScale = jsnull.NewNullInt64(int64(k[3]))
 			ci.IsSubHash = jsnull.NewNullBool(kLen > 4)

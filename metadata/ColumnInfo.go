@@ -10,10 +10,27 @@ import (
 	"sync"
 )
 
+
 var columnInfoCategoriesBucket = []byte("categories")
+
+var columnInfoCategoryHashBucket = []byte("hash")
+var columnInfoCategoryHashSourceBucket = []byte("source")
+var columnInfoCategoryHashStatsBucket = []byte("stats")
+
+var columnInfoCategoryBitsetBucket = []byte("bitset")
+
+var columnInfoCategoryStatsBucket = []byte("stats")
+var columnInfoCategoryStatsRowCountKey = []byte("rowCount")
+var columnInfoCategoryStatsNonNullCountKey = []byte("nonNullCount")
+var columnInfoCategoryStatsHashUniqueCountKey = []byte("uniqueHashCount")
+
+
 var columnInfoStatsBucket = []byte("stats")
+var columnInfoStatsCategoryCountKey = []byte("categoryCount")
 var columnInfoStatsNonNullCountKey = []byte("nonNullCount")
 var columnInfoStatsHashUniqueCountKey = []byte("uniqueHashCount")
+
+
 
 type ColumnInfoType struct {
 	Id               jsnull.NullInt64  `json:"column-id"`
@@ -49,6 +66,7 @@ type ColumnInfoType struct {
 	categoriesBucket *bolt.Bucket
 	statsBucket      *bolt.Bucket
 }
+
 
 func (c ColumnInfoType) String() string {
 	var result string
@@ -157,7 +175,7 @@ func (ci *ColumnInfoType) OpenCategoriesBucket() (err error) {
 				tracelog.Error(err, packageName, funcName)
 				return
 			} else {
-				tracelog.Info(packageName, funcName, "Bucket for column id %v data categories created", ci.Id)
+				//tracelog.Info(packageName, funcName, "Bucket for column id %v data categories created", ci.Id)
 			}
 		} else {
 			//tracelog.Info(packageName, funcName, "Bucket for column id %v data categories has not been created", ci.Id)
@@ -182,7 +200,7 @@ func (ci *ColumnInfoType) OpenStatsBucket() (err error) {
 				tracelog.Error(err, packageName, funcName)
 				return
 			} else {
-				tracelog.Info(packageName, funcName, "Bucket for column id %v statistics created", ci.Id)
+				//tracelog.Info(packageName, funcName, "Bucket for column id %v statistics created", ci.Id)
 			}
 		} else {
 			//tracelog.Info(packageName, funcName, "Bucket for column id %v statistics has not been created", ci.Id)

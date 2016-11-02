@@ -15,7 +15,7 @@ import (
 	"github.com/goinggo/tracelog"
 )
 
-var recreate bool = false
+var recreate bool = true
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -38,6 +38,8 @@ func init() {
 */
 	tracelog.Start(tracelog.LevelInfo)
 }
+
+
 func main() {
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())

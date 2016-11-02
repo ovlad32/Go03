@@ -9,13 +9,13 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"hash/fnv"
 	"io"
 	"os"
 	"strings"
 	"sync"
+	"github.com/boltdb/bolt"
 )
 
 const hashLength = 8
@@ -243,7 +243,6 @@ func(c ColumnInfoType) columnBucketName() (result ColumnBucketNameType) {
 func (da *DataAccessType) cleanupColumnStorage(table *TableInfoType) {
 	funcName := "DataAccessType.cleanupColumnStorage"
 	tracelog.Startedf(packageName, funcName, " for table %v", table)
-	tracelog.Info(packageName, funcName, " for table %v", table)
 	for _, column := range table.Columns {
 
 		err := column.OpenStorage(true)
@@ -271,7 +270,6 @@ func (da *DataAccessType) cleanupColumnStorage(table *TableInfoType) {
 func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 	funcName := "DataAccessType.updateColumnStats"
 	tracelog.Startedf(packageName, funcName, " for table %v", table)
-	tracelog.Info(packageName, funcName, " for table %v", table)
 
 	for _, column := range table.Columns {
 		err := column.OpenStorage(true)
@@ -286,16 +284,56 @@ func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 		for _, dc := range column.DataCategories {
 			nonNullCount = nonNullCount + dc.NonNullCount.Value()
 			hashUniqueCount = hashUniqueCount + dc.HashUniqueCount.Value()
-			err = dc.GetOrCreateBucket(nil)
+
+			_, err = dc.OpenBucket(nil)
 			if err != nil {
 				panic(err)
 			}
-			fmt.Println("dc:",dc.HashUniqueCount.Value())
+
+			err = dc.OpenStatsBucket()
+			if err != nil {
+				panic(err)
+			}
+			err = dc.OpenHashValuesBucket()
+			if err != nil {
+				panic(err)
+			}
+			calcRowCount := func(sourceBucket,statsBucket *bolt.Bucket) {
+				cnt := uint64(0)
+				sourceBucket.ForEach(func(k, v[]byte) error {
+					cnt++; return nil
+				})
+				fmt.Println("KeyN:", cnt)
+				statsBucket.Put(columnInfoCategoryStatsRowCountKey, utils.UInt64ToB8(cnt)[:])
+			}
+			var goBusy sync.WaitGroup
+			buckets := make(chan [2]*bolt.Bucket, 30);
+
+			for index := 0; index < 3; index ++ {
+				go func(chin chan [2]*bolt.Bucket) {
+					for b := range chin {
+						calcRowCount(b[0],b[1])
+					}
+					goBusy.Done()
+				}(buckets)
+			}
+			dc.HashValuesBucket.ForEach(func(hashCode,_ []byte) error {
+				_, err = dc.OpenHashBucket(hashCode)
+				err =  dc.OpenHashSourceBucket()
+				err =  dc.OpenHashStatsBucket()
+				var out [2]*bolt.Bucket;
+				out[0] = dc.HashSourceBucket
+				out[1] = dc.HashStatsBucket
+				buckets <-out
+				return nil
+			})
+			close(buckets)
+			goBusy.Wait()
 			dc.StatsBucket.Put(columnInfoStatsNonNullCountKey, utils.Int64ToB8(dc.NonNullCount.Value())[:])
 			dc.StatsBucket.Put(columnInfoStatsHashUniqueCountKey, utils.Int64ToB8(dc.HashUniqueCount.Value())[:])
 		}
 
-		fmt.Println("col:",hashUniqueCount)
+		//fmt.Println("col:",hashUniqueCount)
 		err = column.OpenStatsBucket()
 		if err != nil {
 			panic(err)
@@ -662,50 +700,63 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 		if err != nil {
 			panic(err)
 		}
-		if val.dataCategory.CategoryBucket == nil {
-			err = val.dataCategory.GetOrCreateBucket(nil)
-			if err != nil {
-				panic(err)
-			}
-		}
-	} else {
-		if val.dataCategory.CategoryBucket == nil {
-			err = val.dataCategory.GetOrCreateBucket(nil)
-			if err != nil {
-				panic(err)
-			}
-		}
 	}
 
-	// -"categories"  (+)
-	//  -category
-	//   "bitset"
-	//
-	// -"stats" (+)
-	// -"columns" (+)
-	//  -columnId (b)
+
 	if val.dataCategory.CategoryBucket == nil {
-		panic("Category bucket has not been created!")
-	}
-	if val.dataCategory.HashValuesBucket == nil {
-		panic("HashValues bucket has not been created!")
-	}
-	if val.dataCategory.StatsBucket == nil {
-		panic("HashStats bucket has not been created!")
-	}
-	if val.dataCategory.BitsetBucket == nil {
-		panic("Bitset bucket has not been created!")
-	}
-
-	var hashBucket *bolt.Bucket
-	hashBucket = val.dataCategory.HashValuesBucket.Bucket(hValue[:])
-	if hashBucket == nil {
-		hashBucket, err = val.dataCategory.HashValuesBucket.CreateBucket(hValue[:])
+		_,err = val.dataCategory.OpenBucket(nil)
 		if err != nil {
 			panic(err)
 		}
+	}
+
+	if val.dataCategory.CategoryBucket == nil {
+		panic("Category bucket has not been created!")
+	}
+
+	err = val.dataCategory.OpenHashValuesBucket()
+	if err != nil {
+		panic(err)
+	}
+
+	newHashValue,err := val.dataCategory.OpenHashBucket(hValue[:])
+	if err != nil {
+		panic(err)
+	}
+	if newHashValue {
 		(*val.dataCategory.HashUniqueCount.Reference())++
 	}
+
+	if val.dataCategory.HashValuesBucket == nil {
+		err = val.dataCategory.OpenHashValuesBucket()
+		if err != nil {
+			panic(err)
+		}
+		if val.dataCategory.HashValuesBucket == nil {
+			panic("HashValues bucket has not been created!")
+		}
+	}
+
+	if val.dataCategory.BitsetBucket == nil {
+		err = val.dataCategory.OpenBitsetBucket()
+		if err != nil {
+			panic(err)
+		}
+		if val.dataCategory.BitsetBucket == nil {
+			panic("Bitset bucket has not been created!")
+		}
+	}
+
+	if val.dataCategory.HashSourceBucket == nil {
+		err = val.dataCategory.OpenHashSourceBucket()
+		if err != nil {
+			panic(err)
+		}
+		if val.dataCategory.HashSourceBucket == nil {
+			panic("HashSource bucket has not been created!")
+		}
+	}
+
 
 	baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(hashUIntValue)
 	baseB8Value := utils.UInt64ToB8(baseUIntValue)
@@ -714,7 +765,7 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	bits = bits | (1 << offsetUIntValue)
 	val.dataCategory.BitsetBucket.Put(baseB8Value, utils.UInt64ToB8(bits))
 
-	hashBucket.Put(
+	val.dataCategory.HashSourceBucket.Put(
 		utils.UInt64ToB8(val.lineNumber),
 		//TODO: switch to real file offset to column value instead of lineNumber
 		utils.UInt64ToB8(val.lineNumber),
@@ -744,8 +795,13 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 					dc1 := ColumnDataCategoryStatsType{Column:column1}
 					dc2 := ColumnDataCategoryStatsType{Column:column2}
-					dc1.GetOrCreateBucket(dataCategoryCopy)
-					dc2.GetOrCreateBucket(dataCategoryCopy)
+
+					dc1.OpenBucket(dataCategoryCopy)
+					dc1.OpenBitsetBucket()
+
+					dc2.OpenBucket(dataCategoryCopy)
+					dc2.OpenBitsetBucket()
+
 					if dc1.BitsetBucket == nil && dc2.BitsetBucket == nil {
 						//column2.bucketLock.Unlock()
 						return nil

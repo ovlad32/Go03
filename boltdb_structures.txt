@@ -1,0 +1,21 @@
+
+<columnInfoId>.bolt.db
+ |
+ |--bucket: "categories"
+ |  |--bucket: <dataCategory> []bytes
+ |     |--bucket: "hashValues"
+ |     |  |--bucket: <hash>
+ |     |     |--bucket: "source"
+ |     |     |  |--key:<rowNumber> (uint64) / value:<fileOffset> (uint64) (todo)
+ |     |     |--bucket:"stats"
+ |     |        |--key:"rowCount" / value:<rowCount> (uint64)
+ |     |--bucket: "bitset"
+ |     |  |-key: base(uint64) / value: offset (uint64)
+ |     |--bucket: "stats"
+ |        |--key: "nonNullCount" / value:<nonNullCount> (uint64)
+ |        |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
+ |--bucket: "stats"
+    |--key: "categoryCount" / value: <categoryCount> (uint64)
+    |--key: "nonNullCount" / value: <nonNullCount> (uint64)
+    |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
+
