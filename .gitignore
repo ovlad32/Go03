@@ -1,4 +1,5 @@
 data/
+DBS/
 *.exe
 HashStorage.*
 .idea/

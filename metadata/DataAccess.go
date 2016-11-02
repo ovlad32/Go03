@@ -278,22 +278,36 @@ func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 		if err != nil {
 			panic(err)
 		}
-		column.NonNullCount = jsnull.NewNullInt64(0)
-		column.HashUniqueCount = jsnull.NewNullInt64(0)
+		err = column.OpenCategoriesBucket()
+		if err != nil {
+			panic(err)
+		}
+		var nonNullCount,hashUniqueCount int64
 		for _, dc := range column.DataCategories {
-			(*column.NonNullCount.Reference()) = (*column.NonNullCount.Reference()) + dc.NonNullCount.Value()
-			(*column.HashUniqueCount.Reference()) = (*column.HashUniqueCount.Reference()) + dc.HashUniqueCount.Value()
+			nonNullCount = nonNullCount + dc.NonNullCount.Value()
+			hashUniqueCount = hashUniqueCount + dc.HashUniqueCount.Value()
 			err = dc.GetOrCreateBucket(nil)
 			if err != nil {
 				panic(err)
 			}
-			dc.StatsBucket.Put(columnInfoStatsNonNullCountKey, utils.Int64ToB8(dc.NonNullCount.Value()))
-			dc.StatsBucket.Put(columnInfoStatsHashUniqueCountKey, utils.Int64ToB8(dc.HashUniqueCount.Value()))
+			fmt.Println("dc:",dc.HashUniqueCount.Value())
+			dc.StatsBucket.Put(columnInfoStatsNonNullCountKey, utils.Int64ToB8(dc.NonNullCount.Value())[:])
+			dc.StatsBucket.Put(columnInfoStatsHashUniqueCountKey, utils.Int64ToB8(dc.HashUniqueCount.Value())[:])
 		}
-		column.statsBucket.Put(columnInfoStatsNonNullCountKey, utils.Int64ToB8(column.NonNullCount.Value()))
-		column.statsBucket.Put(columnInfoStatsHashUniqueCountKey, utils.Int64ToB8(column.HashUniqueCount.Value()))
+
+		fmt.Println("col:",hashUniqueCount)
+		err = column.OpenStatsBucket()
+		if err != nil {
+			panic(err)
+		}
+		column.statsBucket.Put(columnInfoStatsNonNullCountKey, utils.Int64ToB8(nonNullCount)[:])
+		column.statsBucket.Put(columnInfoStatsHashUniqueCountKey, utils.Int64ToB8(hashUniqueCount)[:])
+
 		column.CloseStorageTransaction(true)
 		column.CloseStorage()
+
+		column.NonNullCount = jsnull.NewNullInt64(nonNullCount)
+		column.HashUniqueCount = jsnull.NewNullInt64(hashUniqueCount)
 	}
 	tracelog.Completed(packageName, funcName)
 }
@@ -715,12 +729,13 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 	processPair := func(column1, column2 *ColumnInfoType) {
 		var pair *ColumnPairType
 		var err error
-
+		//column1.bucketLock.Lock()
 		column1.categoriesBucket.ForEach(
 			func(dataCategory, v []byte) error {
 				if column2.categoriesBucket == nil {
 					return nil
 				}
+				//column2.bucketLock.Lock()
 				if column2.categoriesBucket.Bucket(dataCategory) != nil {
 
 					dataCategoryCopy := make([]byte, len(dataCategory))
@@ -732,6 +747,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 					dc1.GetOrCreateBucket(dataCategoryCopy)
 					dc2.GetOrCreateBucket(dataCategoryCopy)
 					if dc1.BitsetBucket == nil && dc2.BitsetBucket == nil {
+						//column2.bucketLock.Unlock()
 						return nil
 					}
 					if pair == nil {
@@ -822,9 +838,11 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 				}
 				pair.IntersectionCount++*/
 				}
+				//column2.bucketLock.Unlock()
 				return nil
 			},
 		)
+		//column1.bucketLock.Unlock()
 		if pair != nil && pair.IntersectionCount > 0 {
 			err = pair.OpenStatsBucket()
 			if err != nil {
@@ -842,9 +860,9 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 	var goBusy sync.WaitGroup
 	type chinType chan [2]*ColumnInfoType
-	var pairChannel = make(chinType, 10)
+	var pairChannel = make(chinType, 20)
 
-	for index := 0; index<3; index ++ {
+	for index := 0; index<5; index ++ {
 		goBusy.Add(1)
 		go func(chin chinType) {
 			for pair := range chin {
@@ -892,14 +910,24 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 					column2.OpenStatsBucket()
 					var pair [2]*ColumnInfoType;
 					var uqCnt1,uqCnt2 uint64
-					if column1.statsBucket != nil {
-						uqCnt1, _ = utils.B8ToUInt64(column1.statsBucket.Get(columnInfoStatsHashUniqueCountKey))
-						fmt.Println(uqCnt1)
+					if !column1.UniqueRowCount.Valid() {
+						if column1.statsBucket != nil {
+							uqCnt1, _ = utils.B8ToUInt64(column1.statsBucket.Get(columnInfoStatsHashUniqueCountKey))
+							//fmt.Println(uqCnt1)
+							column1.UniqueRowCount = jsnull.NewNullInt64(int64(uqCnt1))
+						}
 
+					} else {
+						uqCnt1 = uint64(column1.UniqueRowCount.Value())
 					}
-					if column2.statsBucket != nil {
-						uqCnt2,_ = utils.B8ToUInt64(column2.statsBucket.Get(columnInfoStatsHashUniqueCountKey))
-						fmt.Println(uqCnt2)
+					if !column2.UniqueRowCount.Valid() {
+						if column2.statsBucket != nil {
+							uqCnt2, _ = utils.B8ToUInt64(column2.statsBucket.Get(columnInfoStatsHashUniqueCountKey))
+							//fmt.Println(uqCnt2)
+							column2.UniqueRowCount = jsnull.NewNullInt64(int64(uqCnt2))
+						}
+					} else {
+						uqCnt2 = uint64(column2.UniqueRowCount.Value())
 					}
 
 					if uqCnt1<uqCnt2 {
@@ -917,6 +945,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 		}
 	}
 	close(pairChannel)
+	goBusy.Wait()
 
 	for _, table1 := range tables1 {
 		for _, column1 := range table1.Columns {
@@ -1275,6 +1304,17 @@ func (da DataAccessType) LoadStorage() {
 		panic(err)
 	}
 
+	tables, err := H2.TableInfoByMetadata(mtd1)
+	if err != nil {
+		panic(err)
+	}
+	tables2, err := H2.TableInfoByMetadata(mtd2)
+	if err != nil {
+		panic(err)
+	}
+	tables = append(tables,tables2...)
+
+
 	{
 		tableСhannel := make(TableInfoTypeChannel, 10)
 		goProcess := func(chin TableInfoTypeChannel) {
@@ -1289,18 +1329,8 @@ func (da DataAccessType) LoadStorage() {
 			go goProcess(tableСhannel)
 		}
 
-		tables, err := H2.TableInfoByMetadata(mtd1)
-		if err != nil {
-			panic(err)
-		}
 		for _, tableInfo := range tables {
 			//if tableInfo.Id.Value() == int64(268) {
-			tableСhannel <- tableInfo
-			//}
-		}
-		tables, err = H2.TableInfoByMetadata(mtd2)
-		for _, tableInfo := range tables {
-			//if tableInfo.Id.Value() == int64(291) {
 			tableСhannel <- tableInfo
 			//}
 		}
@@ -1328,15 +1358,8 @@ func (da DataAccessType) LoadStorage() {
 			go goProcess(tableСhannel)
 		}
 
-		tables, err := H2.TableInfoByMetadata(mtd1)
 		for _, tableInfo := range tables {
 			//if tableInfo.Id.Value() == int64(268) {
-			tableСhannel <- tableInfo
-			//}
-		}
-		tables, err = H2.TableInfoByMetadata(mtd2)
-		for _, tableInfo := range tables {
-			//if tableInfo.Id.Value() == int64(291) {
 			tableСhannel <- tableInfo
 			//}
 		}
@@ -1366,6 +1389,13 @@ func (da DataAccessType) LoadStorage() {
 			goBusy.Add(1)
 			go goProcess(tableСhannel)
 		}
+
+		for _, tableInfo := range tables {
+			//if tableInfo.Id.Value() == int64(268) {
+			tableСhannel <- tableInfo
+			//}
+		}
+
 		close(tableСhannel)
 		goBusy.Wait()
 
