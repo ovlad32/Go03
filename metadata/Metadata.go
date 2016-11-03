@@ -274,7 +274,7 @@ func (h2 H2Type) tableInfo(whereFunc func() string) (result []*TableInfoType, er
 func (h2 H2Type) TableInfoByMetadata(metadata *MetadataType) (result []*TableInfoType, err error) {
 	whereFunc := func() string {
 		if metadata != nil && metadata.Id.Valid() {
-			return fmt.Sprintf(" WHERE METADATA_ID = %v", metadata.Id)
+			return fmt.Sprintf(" WHERE METADATA_ID = %v and DUMPED=true", metadata.Id)
 		}
 		return ""
 	}

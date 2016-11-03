@@ -46,6 +46,7 @@ type ColumnInfoType struct {
 	RealDataType     jsnull.NullString `json:"java-data-type"`
 	MinStringValue   jsnull.NullString `json:"min-string-value"`
 	MaxStringValue   jsnull.NullString `json:"max-string-value"`
+	CategoryCount    jsnull.NullInt64
 	HashUniqueCount  jsnull.NullInt64
 	UniqueRowCount   jsnull.NullInt64
 	TotalRowCount    jsnull.NullInt64
@@ -123,7 +124,9 @@ func (ci *ColumnInfoType) CleanStorage() (err error) {
 
 
 func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
-	funcName := "ColumnInfoType.Buckets"
+	funcName := "ColumnInfoType.OpenStorage"
+	tracelog.Started(packageName, funcName)
+
 	if !ci.Id.Valid() {
 		err = ColumnIdNotInitialized
 		return
@@ -211,6 +214,8 @@ func (ci *ColumnInfoType) OpenStatsBucket() (err error) {
 
 func (cp *ColumnInfoType) CloseStorageTransaction(commit bool) (err error) {
 	funcName := "ColumnInfoType.CloseStorageTransaction"
+	tracelog.Started(packageName, funcName)
+
 	if cp.currentTx != nil {
 
 		if commit {
@@ -232,6 +237,8 @@ func (cp *ColumnInfoType) CloseStorageTransaction(commit bool) (err error) {
 
 func (cp *ColumnInfoType) CloseStorage() (err error) {
 	funcName := "ColumnPairType.CloseStorage"
+	tracelog.Started(packageName, funcName)
+
 	if cp.currentTx != nil {
 		err = cp.currentTx.Rollback()
 		if err != nil {
