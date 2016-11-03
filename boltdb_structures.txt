@@ -1,10 +1,14 @@
+/*
+ * ColumnInfo key/value storage
+ *
+ */
 
 <columnInfoId>.bolt.db
  |
  |--bucket: "categories"
  |  |--bucket: <dataCategory> []bytes
  |     |--bucket: "hashValues"
- |     |  |--bucket: <hash>
+ |     |  |--bucket: <hashValue>
  |     |     |--bucket: "source"
  |     |     |  |--key:<rowNumber> (uint64) / value:<fileOffset> (uint64) (todo)
  |     |     |--bucket:"stats"
@@ -19,3 +23,18 @@
     |--key: "nonNullCount" / value: <nonNullCount> (uint64)
     |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
 
+/*
+ * ColumnPair key/value storage
+ *
+ */
+
+<columnInfoId>-<columnInfoId>.bolt.db
+ |--bucket:"categories"
+ |  |--bucket: <dataCategory> []bytes
+ |     |--bucket: "hashValues"
+ |     |  |--bucket: <hashValue>
+ |     |--bucket: "stats"
+ |        |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
+ |--bucket: "stats"
+   |--key: "categoryCount" / value: <categoryCount> (uint64)
+   |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)

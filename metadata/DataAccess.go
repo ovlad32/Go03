@@ -9,7 +9,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	"github.com/boltdb/bolt"
+//	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"hash/fnv"
 	"io"
@@ -299,7 +299,7 @@ func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 				panic(err)
 			}
 			//fmt.Println(column)
-			calcRowCount := func(sourceBucket, statsBucket *bolt.Bucket) {
+			/*calcRowCount := func(sourceBucket, statsBucket *bolt.Bucket) {
 				cnt := uint64(0)
 				sourceBucket.ForEach(func(k, v []byte) error {
 					//	vi,_ := utils.B8ToUInt64(k)
@@ -327,15 +327,15 @@ func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 				//fmt.Println(hashCode)
 				err = dc.OpenHashSourceBucket()
 				err = dc.OpenHashStatsBucket()
-				calcRowCount(dc.HashSourceBucket, dc.HashStatsBucket)
-				/*var out [2]*bolt.Bucket;
+				//calcRowCount(dc.HashSourceBucket, dc.HashStatsBucket)
+				var out [2]*bolt.Bucket;
 				out[0] = dc.HashSourceBucket
 				out[1] = dc.HashStatsBucket
-				buckets <-out*/
+				buckets <-out
 				return nil
 			})
 			close(buckets)
-			goBusy.Wait()
+			goBusy.Wait()*/
 			dc.StatsBucket.Put(columnInfoStatsNonNullCountKey, utils.Int64ToB8(dc.NonNullCount.Value())[:])
 			dc.StatsBucket.Put(columnInfoStatsHashUniqueCountKey, utils.Int64ToB8(dc.HashUniqueCount.Value())[:])
 		}
@@ -778,14 +778,18 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 	processPair := func(column1, column2 *ColumnInfoType) {
 		var pair *ColumnPairType
 		var err error
+		var categoryCount uint64
 		//column1.bucketLock.Lock()
+
 		column1.categoriesBucket.ForEach(
 			func(dataCategory, v []byte) error {
 				if column2.categoriesBucket == nil {
 					return nil
 				}
+
 				//column2.bucketLock.Lock()
 				if column2.categoriesBucket.Bucket(dataCategory) != nil {
+					categoryCount ++
 
 					dataCategoryCopy := make([]byte, len(dataCategory))
 					//fmt.Println("%v",dataCategory)
@@ -837,7 +841,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 					if uqCnt1 > uqCnt2 {
 						dc2, dc1 = dc1, dc2
 					}
-
+					var dataCategoryIntersectionCount uint64
 					dc1.BitsetBucket.ForEach(
 						func(base, offset1 []byte) error {
 							offset2 := dc2.BitsetBucket.Get(base)
@@ -863,12 +867,13 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 								result := rsh + trailingZeroes64(w) + prod
 								if result != prev {
 									if pair.CategoryBucket == nil {
-										err = pair.OpenCurrentCategoryBucket()
+										err = pair.OpenCategoryBucket(dataCategoryCopy)
 										if err != nil {
 											panic(err)
 										}
 									}
 
+									dataCategoryIntersectionCount++
 									pair.IntersectionCount++
 									hashB8 := utils.UInt64ToB8(result)
 									err = pair.CategoryBucket.Put(hashB8, emptyValue)
@@ -884,18 +889,18 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 							return nil
 						},
 					)
+					if pair.CategoryBucket != nil {
+						err = pair.OpenCategoryStatsBucket()
+						if err != nil {
+							panic(err)
+						}
 
-					/*err = pair.OpenCurrentCategoryBucket()
-					if err != nil {
-						panic(err)
+						err = pair.CategoryStatsBucket.Put(columnPairStatsHashUniqueCountKey, utils.UInt64ToB8(dataCategoryIntersectionCount)[:])
+						if err != nil {
+							panic(err)
+						}
 					}
 
-
-					err = pair.CategoryBucket.Put(dataCategoryCopy, emptyValue)
-					if err != nil {
-						panic(err)
-					}
-					pair.IntersectionCount++*/
 				}
 				//column2.bucketLock.Unlock()
 				return nil
@@ -907,14 +912,22 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 			if err != nil {
 				panic(err)
 			}
-			err = pair.StatsBucket.Put([]byte("intersectionCount"), utils.UInt64ToB8(pair.IntersectionCount))
+			err = pair.StatsBucket.Put(columnPairHashUniqueCountKey, utils.UInt64ToB8(pair.IntersectionCount))
 			if err != nil {
 				panic(err)
 			}
+
+			err = pair.StatsBucket.Put(columnPairHashCategoryCountKey, utils.UInt64ToB8(categoryCount))
+			if err != nil {
+				panic(err)
+			}
+
 			pair.CloseStorageTransaction(true)
 			pair.CloseStorage()
 			fmt.Printf("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
+
 		}
+
 	}
 
 	var goBusy sync.WaitGroup

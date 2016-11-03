@@ -1,32 +1,34 @@
 package metadata
 
 import (
-	"github.com/goinggo/tracelog"
-	"github.com/boltdb/bolt"
 	utils "./../utils"
-	"os"
-	"fmt"
 	"errors"
+	"fmt"
+	"github.com/boltdb/bolt"
+	"github.com/goinggo/tracelog"
+	"os"
 )
 
 var columnPairCategoriesBucket = []byte("categories")
 var columnPairStatsBucket = []byte("stats")
-var columnPairStatsNonNullCountKey = []byte("nonNullCount")
+var columnPairCategoryStatsBucket = []byte("stats")
 var columnPairStatsHashUniqueCountKey = []byte("uniqueHashCount")
+var columnPairHashUniqueCountKey = []byte("uniqueHashCount")
+var columnPairHashCategoryCountKey = []byte("categoryCount")
 
 type ColumnPairType struct {
-	dataCategory      []byte
-	column1           *ColumnInfoType
-	column2           *ColumnInfoType
-	IntersectionCount uint64
-	dataBucketName    []byte
-	storage           *bolt.DB
-	currentTx         *bolt.Tx
-	CategoriesBucket  *bolt.Bucket
-	CategoryBucket    *bolt.Bucket
-	StatsBucket       *bolt.Bucket
+	dataCategory        []byte
+	column1             *ColumnInfoType
+	column2             *ColumnInfoType
+	IntersectionCount   uint64
+	dataBucketName      []byte
+	storage             *bolt.DB
+	currentTx           *bolt.Tx
+	CategoriesBucket    *bolt.Bucket
+	CategoryBucket      *bolt.Bucket
+	CategoryStatsBucket *bolt.Bucket
+	StatsBucket         *bolt.Bucket
 }
-
 
 func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (result *ColumnPairType, err error) {
 	funcName := "NewColumnPair"
@@ -125,7 +127,7 @@ func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 	return
 }
 
-func (cp *ColumnPairType) OpenCategoriesBucket() (err error)  {
+func (cp *ColumnPairType) OpenCategoriesBucket() (err error) {
 	funcName := "ColumnPairType.OpenCategoriesBucket"
 	cp.CategoriesBucket = cp.currentTx.Bucket(columnPairCategoriesBucket)
 	if cp.CategoriesBucket == nil {
@@ -146,7 +148,7 @@ func (cp *ColumnPairType) OpenCategoriesBucket() (err error)  {
 	return
 }
 
-func (cp *ColumnPairType) OpenStatsBucket() (err error)  {
+func (cp *ColumnPairType) OpenStatsBucket() (err error) {
 	funcName := "ColumnPairType.OpenStatsBucket"
 	cp.StatsBucket = cp.currentTx.Bucket(columnPairStatsBucket)
 	if cp.StatsBucket == nil {
@@ -166,12 +168,13 @@ func (cp *ColumnPairType) OpenStatsBucket() (err error)  {
 	return
 }
 
-func (cp *ColumnPairType) OpenCurrentCategoryBucket() (err error)  {
-	funcName := "ColumnPairType.OpenCurrentCategoryBucket"
-	cp.CategoryBucket = cp.CategoriesBucket.Bucket(cp.dataCategory)
+func (cp *ColumnPairType) OpenCategoryBucket(dataCategory []byte) (err error) {
+	funcName := "ColumnPairType.OpenCategoryBucket"
+	cp.CategoryBucket = cp.CategoriesBucket.Bucket(dataCategory)
 	if cp.CategoryBucket == nil {
+		cp.CategoryStatsBucket = nil
 		if cp.currentTx.Writable() {
-			cp.CategoryBucket, err = cp.CategoriesBucket.CreateBucket(cp.dataCategory)
+			cp.CategoryBucket, err = cp.CategoriesBucket.CreateBucket(dataCategory)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return
@@ -186,6 +189,25 @@ func (cp *ColumnPairType) OpenCurrentCategoryBucket() (err error)  {
 	return
 }
 
+func (cp *ColumnPairType) OpenCategoryStatsBucket() (err error) {
+	funcName := "ColumnPairType.OpenCategoryStatsBucket"
+	cp.CategoryStatsBucket = cp.CategoryBucket.Bucket(columnPairCategoryStatsBucket)
+	if cp.CategoryStatsBucket == nil {
+		if cp.currentTx.Writable() {
+			cp.CategoryStatsBucket, err = cp.CategoryBucket.CreateBucket(columnPairCategoryStatsBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+			if cp.CategoryBucket == nil {
+				err = errors.New("DataCategory stats bucket has not been created for pair...")
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+		}
+	}
+	return
+}
 
 
 func (cp *ColumnPairType) CloseStorageTransaction(commit bool) (err error) {
