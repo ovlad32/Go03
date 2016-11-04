@@ -7,7 +7,7 @@
  |
  |--bucket: "categories"
  |  |--bucket: <dataCategory> []bytes
- |     |--bucket: "hashValues"
+ |     |--bucket: "hash"
  |     |  |--bucket: <hashValue>
  |     |     |--bucket: "source"
  |     |     |  |--key:<rowNumber> (uint64) / value:<fileOffset> (uint64) (todo)
@@ -31,7 +31,7 @@
 <columnInfoId>-<columnInfoId>.bolt.db
  |--bucket:"categories"
  |  |--bucket: <dataCategory> []bytes
- |     |--bucket: "hashValues"
+ |     |--bucket: "hash"
  |     |  |--bucket: <hashValue>
  |     |--bucket: "stats"
  |        |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
@@ -41,7 +41,7 @@
 
  tableid-tableid
    source
-      key:rownumber/[countPair uint64][colNumSize:uint8]([tab1colpos1][tab2colpos1],
+      key:rownumber/[matchColumnCount uint16][hash][columns][hash][columns]
    stats
       key:"hashUniqueCount"
 

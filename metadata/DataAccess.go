@@ -555,15 +555,6 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 			}
 		}
 	}
-	/*bSum = 0
-	for _,bChar := range val.bValue{
-		if bChar>0 {
-			res := fStatsMean - float64(bChar)
-			bSum = bSum + res*res
-		}
-	}
-	val.bStatsStdv = uint8(math.Sqrt(bSum))
-	*/
 
 	if !column.MaxStringValue.Valid() || column.MaxStringValue.Value() < sValue {
 		column.MaxStringValue = jsnull.NewNullString(sValue)
@@ -586,22 +577,7 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 
 	}
 
-	/*var found *ColumnDataCategoryStatsType
-	for _, category := range column.DataCategories {
-		if category.ByteLength.Value() != int64(byteLength) {
-			continue
-		}
-		if !category.IsNumeric.Value() && !val.isNumeric {
-			found = category
-			break
-		}
-		if category.IsNumeric.Value() == val.isNumeric &&
-			int8(category.FloatingPointScale.Value()) == val.fpScale &&
-			category.IsNegative.Value() == val.isNegative {
-			found = category
-			break
-		}
-	}*/
+
 	found := val.column.FindDataCategory(
 		uint16(byteLength),
 		isNumeric,
@@ -658,21 +634,6 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 	//	tracelog.Completed(packageName,funcName)
 }
 
-/*
-  +hashStorageRoot
-   -"tables"  (+)
-    -tableId (+)
-     -"columns" (+)
-      -columnId (b)
-       -category (b)
-         - "stats" (b)
-            - "hashUniqueCount" / int64
-         - "bitset" (+b)
-            -offset/bit(k/v)
-         - "hashValues" (+b)
-           - hash/value (b)
-            - row#/position (k/v)
-*/
 func (da *DataAccessType) storeData(val *ColumnDataType) {
 	//	funcName := "DataAccessType.storeData"
 	bLen := uint16(len(val.bValue))
@@ -772,7 +733,387 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	)
 }
 
+
+func (da DataAccessType) LoadStorage() {
+
+	var goBusy sync.WaitGroup
+
+	mtd1, err := H2.MetadataById(jsnull.NewNullInt64(10))
+	if err != nil {
+		panic(err)
+	}
+
+	mtd2, err := H2.MetadataById(jsnull.NewNullInt64(11))
+	if err != nil {
+		panic(err)
+	}
+
+	tables, err := H2.TableInfoByMetadata(mtd1)
+	if err != nil {
+		panic(err)
+	}
+	tables2, err := H2.TableInfoByMetadata(mtd2)
+	if err != nil {
+		panic(err)
+	}
+	tables = append(tables, tables2...)
+
+	{
+		tableСhannel := make(TableInfoTypeChannel, 10)
+		goProcess := func(chin TableInfoTypeChannel) {
+			for ti := range chin {
+				da.cleanupColumnStorage(ti)
+			}
+			goBusy.Done()
+		}
+
+		for i := 0; i < 3; i++ {
+			goBusy.Add(1)
+			go goProcess(tableСhannel)
+		}
+
+		for _, tableInfo := range tables {
+			//if tableInfo.Id.Value() == int64(268) {
+			tableСhannel <- tableInfo
+			//}
+		}
+		close(tableСhannel)
+		goBusy.Wait()
+
+	}
+
+	{
+		tableСhannel := make(TableInfoTypeChannel, 10)
+		goProcess := func(chin TableInfoTypeChannel) {
+			for ti := range chin {
+				da.fillColumnStorage(ti)
+			}
+			goBusy.Done()
+		}
+
+		err := H2.CreateDataCategoryTable()
+		if err != nil {
+			panic(err)
+		}
+
+		for i := 0; i < 3; i++ {
+			goBusy.Add(1)
+			go goProcess(tableСhannel)
+		}
+
+		for _, tableInfo := range tables {
+			//if tableInfo.Id.Value() == int64(268) {
+			tableСhannel <- tableInfo
+			//}
+		}
+		close(tableСhannel)
+		goBusy.Wait()
+
+		for _, t := range tables {
+			for _, c := range t.Columns {
+				err = H2.SaveColumnCategory(c)
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
+	}
+
+	{
+		tableСhannel := make(TableInfoTypeChannel, 10)
+		goProcess := func(chin TableInfoTypeChannel) {
+			for ti := range chin {
+				da.updateColumnStats(ti)
+			}
+			goBusy.Done()
+		}
+
+		for i := 0; i < 3; i++ {
+			goBusy.Add(1)
+			go goProcess(tableСhannel)
+		}
+
+		for _, tableInfo := range tables {
+			//if tableInfo.Id.Value() == int64(268) {
+			tableСhannel <- tableInfo
+			//}
+		}
+
+		close(tableСhannel)
+		goBusy.Wait()
+
+	}
+}
+
 func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, stage string) {
+	var emptyValue []byte = make([]byte, 0, 0)
+
+	processPair := func(column1, column2 *ColumnInfoType) {
+		var pair *ColumnPairType
+		var err error
+		var categoryCount uint64
+		//column1.bucketLock.Lock()
+
+		column1.categoriesBucket.ForEach(
+			func(dataCategory, v []byte) error {
+				if column2.categoriesBucket == nil {
+					return nil
+				}
+
+				//column2.bucketLock.Lock()
+				if column2.categoriesBucket.Bucket(dataCategory) != nil {
+					categoryCount ++
+
+					dataCategoryCopy := make([]byte, len(dataCategory))
+					//fmt.Println("%v",dataCategory)
+					copy(dataCategoryCopy, dataCategory)
+
+					dc1 := ColumnDataCategoryStatsType{Column: column1}
+					dc2 := ColumnDataCategoryStatsType{Column: column2}
+
+					dc1.OpenBucket(dataCategoryCopy)
+					dc1.OpenBitsetBucket()
+					dc1.OpenStatsBucket()
+
+					dc2.OpenBucket(dataCategoryCopy)
+					dc2.OpenBitsetBucket()
+					dc2.OpenStatsBucket()
+
+					if dc1.BitsetBucket == nil && dc2.BitsetBucket == nil {
+						//column2.bucketLock.Unlock()
+						return nil
+					}
+					if pair == nil {
+						pair, err = NewColumnPair(column1, column2, dataCategoryCopy)
+						if err != nil {
+							panic(err)
+						}
+						err = pair.OpenStorage(true)
+						if err != nil {
+							panic(err)
+						}
+						err = pair.OpenCategoriesBucket()
+						if err != nil {
+							panic(err)
+						}
+						err = pair.OpenStatsBucket()
+						if err != nil {
+							panic(err)
+						}
+					}
+					pair.CategoryBucket = nil
+					var uqCnt1, uqCnt2 uint64
+					if dc1.StatsBucket != nil {
+						uqCnt1, _ = utils.B8ToUInt64(dc1.StatsBucket.Get(columnInfoStatsHashUniqueCountKey))
+						//fmt.Println(uqCnt1)
+					}
+					if dc2.StatsBucket != nil {
+						uqCnt2, _ = utils.B8ToUInt64(dc2.StatsBucket.Get(columnInfoStatsHashUniqueCountKey))
+						//fmt.Println(uqCnt2)
+					}
+					if uqCnt1 > uqCnt2 {
+						dc2, dc1 = dc1, dc2
+					}
+					var dataCategoryIntersectionCount uint64
+					dc1.BitsetBucket.ForEach(
+						func(base, offset1 []byte) error {
+							offset2 := dc2.BitsetBucket.Get(base)
+							if offset2 == nil {
+								return nil
+							}
+							baseUInt, _ := utils.B8ToUInt64(base)
+
+							var offsetIntersection utils.B8Type
+							for index := range offset1 {
+								offsetIntersection[index] = offset1[index] & offset2[index]
+							}
+							intersection, _ := utils.B8ToUInt64(offsetIntersection[:])
+
+							prod := baseUInt * wordSize
+							rsh := uint64(0)
+							prev := uint64(0)
+							for {
+								w := intersection >> rsh
+								if w == 0 {
+									break
+								}
+								result := rsh + trailingZeroes64(w) + prod
+								if result != prev {
+									if pair.CategoryBucket == nil {
+										err = pair.OpenCategoryBucket(dataCategoryCopy)
+										if err != nil {
+											panic(err)
+										}
+
+										err = pair.OpenCategoryHashBucket()
+										if err != nil {
+											panic(err)
+										}
+									}
+
+									dataCategoryIntersectionCount++
+									pair.IntersectionCount++
+									hashB8 := utils.UInt64ToB8(result)
+									err = pair.CategoryHashBucket.Put(hashB8, emptyValue)
+									if err != nil {
+										panic(err)
+									}
+									prev = result
+
+								}
+								rsh++
+							}
+
+							return nil
+						},
+					)
+					if pair.CategoryBucket != nil {
+						err = pair.OpenCategoryStatsBucket()
+						if err != nil {
+							panic(err)
+						}
+
+						err = pair.CategoryStatsBucket.Put(columnPairStatsHashUniqueCountKey, utils.UInt64ToB8(dataCategoryIntersectionCount)[:])
+						if err != nil {
+							panic(err)
+						}
+					}
+
+				}
+				//column2.bucketLock.Unlock()
+				return nil
+			},
+		)
+		//column1.bucketLock.Unlock()
+		if pair != nil && pair.IntersectionCount > 0 {
+			err = pair.OpenStatsBucket()
+			if err != nil {
+				panic(err)
+			}
+			err = pair.StatsBucket.Put(columnPairHashUniqueCountKey, utils.UInt64ToB8(pair.IntersectionCount))
+			if err != nil {
+				panic(err)
+			}
+
+			err = pair.StatsBucket.Put(columnPairHashCategoryCountKey, utils.UInt64ToB8(categoryCount))
+			if err != nil {
+				panic(err)
+			}
+
+			pair.CloseStorageTransaction(true)
+			pair.CloseStorage()
+			tracelog.Info("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
+
+		}
+
+	}
+
+	var goBusy sync.WaitGroup
+	type chinType chan [2]*ColumnInfoType
+	var pairChannel = make(chinType, 20)
+
+	for index := 0; index < 5; index++ {
+		goBusy.Add(1)
+		go func(chin chinType) {
+			for pair := range chin {
+				processPair(pair[0], pair[1])
+			}
+			goBusy.Done()
+		}(pairChannel)
+	}
+
+	tables1, err := H2.TableInfoByMetadata(metadata1)
+
+	if err != nil {
+		panic(err)
+	}
+	tables2, err := H2.TableInfoByMetadata(metadata2)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, table1 := range tables1 {
+		for _, column1 := range table1.Columns {
+			//			fmt.Printf("-1- %v:\n",column1)
+			err = column1.OpenStorage(false)
+			if err != nil {
+				panic(err)
+			}
+
+			column1.OpenCategoriesBucket()
+			if column1.categoriesBucket == nil {
+				continue
+			}
+			column1.OpenStatsBucket()
+			for _, table2 := range tables2 {
+				for _, column2 := range table2.Columns {
+					//fmt.Printf("-2- %v\n",column2)
+					err = column2.OpenStorage(false)
+					if err != nil {
+						panic(err)
+					}
+					column2.OpenCategoriesBucket()
+					if column2.categoriesBucket == nil {
+						continue
+					}
+					column2.OpenStatsBucket()
+					var pair [2]*ColumnInfoType
+					var catCnt1, catCnt2 uint64
+					if !column1.CategoryCount.Valid() {
+						if column1.statsBucket != nil {
+							catCnt1, _ = utils.B8ToUInt64(column1.statsBucket.Get(columnInfoStatsCategoryCountKey))
+							//fmt.Println(uqCnt1)
+							column1.CategoryCount = jsnull.NewNullInt64(int64(catCnt1))
+						}
+
+					} else {
+						catCnt1 = uint64(column1.UniqueRowCount.Value())
+					}
+					if !column2.CategoryCount.Valid() {
+						if column2.statsBucket != nil {
+							catCnt2, _ = utils.B8ToUInt64(column2.statsBucket.Get(columnInfoStatsCategoryCountKey))
+							//fmt.Println(uqCnt2)
+							column2.CategoryCount = jsnull.NewNullInt64(int64(catCnt2))
+						}
+					} else {
+						catCnt2 = uint64(column2.CategoryCount.Value())
+					}
+
+					if catCnt1 < catCnt2 {
+						pair[0] = column1
+						pair[1] = column2
+					} else {
+						pair[0] = column2
+						pair[1] = column1
+					}
+
+					pairChannel <- pair
+
+				}
+			}
+		}
+	}
+	close(pairChannel)
+	goBusy.Wait()
+
+	for _, table1 := range tables1 {
+		for _, column1 := range table1.Columns {
+			if column1.storage != nil {
+				column1.CloseStorage()
+			}
+		}
+	}
+	for _, table2 := range tables2 {
+		for _, column2 := range table2.Columns {
+			if column2.storage != nil {
+				column2.CloseStorage()
+			}
+		}
+	}
+}
+
+
+func (da DataAccessType) MakeTablePairs((metadata1, metadata2 *MetadataType){
 	var emptyValue []byte = make([]byte, 0, 0)
 
 	processPair := func(column1, column2 *ColumnInfoType) {
@@ -924,7 +1265,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 			pair.CloseStorageTransaction(true)
 			pair.CloseStorage()
-			fmt.Printf("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
+			tracelog.Info("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
 
 		}
 
@@ -956,19 +1297,58 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 	for _, table1 := range tables1 {
 		for _, column1 := range table1.Columns {
-			//			fmt.Printf("-1- %v:\n",column1)
-			err = column1.OpenStorage(false)
-			if err != nil {
-				panic(err)
-			}
-
-			column1.OpenCategoriesBucket()
-			if column1.categoriesBucket == nil {
-				continue
-			}
-			column1.OpenStatsBucket()
 			for _, table2 := range tables2 {
 				for _, column2 := range table2.Columns {
+					pair,_ := NewColumnPair(column1,column2, make([]byte,0))
+					err = pair.OpenStorage(false)
+					if err != nil {
+						panic(err)
+					}
+					if pair.storage == nil {
+						continue
+					}
+					err = pair.column1.OpenStorage(false)
+					if err != nil {
+						panic(err)
+					}
+					err = pair.column2.OpenStorage(false)
+					if err != nil {
+						panic(err)
+					}
+
+					err =  pair.OpenCategoriesBucket();
+					if err != nil {
+						panic(err)
+					}
+					pair.CategoriesBucket.ForEach(
+						func(category,_[]byte) error {
+							pair.OpenCategoryBucket(category)
+							err = pair.column1.OpenCategoriesBucket()
+							err = pair.column2.OpenCategoriesBucket()
+
+							dc1 := ColumnDataCategoryStatsType{Column: column1}
+							dc2 := ColumnDataCategoryStatsType{Column: column2}
+
+							dc1.OpenBucket(category)
+							dc2.OpenBucket(category)
+
+							err = pair.OpenCategoryHashBucket()
+							pair.CategoryHashBucket.ForEach(
+								func(hash,_[]byte) error {
+									dc1.OpenHashBucket(hash)
+									dc2.OpenHashBucket(hash)
+									dc1.HashSourceBucket.ForEach(
+										func(lineBytes[],_[]byte) error {
+											//TODO:
+											return nil
+										}
+									)
+									return nil
+								},
+							)
+							return nil
+						},
+					)
 					//fmt.Printf("-2- %v\n",column2)
 					err = column2.OpenStorage(false)
 					if err != nil {
@@ -1034,113 +1414,3 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 	}
 }
 
-func (da DataAccessType) LoadStorage() {
-
-	var goBusy sync.WaitGroup
-
-	mtd1, err := H2.MetadataById(jsnull.NewNullInt64(10))
-	if err != nil {
-		panic(err)
-	}
-
-	mtd2, err := H2.MetadataById(jsnull.NewNullInt64(11))
-	if err != nil {
-		panic(err)
-	}
-
-	tables, err := H2.TableInfoByMetadata(mtd1)
-	if err != nil {
-		panic(err)
-	}
-	tables2, err := H2.TableInfoByMetadata(mtd2)
-	if err != nil {
-		panic(err)
-	}
-	tables = append(tables, tables2...)
-
-	{
-		tableСhannel := make(TableInfoTypeChannel, 10)
-		goProcess := func(chin TableInfoTypeChannel) {
-			for ti := range chin {
-				da.cleanupColumnStorage(ti)
-			}
-			goBusy.Done()
-		}
-
-		for i := 0; i < 3; i++ {
-			goBusy.Add(1)
-			go goProcess(tableСhannel)
-		}
-
-		for _, tableInfo := range tables {
-			//if tableInfo.Id.Value() == int64(268) {
-			tableСhannel <- tableInfo
-			//}
-		}
-		close(tableСhannel)
-		goBusy.Wait()
-
-	}
-
-	{
-		tableСhannel := make(TableInfoTypeChannel, 10)
-		goProcess := func(chin TableInfoTypeChannel) {
-			for ti := range chin {
-				da.fillColumnStorage(ti)
-			}
-			goBusy.Done()
-		}
-
-		err := H2.CreateDataCategoryTable()
-		if err != nil {
-			panic(err)
-		}
-
-		for i := 0; i < 3; i++ {
-			goBusy.Add(1)
-			go goProcess(tableСhannel)
-		}
-
-		for _, tableInfo := range tables {
-			//if tableInfo.Id.Value() == int64(268) {
-			tableСhannel <- tableInfo
-			//}
-		}
-		close(tableСhannel)
-		goBusy.Wait()
-
-		for _, t := range tables {
-			for _, c := range t.Columns {
-				err = H2.SaveColumnCategory(c)
-				if err != nil {
-					panic(err)
-				}
-			}
-		}
-	}
-
-	{
-		tableСhannel := make(TableInfoTypeChannel, 10)
-		goProcess := func(chin TableInfoTypeChannel) {
-			for ti := range chin {
-				da.updateColumnStats(ti)
-			}
-			goBusy.Done()
-		}
-
-		for i := 0; i < 3; i++ {
-			goBusy.Add(1)
-			go goProcess(tableСhannel)
-		}
-
-		for _, tableInfo := range tables {
-			//if tableInfo.Id.Value() == int64(268) {
-			tableСhannel <- tableInfo
-			//}
-		}
-
-		close(tableСhannel)
-		goBusy.Wait()
-
-	}
-}
