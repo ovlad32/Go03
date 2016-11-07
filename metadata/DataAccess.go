@@ -16,6 +16,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"github.com/cayleygraph/cayley"
+	"github.com/cayleygraph/cayley/quad"
 )
 
 const hashLength = 8
@@ -53,6 +55,7 @@ type DataAccessType struct {
 	ColumnBucketsCache         *utils.Cache
 	TransactionCountLimit      uint64
 	SubHashByteLengthThreshold int
+	Repo *cayley.Handle
 }
 
 type ColumnDataType struct {
@@ -756,6 +759,7 @@ func (da DataAccessType) LoadStorage() {
 	if err != nil {
 		panic(err)
 	}
+	cayley.StartPath(da.Repo,quad.
 	tables = append(tables, tables2...)
 
 	{
@@ -1002,7 +1006,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 			pair.CloseStorageTransaction(true)
 			pair.CloseStorage()
-			tracelog.Info("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
+			fmt.Printf("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
 
 		}
 
@@ -1113,7 +1117,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 }
 
 
-func (da DataAccessType) MakeTablePairs((metadata1, metadata2 *MetadataType){
+func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType){
 	var emptyValue []byte = make([]byte, 0, 0)
 
 	processPair := func(column1, column2 *ColumnInfoType) {
@@ -1265,7 +1269,7 @@ func (da DataAccessType) MakeTablePairs((metadata1, metadata2 *MetadataType){
 
 			pair.CloseStorageTransaction(true)
 			pair.CloseStorage()
-			tracelog.Info("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
+			//tracelog.Info("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, "%v",  pair.column2)
 
 		}
 
@@ -1338,10 +1342,10 @@ func (da DataAccessType) MakeTablePairs((metadata1, metadata2 *MetadataType){
 									dc1.OpenHashBucket(hash)
 									dc2.OpenHashBucket(hash)
 									dc1.HashSourceBucket.ForEach(
-										func(lineBytes[],_[]byte) error {
+										func(lineBytes,_ []byte) error {
 											//TODO:
 											return nil
-										}
+										},
 									)
 									return nil
 								},
@@ -1350,7 +1354,7 @@ func (da DataAccessType) MakeTablePairs((metadata1, metadata2 *MetadataType){
 						},
 					)
 					//fmt.Printf("-2- %v\n",column2)
-					err = column2.OpenStorage(false)
+					/*err = column2.OpenStorage(false)
 					if err != nil {
 						panic(err)
 					}
@@ -1389,7 +1393,7 @@ func (da DataAccessType) MakeTablePairs((metadata1, metadata2 *MetadataType){
 						pair[1] = column1
 					}
 
-					pairChannel <- pair
+					pairChannel <- pair */
 
 				}
 			}

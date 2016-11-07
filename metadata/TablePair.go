@@ -40,7 +40,7 @@ func NewTablePair(table1, table2 * TableInfoType) (result *TablePairType, err er
 	if table1.Id.Value() > table2.Id.Value() {
 		result.table1,result.table2 = result.table2,result.table1
 	}
-	tracelog.Completedf(packageName, funcName,result)
+	tracelog.Completedf(packageName, funcName, "%v",  result)
 	return
 }
 
@@ -56,7 +56,7 @@ func(tp TablePairType) PathToStorage() (pathTo, pathToFileName string, err error
 	if tp.table1 == nil || tp.table2 == nil ||
 		!tp.table1.Id.Valid() || !tp.table2.Id.Valid() {
 		err = ColumnInfoNotInitialized
-		tracelog.Errorf(err, packageName, funcName,tp)
+		tracelog.Errorf(err, packageName,  "%v", funcName,tp)
 		return
 	}
 	pathTo = "./DBT"
@@ -66,16 +66,17 @@ func(tp TablePairType) PathToStorage() (pathTo, pathToFileName string, err error
 
 func (tp *TablePairType) OpenStorage(writable bool) (err error) {
 	funcName := "TablePairType.OpenStorage"
-	tracelog.Startedf(funcName,packageName,tp)
+	tracelog.Startedf(funcName,packageName,  "%v", tp)
+	var path, file string
 	if tp.storage == nil {
-		path, file,err  := tp.PathToStorage()
+		path, file,err = tp.PathToStorage()
 
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return
 		}
 		if !writable {
-			if _, err := os.Stat(file); os.IsNotExist(err) {
+			if _, err = os.Stat(file); os.IsNotExist(err) {
 				return
 			}
 		} else {
@@ -109,7 +110,7 @@ func (tp *TablePairType) OpenStorage(writable bool) (err error) {
 			return
 		}
 	}
- 	tracelog.Completedf(packageName, funcName,tp)
+ 	tracelog.Completedf(packageName, funcName,  "%v", tp)
 	return
 }
 

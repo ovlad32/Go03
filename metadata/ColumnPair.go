@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	utils "./../utils"
+//	utils "./../utils"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
@@ -78,7 +78,7 @@ func(cp ColumnPairType) PathToStorage() (pathTo, pathToFileName string, err erro
 	if cp.column1 == nil || cp.column2 == nil ||
 		!cp.column1.Id.Valid() || !cp.column2.Id.Valid() {
 		err = ColumnInfoNotInitialized
-		tracelog.Errorf(err, packageName, funcName,cp)
+		tracelog.Errorf(err, packageName, funcName, "%v",cp)
 		return
 	}
 	pathTo = "./DBS"
@@ -89,15 +89,16 @@ func(cp ColumnPairType) PathToStorage() (pathTo, pathToFileName string, err erro
 func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 	funcName := "ColumnPairType.OpenStorage"
 	tracelog.Started(funcName,packageName)
+	var path, file string
 	if cp.storage == nil {
-		path, file,err  := cp.PathToStorage()
-
+		path, file, err = cp.PathToStorage()
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return
 		}
+
 		if !writable {
-			if _, err := os.Stat(file); os.IsNotExist(err) {
+			if _, err = os.Stat(file); os.IsNotExist(err) {
 				return
 			}
 		} else {
