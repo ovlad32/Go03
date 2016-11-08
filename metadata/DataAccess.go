@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 	"github.com/cayleygraph/cayley"
-	"github.com/cayleygraph/cayley/quad"
+	"sort"
 )
 
 const hashLength = 8
@@ -655,7 +655,7 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	} else {
 		hValue = make([]byte, hashLength)
 		for index := uint16(0); index < bLen; index++ {
-			hValue[index] = val.bValue[bLen-index-1]
+			hValue[index] = val.bValue[bLen - index - 1]
 		}
 		hashUIntValue, _ = utils.B8ToUInt64(hValue)
 		//fmt.Println("1",val.column,hValue,category)
@@ -711,7 +711,10 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	if err != nil {
 		panic(err)
 	}
-
+	err = val.dataCategory.OpenHashStatsBucket()
+	if err != nil {
+		panic(err)
+	}
 	if val.dataCategory.HashValuesBucket == nil {
 		panic("HashValues bucket has not been created!")
 	}
@@ -729,12 +732,30 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	bits = bits | (1 << offsetUIntValue)
 	val.dataCategory.BitsetBucket.Put(baseB8Value, utils.UInt64ToB8(bits))
 	//fmt.Println(val.column,string(val.bValue),hValue[:],val.lineNumber,utils.UInt64ToB8(val.lineNumber))
+
 	val.dataCategory.HashSourceBucket.Put(
 		utils.UInt64ToB8(val.lineNumber),
 		//TODO: switch to real file offset to column value instead of lineNumber
 		utils.UInt64ToB8(val.lineNumber),
 	)
+
+
+	if hashRowCount,found := utils.B8ToUInt64(val.dataCategory.HashStatsBucket.Get(columnInfoCategoryStatsRowCountKey)); !found {
+		val.dataCategory.HashStatsBucket.Put(
+			columnInfoCategoryStatsRowCountKey,
+			utils.UInt64ToB8(uint64(1)),
+		)
+	} else {
+		val.dataCategory.HashStatsBucket.Put(
+			columnInfoCategoryStatsRowCountKey,
+			utils.UInt64ToB8(hashRowCount+1),
+		)
+	}
+
+
 }
+
+
 
 
 func (da DataAccessType) LoadStorage() {
@@ -759,7 +780,7 @@ func (da DataAccessType) LoadStorage() {
 	if err != nil {
 		panic(err)
 	}
-	cayley.StartPath(da.Repo,quad.
+	//cayley.StartPath(da.Repo,quad.
 	tables = append(tables, tables2...)
 
 	{
@@ -850,14 +871,13 @@ func (da DataAccessType) LoadStorage() {
 }
 
 func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, stage string) {
-	var emptyValue []byte = make([]byte, 0, 0)
+//	var emptyValue []byte = make([]byte, 0, 0)
+	var pairs []*ColumnPairType = make([]*ColumnPairType,0,100)
 
 	processPair := func(column1, column2 *ColumnInfoType) {
 		var pair *ColumnPairType
 		var err error
-		var categoryCount uint64
 		//column1.bucketLock.Lock()
-
 		column1.categoriesBucket.ForEach(
 			func(dataCategory, v []byte) error {
 				if column2.categoriesBucket == nil {
@@ -866,22 +886,23 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 				//column2.bucketLock.Lock()
 				if column2.categoriesBucket.Bucket(dataCategory) != nil {
-					categoryCount ++
 
 					dataCategoryCopy := make([]byte, len(dataCategory))
 					//fmt.Println("%v",dataCategory)
 					copy(dataCategoryCopy, dataCategory)
 
-					dc1 := ColumnDataCategoryStatsType{Column: column1}
+					dc1 := ColumnDataCategoryStatsType{Column: column1,}
 					dc2 := ColumnDataCategoryStatsType{Column: column2}
 
 					dc1.OpenBucket(dataCategoryCopy)
 					dc1.OpenBitsetBucket()
 					dc1.OpenStatsBucket()
+					dc1.OpenHashValuesBucket()
 
 					dc2.OpenBucket(dataCategoryCopy)
 					dc2.OpenBitsetBucket()
 					dc2.OpenStatsBucket()
+					dc2.OpenHashValuesBucket()
 
 					if dc1.BitsetBucket == nil && dc2.BitsetBucket == nil {
 						//column2.bucketLock.Unlock()
@@ -953,15 +974,35 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 										if err != nil {
 											panic(err)
 										}
+										(*pair.CategoryIntersectionCount.Reference())++
 									}
 
-									dataCategoryIntersectionCount++
-									pair.IntersectionCount++
+									(*pair.HashIntersectionCount.Reference())++
 									hashB8 := utils.UInt64ToB8(result)
-									err = pair.CategoryHashBucket.Put(hashB8, emptyValue)
+									hashBucket,err := pair.CategoryHashBucket.CreateBucketIfNotExists(hashB8)
 									if err != nil {
 										panic(err)
 									}
+									dc1.OpenHashBucket(hashB8)
+									dc1.OpenHashStatsBucket()
+									dc2.OpenHashBucket(hashB8)
+									dc2.OpenHashStatsBucket()
+
+									column1RowCountBytes := dc1.HashStatsBucket.Get(columnInfoCategoryStatsRowCountKey)
+									column2RowCountBytes := dc2.HashStatsBucket.Get(columnInfoCategoryStatsRowCountKey)
+
+									if dc1.Column.Id.Value() > dc2.Column.Id.Value() {
+										column1RowCountBytes, column2RowCountBytes = column2RowCountBytes, column1RowCountBytes
+									}
+									hashBucket.Put([]byte("column1RowCount"), column1RowCountBytes)
+									hashBucket.Put([]byte("column2RowCount"), column2RowCountBytes)
+
+									column1RowCount,_ := utils.B8ToUInt64(column1RowCountBytes)
+									column2RowCount,_ := utils.B8ToUInt64(column2RowCountBytes)
+									(*pair.column1RowCount.Reference()) += int64(column1RowCount)
+									(*pair.column2RowCount.Reference()) += int64(column2RowCount)
+
+
 									prev = result
 
 								}
@@ -989,27 +1030,27 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 			},
 		)
 		//column1.bucketLock.Unlock()
-		if pair != nil && pair.IntersectionCount > 0 {
+		if pair != nil && pair.HashIntersectionCount.Value() > 0 {
 			err = pair.OpenStatsBucket()
 			if err != nil {
 				panic(err)
 			}
-			err = pair.StatsBucket.Put(columnPairHashUniqueCountKey, utils.UInt64ToB8(pair.IntersectionCount))
+			err = pair.StatsBucket.Put(columnPairHashUniqueCountKey, utils.Int64ToB8(pair.HashIntersectionCount.Value()))
 			if err != nil {
 				panic(err)
 			}
 
-			err = pair.StatsBucket.Put(columnPairHashCategoryCountKey, utils.UInt64ToB8(categoryCount))
+			err = pair.StatsBucket.Put(columnPairHashCategoryCountKey, utils.Int64ToB8(pair.CategoryIntersectionCount.Value()))
 			if err != nil {
 				panic(err)
 			}
 
 			pair.CloseStorageTransaction(true)
 			pair.CloseStorage()
-			fmt.Printf("%v <-%v-> %v\n", pair.column1, pair.IntersectionCount, pair.column2)
+			pairs = append(pairs,pair)
+			fmt.Printf("%v <-(%v) %v (%v)-> %v\n", pair.column1, pair.column1RowCount.Value(), pair.HashIntersectionCount.Value(), pair.column2RowCount.Value(), pair.column2)
 
 		}
-
 	}
 
 	var goBusy sync.WaitGroup
@@ -1114,10 +1155,16 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 			}
 		}
 	}
+
+	H2.SaveColumnPairs(pairs);
 }
 
+func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 
-func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType){
+
+}
+
+func (da DataAccessType) MakeTablePairs2(metadata1, metadata2 *MetadataType){
 	var emptyValue []byte = make([]byte, 0, 0)
 
 	processPair := func(column1, column2 *ColumnInfoType) {
@@ -1218,8 +1265,8 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType){
 										}
 									}
 
-									dataCategoryIntersectionCount++
-									pair.IntersectionCount++
+									//dataCategoryIntersectionCount++
+									//pair.IntersectionCount++
 									hashB8 := utils.UInt64ToB8(result)
 									err = pair.CategoryBucket.Put(hashB8, emptyValue)
 									if err != nil {
@@ -1252,12 +1299,12 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType){
 			},
 		)
 		//column1.bucketLock.Unlock()
-		if pair != nil && pair.IntersectionCount > 0 {
+		if pair != nil && pair.HashIntersectionCount.Value()> 0 {
 			err = pair.OpenStatsBucket()
 			if err != nil {
 				panic(err)
 			}
-			err = pair.StatsBucket.Put(columnPairHashUniqueCountKey, utils.UInt64ToB8(pair.IntersectionCount))
+			err = pair.StatsBucket.Put(columnPairHashUniqueCountKey, utils.Int64ToB8(pair.HashIntersectionCount.Value()))
 			if err != nil {
 				panic(err)
 			}

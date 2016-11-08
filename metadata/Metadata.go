@@ -730,27 +730,135 @@ func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
 	return
 }
 func (h2 H2Type) CreateDataCategoryTable() (err error) {
+		tx, err := h2.IDb.Begin()
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+		//_, err = tx.Exec("drop table if exists column_datacategory_stats")
+
+		_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
+			" id bigint not null " +
+			", byte_length int not null " +
+			", is_numeric bool not null " +
+			", is_negative bool not null " +
+			", fp_scale int not null " +
+			", non_null_count bigint" +
+			", hash_unique_count bigint" +
+			", min_sval varchar(4000)" +
+			", max_sval varchar(4000)" +
+			", min_fval float" +
+			", max_fval float" +
+			", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_negative, fp_scale) " +
+			" ) ")
+		tx.Commit()
+
+		tx, err = h2.IDb.Begin()
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+		//_, err = tx.Exec("drop table if exists column_datacategory_stats")
+
+		_, err = tx.Exec("create table if not exists column_pair( " +
+			"id integer, "+
+			"column_1_id integer,  "+
+			"column_1_rowcount integer,  "+
+			"column_2_id integer,  "+
+			"column_2_rowcount integer,  "+
+			"category_Intersection_Count integer,  "+
+			"hash_Intersection_Count integer,  "+
+			"status char(1),"+
+			"constraint column_pair_pk primary key (column_1_id,column_2_id) "+
+			")  ");
+		tx.Commit()
+
+
+	return
+}
+
+
+func (h2 H2Type) SaveColumnPairs(pairs []*ColumnPairType) (err error) {
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
-	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
-
-	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
-		" id bigint not null " +
-		", byte_length int not null " +
-		", is_numeric bool not null " +
-		", is_negative bool not null " +
-		", fp_scale int not null " +
-		", non_null_count bigint" +
-		", hash_unique_count bigint" +
-		", min_sval varchar(4000)" +
-		", max_sval varchar(4000)" +
-		", min_fval float" +
-		", max_fval float" +
-		", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_negative, fp_scale) " +
-		" ) ")
+	for _, p := range pairs  {
+		merge := fmt.Sprintf("merge into column_pair("+
+		//" id"+
+			" column_1_id "+
+			", column_2_id"+
+			", column_1_rowcount"+
+			", column_2_rowcount"+
+			", category_intersection_count"+
+			", hash_intersection_count"+
+			", status "+
+			") key (column_1_id, column_2_id) "+
+			" values (%v, %v, %v, %v, %v, %v,'N') ",
+			//column.Id,
+			p.column1.Id,
+			p.column2.Id,
+			p.column1RowCount,
+			p.column2RowCount,
+			p.CategoryIntersectionCount,
+			p.HashIntersectionCount,
+		)
+		_, err = tx.Exec( merge)
+		if err != nil {
+			return
+		}
+	}
 	tx.Commit()
+	return
+}
+
+func (h2 H2Type) columnPairs(whereFunc func() string) (result []*ColumnPairType, err error) {
+
+	tx, err := H2Type.IDb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback();
+	queryText := "select " +
+		"  p.column_1_id" +
+		", p.column_2_id" +
+		", p.column_1_rowcount" +
+		", p.column_2_rowcount" +
+		", p.hash_intersection_count " +
+		" from column_pair p where 1=1 "
+	if whereFunc() != nil{
+		queryText = queryText + whereFunc()
+	}
+
+	queryText = queryText + " order by p.hash_intersection_count desc"
+
+	rows,err := tx.Query(queryText);
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		pair := &ColumnPairType {
+			column1 : &ColumnInfoType{},
+			column2 : &ColumnInfoType{},
+		}
+		err = rows.Scan(
+			pair.column1.Id,
+			pair.column2.Id,
+			pair.column1RowCount,
+			pair.column2RowCount,
+			pair.HashIntersectionCount,
+		)
+
+		if err != nil {
+			return
+		}
+		if result == nil {
+			result = make([]*ColumnPairType,0,10)
+		}
+		result = append(result,pair)
+	}
 	return
 }

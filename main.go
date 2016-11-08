@@ -13,8 +13,6 @@ import (
 	"log"
 
 	"github.com/goinggo/tracelog"
-	"github.com/cayleygraph/cayley"
-
 )
 
 var recreate bool = true
@@ -67,11 +65,11 @@ func main() {
 		ColumnBucketsCache:utils.New(50),
 
 	}
-	var err error
+	/*var err error
 	da.Repo, err = cayley.NewGraph("bolt","./dfd.cayley.db",nil)
 	if err != nil{
 		panic(err)
-	}
+	}*/
 
 	if recreate {
 		da.LoadStorage()

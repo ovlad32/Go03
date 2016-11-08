@@ -33,11 +33,15 @@
  |  |--bucket: <dataCategory> []bytes
  |     |--bucket: "hash"
  |     |  |--bucket: <hashValue>
+ |     |     |--key: "column1RowCount":value<column1RowCount> uint64
+ |     |     |--key: "column2RowCount":value<column2RowCount> uint64
  |     |--bucket: "stats"
  |        |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
  |--bucket: "stats"
    |--key: "categoryCount" / value: <categoryCount> (uint64)
    |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
+//   |--key: "column1RowCount":value<column1RowCount> uint64
+//   |--key: "column2RowCount":value<column2RowCount> uint64
 
  tableid-tableid
    source

@@ -1,7 +1,7 @@
 package metadata
 
 import (
-//	utils "./../utils"
+	jsnull "./../jsnull"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
@@ -21,7 +21,10 @@ type ColumnPairType struct {
 	dataCategory        []byte
 	column1             *ColumnInfoType
 	column2             *ColumnInfoType
-	IntersectionCount   uint64
+	HashIntersectionCount   jsnull.NullInt64
+	CategoryIntersectionCount jsnull.NullInt64
+	column1RowCount     jsnull.NullInt64
+	column2RowCount     jsnull.NullInt64
 	//dataBucketName      []byte
 	storage             *bolt.DB
 	currentTx           *bolt.Tx
@@ -31,6 +34,22 @@ type ColumnPairType struct {
 	CategoryStatsBucket *bolt.Bucket
 	StatsBucket         *bolt.Bucket
 }
+
+type ColumnPairsType []*ColumnPairType;
+
+type byHashCount []*ColumnPairType;
+
+func (v byHashCount) Len() int{
+	return len(v)
+}
+func (v byHashCount) Less(i, j int) bool{
+	return v[i].HashIntersectionCount.Value()> v[j].HashIntersectionCount.Value()
+}
+
+func (v byHashCount) Swap(i, j int)  {
+	v[i], v[j] = v[j], v[i]
+}
+
 
 func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (result *ColumnPairType, err error) {
 	funcName := "NewColumnPair"
@@ -56,6 +75,11 @@ func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (resul
 		result.column2 = column1
 		result.column1 = column2
 	}
+	result.CategoryIntersectionCount = jsnull.NewNullInt64(int64(0))
+	result.HashIntersectionCount = jsnull.NewNullInt64(int64(0))
+	result.column1RowCount = jsnull.NewNullInt64(int64(0))
+	result.column2RowCount = jsnull.NewNullInt64(int64(0))
+
 
 	/*result.dataBucketName = make([]byte, 8*2, 8*2)
 	b81 := utils.Int64ToB8(result.column1.Id.Value())
