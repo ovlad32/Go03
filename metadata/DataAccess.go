@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"github.com/cayleygraph/cayley"
-	"sort"
 )
 
 const hashLength = 8
@@ -1160,6 +1159,42 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 }
 
 func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
+	pairs, err := H2.columnPairs(nil)
+	if err!=nil {
+		panic(err)
+	}
+	pairsToProcess := make(ColumnPairsType,0,10)
+	var table1Id,table2Id *jsnull.NullInt64
+	for _, p := range pairs {
+		p.column1,err  = H2.ColumnInfoById(p.column1.Id)
+		if err!=nil {
+			panic(err)
+		}
+		p.column2,err  = H2.ColumnInfoById(p.column2.Id)
+
+		p.column1.TableInfo,err = H2.TableInfoById(p.column1.TableInfoId)
+		p.column2.TableInfo,err = H2.TableInfoById(p.column2.TableInfoId)
+
+		if err!=nil {
+			panic(err)
+		}
+		if table1Id == nil {
+			table1Id = &p.column1.TableInfoId
+		}
+		if table2Id == nil {
+			table2Id = &p.column2.TableInfoId
+		}
+		if table1Id.Value() == p.column1.TableInfoId.Value() &&
+			table2Id.Value() == p.column2.TableInfoId.Value() {
+			pairsToProcess = append(pairsToProcess, p)
+		}
+	}
+	if len(pairsToProcess)>1 {
+		for _, p := range pairsToProcess {
+			fmt.Printf("%v - %v - %v\n",p.column1, p.HashIntersectionCount, p.column2)
+		}
+
+	}
 
 
 }

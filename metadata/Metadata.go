@@ -331,6 +331,7 @@ func (h2 H2Type) columnInfo(whereFunc func() string) (result []*ColumnInfoType, 
 		" ,TOTAL_ROW_COUNT" +
 		" ,UNIQUE_ROW_COUNT" +
 		" ,HASH_UNIQUE_COUNT" +
+		" ,TABLE_INFO_ID" +
 		" FROM COLUMN_INFO "
 
 	if whereFunc != nil {
@@ -357,6 +358,7 @@ func (h2 H2Type) columnInfo(whereFunc func() string) (result []*ColumnInfoType, 
 			&row.TotalRowCount,
 			&row.UniqueRowCount,
 			&row.HashUniqueCount,
+			&row.TableInfoId,
 		)
 		if err != nil {
 			return
@@ -813,9 +815,9 @@ func (h2 H2Type) SaveColumnPairs(pairs []*ColumnPairType) (err error) {
 	return
 }
 
-func (h2 H2Type) columnPairs(whereFunc func() string) (result []*ColumnPairType, err error) {
+func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, err error) {
 
-	tx, err := H2Type.IDb.Begin()
+	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
 	}
@@ -826,8 +828,8 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result []*ColumnPairType,
 		", p.column_1_rowcount" +
 		", p.column_2_rowcount" +
 		", p.hash_intersection_count " +
-		" from column_pair p where 1=1 "
-	if whereFunc() != nil{
+		" from column_pair p  "
+	if whereFunc != nil{
 		queryText = queryText + whereFunc()
 	}
 
@@ -845,18 +847,18 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result []*ColumnPairType,
 			column2 : &ColumnInfoType{},
 		}
 		err = rows.Scan(
-			pair.column1.Id,
-			pair.column2.Id,
-			pair.column1RowCount,
-			pair.column2RowCount,
-			pair.HashIntersectionCount,
+			&pair.column1.Id,
+			&pair.column2.Id,
+			&pair.column1RowCount,
+			&pair.column2RowCount,
+			&pair.HashIntersectionCount,
 		)
 
 		if err != nil {
 			return
 		}
 		if result == nil {
-			result = make([]*ColumnPairType,0,10)
+			result = make(ColumnPairsType,0,10)
 		}
 		result = append(result,pair)
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/goinggo/tracelog"
 )
 
-var recreate bool = true
+var recreate bool = false
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -74,8 +74,9 @@ func main() {
 	if recreate {
 		da.LoadStorage()
 	}
-	fetchPairs(da);
+	//fetchPairs(da);
 	//metadata.ReportHashStorageContents()
+	da.MakeTablePairs(nil,nil)
 	log.Printf("%v",time.Since(start))
 }
 
