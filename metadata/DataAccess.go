@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"github.com/cayleygraph/cayley"
+	"sort"
+	"math"
 )
 
 const hashLength = 8
@@ -1160,42 +1162,188 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 	pairs, err := H2.columnPairs(nil)
-	if err!=nil {
+	if err != nil {
 		panic(err)
 	}
-	pairsToProcess := make(ColumnPairsType,0,10)
-	var table1Id,table2Id *jsnull.NullInt64
-	for _, p := range pairs {
-		p.column1,err  = H2.ColumnInfoById(p.column1.Id)
-		if err!=nil {
-			panic(err)
-		}
-		p.column2,err  = H2.ColumnInfoById(p.column2.Id)
+	for {
+		pairsToProcess := make(ColumnPairsType, 0, 10)
 
-		p.column1.TableInfo,err = H2.TableInfoById(p.column1.TableInfoId)
-		p.column2.TableInfo,err = H2.TableInfoById(p.column2.TableInfoId)
+		var table1Id, table2Id *jsnull.NullInt64
+		for _, p := range pairs {
+			if p.ProcessStatus.Value() != "N" {
+				continue
+			}
+			if !p.column1.TableInfoId.Valid() {
+				p.column1, err = H2.ColumnInfoById(p.column1.Id)
+				if err != nil {
+					panic(err)
+				}
+				p.column1.TableInfo, err = H2.TableInfoById(p.column1.TableInfoId)
+			}
+			if !p.column2.TableInfoId.Valid() {
+				p.column2, err = H2.ColumnInfoById(p.column2.Id)
+				p.column2.TableInfo, err = H2.TableInfoById(p.column2.TableInfoId)
+			}
 
-		if err!=nil {
-			panic(err)
+
+			if err != nil {
+				panic(err)
+			}
+			if table1Id == nil {
+				table1Id = &p.column1.TableInfoId
+			}
+			if table2Id == nil {
+				table2Id = &p.column2.TableInfoId
+			}
+			if table1Id.Value() == p.column1.TableInfoId.Value() &&
+				table2Id.Value() == p.column2.TableInfoId.Value() {
+				pairsToProcess = append(pairsToProcess, p)
+				p.ProcessStatus = jsnull.NewNullString("P")
+			}
 		}
-		if table1Id == nil {
-			table1Id = &p.column1.TableInfoId
-		}
-		if table2Id == nil {
-			table2Id = &p.column2.TableInfoId
-		}
-		if table1Id.Value() == p.column1.TableInfoId.Value() &&
-			table2Id.Value() == p.column2.TableInfoId.Value() {
-			pairsToProcess = append(pairsToProcess, p)
+		processLength := len(pairsToProcess)
+		if processLength == 0 {
+			break
+		} else if processLength > 1 {
+			fmt.Println("")
+			sort.Sort(byHashCount(pairsToProcess))
+			for _, p := range pairsToProcess {
+				fmt.Printf("%v - %v - %v | %v/%v - %v/%v\n",
+					p.column1,
+					p.HashIntersectionCount,
+					p.column2,
+					p.column1RowCount.Value(),
+					p.column1.TotalRowCount.Value(),
+					p.column2RowCount.Value(),
+					p.column2.TotalRowCount.Value(),
+				)
+
+				//da.processTablePairs(pairsToProcess)
+				//TODO:PIPE
+			}
 		}
 	}
-	if len(pairsToProcess)>1 {
-		for _, p := range pairsToProcess {
-			fmt.Printf("%v - %v - %v\n",p.column1, p.HashIntersectionCount, p.column2)
+}
+func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
+	lift := uint64(math.Pow(2,32));
+	openColumnStorage := func(col *ColumnInfoType) {
+		var err error
+		if col.storage == nil {
+			err = col.OpenStorage(false)
+			if err != nil {
+				panic(err)
+			}
 		}
+		err = col.OpenCategoriesBucket()
+		if err != nil {
+			panic(err)
+		}
+		// ? err = col.OpenStatsBucket()
 
 	}
 
+
+	var table1Ref *TableInfoType
+	var table2Ref *TableInfoType
+	col1Ref := make(map[string]*ColumnInfoType)
+	col2Ref := make(map[string]*ColumnInfoType)
+
+	for _,pair := range pairs {
+		// reduce number of objects in memory
+		if table1Ref == nil {
+			table1Ref = pair.column1.TableInfo
+		}
+		if table2Ref == nil {
+			table2Ref = pair.column2.TableInfo
+		}
+		pair.column1.TableInfo = table1Ref
+		pair.column2.TableInfo = table2Ref
+
+		if ref, found := col1Ref[pair.column1.ColumnName.Value()]; !found {
+			col1Ref[pair.column1.ColumnName.Value()] = pair.column1
+			openColumnStorage(pair.column1)
+		} else {
+			pair.column1 = ref
+		}
+
+		if ref, found := col2Ref[pair.column2.ColumnName.Value()]; !found {
+			col2Ref[pair.column1.ColumnName.Value()] = pair.column2
+			openColumnStorage(pair.column2)
+		} else {
+			pair.column2 = ref
+		}
+		pair.OpenStorage(true)
+		pair.OpenCategoriesBucket();
+		//? pair.OpenStatsBucket();
+		cnt := 0;
+		pair.CategoriesBucket.ForEach(
+			func(category,_ []byte)  error {
+				dc1 := ColumnDataCategoryStatsType{Column: pair.column1}
+				dc2 := ColumnDataCategoryStatsType{Column: pair.column2}
+				dc1.OpenBucket(category)
+				//dc1.OpenBitsetBucket()
+				//dc1.OpenStatsBucket()
+				dc1.OpenHashValuesBucket()
+
+				dc2.OpenBucket(category)
+				//dc2.OpenBitsetBucket()
+				//dc2.OpenStatsBucket()
+				dc2.OpenHashValuesBucket()
+
+				pair.OpenCategoryBucket(category)
+				pair.OpenCategoryHashBucket();
+				pair.CategoryHashBucket.ForEach(
+					func (hash,_ []byte) error {
+						dc1.OpenHashBucket(hash)
+						dc2.OpenHashBucket(hash)
+
+						dc1.OpenHashSourceBucket()
+						dc2.OpenHashSourceBucket()
+
+						dc1.HashSourceBucket.ForEach(
+							func (lineNumber1Bytes, _ []byte) error{
+								lineNumber1,_ := utils.B8ToUInt64(lineNumber1Bytes)
+								dc2.HashSourceBucket.ForEach(
+									func (lineNumber2Bytes, _ []byte) error {
+										lineNumber2, _ := utils.B8ToUInt64(lineNumber2Bytes)
+										value := lineNumber1 + lineNumber2 * lift
+
+										//fmt.Println(pair.column1,lineNumber1,pair.column2,lineNumber2,value,)
+
+										base,offset := sparsebitset.OffsetBits(value)
+										baseBytes := utils.UInt64ToB8(base)
+										if pair.BitsetBucket == nil {
+											pair.OpenBitsetBucket()
+										}
+										offsetBytes := utils.UInt64ToB8(offset)
+
+										offsetInStorage := pair.BitsetBucket.Get(baseBytes)
+										if offsetInStorage !=nil {
+											for index := range(offsetInStorage) {
+												offsetInStorage[index] &= offsetBytes[index]
+											}
+											pair.BitsetBucket.Put(baseBytes,offsetInStorage)
+										} else {
+											pair.BitsetBucket.Put(baseBytes,offsetBytes)
+										}
+										cnt++
+										return nil
+									},
+								)
+								return nil
+							},
+
+						)
+						return nil
+					},
+
+				)
+				return nil
+			},
+
+		)
+		fmt.Println(pair,cnt)
+	}
 
 }
 

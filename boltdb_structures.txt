@@ -37,6 +37,8 @@
  |     |     |--key: "column2RowCount":value<column2RowCount> uint64
  |     |--bucket: "stats"
  |        |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
+ |--bucket:"bitset"
+ |         |-key: base(uint64) / value: offset (uint64)
  |--bucket: "stats"
    |--key: "categoryCount" / value: <categoryCount> (uint64)
    |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)

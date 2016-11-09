@@ -13,6 +13,7 @@ var columnPairCategoriesBucket = []byte("categories")
 var columnPairStatsBucket = []byte("stats")
 var columnPairCategoryHashBucket = []byte("hash")
 var columnPairCategoryStatsBucket = []byte("stats")
+var columnPairBitsetBucket = []byte("bitset")
 var columnPairStatsHashUniqueCountKey = []byte("uniqueHashCount")
 var columnPairHashUniqueCountKey = []byte("uniqueHashCount")
 var columnPairHashCategoryCountKey = []byte("categoryCount")
@@ -21,6 +22,7 @@ type ColumnPairType struct {
 	dataCategory        []byte
 	column1             *ColumnInfoType
 	column2             *ColumnInfoType
+	ProcessStatus       jsnull.NullString
 	HashIntersectionCount   jsnull.NullInt64
 	CategoryIntersectionCount jsnull.NullInt64
 	column1RowCount     jsnull.NullInt64
@@ -33,6 +35,7 @@ type ColumnPairType struct {
 	CategoryHashBucket  *bolt.Bucket
 	CategoryStatsBucket *bolt.Bucket
 	StatsBucket         *bolt.Bucket
+	BitsetBucket        *bolt.Bucket
 }
 
 type ColumnPairsType []*ColumnPairType;
@@ -49,6 +52,23 @@ func (v byHashCount) Less(i, j int) bool{
 func (v byHashCount) Swap(i, j int)  {
 	v[i], v[j] = v[j], v[i]
 }
+
+
+type byRowsCount []*ColumnPairType;
+
+func (v byRowsCount) Len() int{
+	return len(v)
+}
+func (v byRowsCount) Less(i, j int) bool{
+	return (v[i].column1RowCount.Value() + v[i].column2RowCount.Value()) >
+		(v[j].column1RowCount.Value() + v[j].column2RowCount.Value())
+}
+
+func (v byRowsCount) Swap(i, j int)  {
+	v[i], v[j] = v[j], v[i]
+}
+
+
 
 
 func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (result *ColumnPairType, err error) {
@@ -244,6 +264,26 @@ func (cp *ColumnPairType) OpenCategoryHashBucket() (err error) {
 	return
 }
 
+func (cp *ColumnPairType) OpenBitsetBucket() (err error) {
+	funcName := "ColumnPairType.OpenCategoryStatsBucket"
+	cp.BitsetBucket = cp.currentTx.Bucket(columnPairBitsetBucket)
+	if cp.BitsetBucket == nil {
+		if cp.currentTx.Writable() {
+			cp.BitsetBucket, err = cp.currentTx.CreateBucket(columnPairBitsetBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+			if cp.BitsetBucket == nil {
+				err = fmt.Errorf("Bitset bucket has not been created for column pair %v",cp)
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+		}
+	}
+	return
+}
+
 
 func (cp *ColumnPairType) OpenCategoryStatsBucket() (err error) {
 	funcName := "ColumnPairType.OpenCategoryStatsBucket"
@@ -264,6 +304,7 @@ func (cp *ColumnPairType) OpenCategoryStatsBucket() (err error) {
 	}
 	return
 }
+
 
 func (cp *ColumnPairType) CloseStorageTransaction(commit bool) (err error) {
 	funcName := "ColumnPairType.CloseStorageTransaction"

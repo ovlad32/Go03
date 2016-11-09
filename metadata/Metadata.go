@@ -828,6 +828,7 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 		", p.column_1_rowcount" +
 		", p.column_2_rowcount" +
 		", p.hash_intersection_count " +
+		", p.status " +
 		" from column_pair p  "
 	if whereFunc != nil{
 		queryText = queryText + whereFunc()
@@ -852,6 +853,7 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 			&pair.column1RowCount,
 			&pair.column2RowCount,
 			&pair.HashIntersectionCount,
+			&pair.ProcessStatus,
 		)
 
 		if err != nil {
