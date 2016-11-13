@@ -13,9 +13,10 @@ import (
 	"log"
 
 	"github.com/goinggo/tracelog"
+	"fmt"
 )
 
-var recreate bool = false
+var recreate bool = true
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -41,6 +42,7 @@ func init() {
 
 
 func main() {
+	fmt.Println(os.Getpagesize())
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	//
@@ -76,7 +78,7 @@ func main() {
 	}
 	//fetchPairs(da);
 	//metadata.ReportHashStorageContents()
-	da.MakeTablePairs(nil,nil)
+	//da.MakeTablePairs(nil,nil)
 	log.Printf("%v",time.Since(start))
 }
 

@@ -14,12 +14,8 @@ import (
 var columnInfoCategoriesBucket = []byte("categories")
 
 var columnInfoCategoryHashBucket = []byte("hash")
-var columnInfoCategoryHashSourceBucket = []byte("source")
-var columnInfoCategoryHashStatsBucket = []byte("stats")
-
 var columnInfoCategoryBitsetBucket = []byte("bitset")
 
-var columnInfoCategoryStatsBucket = []byte("stats")
 var columnInfoCategoryStatsRowCountKey = []byte("rowCount")
 var columnInfoCategoryStatsNonNullCountKey = []byte("nonNullCount")
 var columnInfoCategoryStatsHashUniqueCountKey = []byte("uniqueHashCount")

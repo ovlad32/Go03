@@ -33,11 +33,8 @@ type ColumnDataCategoryStatsType struct {
 	SubHash            jsnull.NullInt64
 	CategoryBucket     *bolt.Bucket
 	BitsetBucket       *bolt.Bucket
-	StatsBucket        *bolt.Bucket
 	HashValuesBucket   *bolt.Bucket
 	CurrentHashBucket  *bolt.Bucket
-	HashSourceBucket   *bolt.Bucket
-	HashStatsBucket    *bolt.Bucket
 }
 
 func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
@@ -119,12 +116,8 @@ func (cdc *ColumnDataCategoryStatsType) ConvertToBytes() (result []byte, err err
 func (cdc *ColumnDataCategoryStatsType) ResetBuckets() {
 	cdc.CategoryBucket = nil
 	cdc.BitsetBucket = nil
-	cdc.StatsBucket = nil
 	cdc.HashValuesBucket = nil
 	cdc.CurrentHashBucket = nil
-	cdc.HashSourceBucket = nil
-	cdc.HashStatsBucket = nil
-
 }
 
 func (cdc *ColumnDataCategoryStatsType) OpenBucket(dataCategoryBytes []byte) (newInstance bool, err error) {
@@ -158,10 +151,7 @@ func (cdc *ColumnDataCategoryStatsType) OpenBucket(dataCategoryBytes []byte) (ne
 
 	cdc.CurrentHashBucket = nil
 	cdc.BitsetBucket = nil
-	cdc.StatsBucket = nil
 	cdc.HashValuesBucket = nil
-	cdc.HashSourceBucket = nil
-	cdc.HashStatsBucket = nil
 	cdc.CategoryBucket = cdc.Column.categoriesBucket.Bucket(dataCategoryBytes)
 	if cdc.CategoryBucket == nil {
 		if cdc.Column.currentTx.Writable() {
@@ -220,87 +210,6 @@ func (cdc *ColumnDataCategoryStatsType) OpenHashValuesBucket() (err error) {
 	return
 }
 
-func (cdc *ColumnDataCategoryStatsType) OpenHashBucket(hashCode []byte) (newInstance bool, err error) {
-	funcName := "ColumnDataCategoryStatsType.OpenHashBucket"
-	tracelog.Started(packageName, funcName)
-	cdc.HashSourceBucket = nil
-	cdc.HashStatsBucket = nil
-	cdc.CurrentHashBucket = cdc.HashValuesBucket.Bucket(hashCode)
-	if cdc.CurrentHashBucket == nil {
-		if cdc.Column.currentTx.Writable() {
-			cdc.CurrentHashBucket, err = cdc.HashValuesBucket.CreateBucket(hashCode)
-			if err != nil {
-				tracelog.Error(err, packageName, funcName)
-				return
-			}
-			if cdc.CurrentHashBucket == nil {
-				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v and hash value %v. Got empty value", cdc.Column.Id, hashCode))
-				tracelog.Error(err, packageName, funcName)
-			} else {
-				newInstance = true
-			}
-		}
-	}
-tracelog.Completed(packageName, funcName)
-	return
-}
-
-func (cdc *ColumnDataCategoryStatsType) OpenHashSourceBucket() (err error) {
-	funcName := "ColumnDataCategoryStatsType.OpenHashSourceBucket"
-	tracelog.Started(packageName, funcName)
-	if cdc.HashSourceBucket == nil {
-		cdc.HashSourceBucket = cdc.CurrentHashBucket.Bucket(columnInfoCategoryHashSourceBucket)
-		if cdc.HashSourceBucket == nil {
-			if cdc.Column.currentTx.Writable() {
-				cdc.HashSourceBucket, err = cdc.CurrentHashBucket.CreateBucket(columnInfoCategoryHashSourceBucket)
-				if err != nil {
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-			}
-		}
-	}
-	tracelog.Completed(packageName, funcName)
-	return
-}
-
-func (cdc *ColumnDataCategoryStatsType) OpenHashStatsBucket() (err error) {
-	funcName := "ColumnDataCategoryStatsType.OpenHashStatsBucket"
-	tracelog.Started(packageName, funcName)
-	if cdc.HashStatsBucket == nil {
-		cdc.HashStatsBucket = cdc.CurrentHashBucket.Bucket(columnInfoCategoryHashStatsBucket)
-		if cdc.HashStatsBucket == nil {
-			if cdc.Column.currentTx.Writable() {
-				cdc.HashStatsBucket, err = cdc.CurrentHashBucket.CreateBucket(columnInfoCategoryHashStatsBucket)
-				if err != nil {
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-			}
-		}
-	}
-	tracelog.Completed(packageName, funcName)
-	return
-}
-
-func (cdc *ColumnDataCategoryStatsType) OpenStatsBucket() (err error) {
-	funcName := "ColumnDataCategoryStatsType.OpenStatsBucket"
-	tracelog.Started(packageName, funcName)
-	if cdc.StatsBucket == nil {
-		cdc.StatsBucket = cdc.CategoryBucket.Bucket(columnInfoCategoryStatsBucket)
-		if cdc.StatsBucket == nil {
-			if cdc.Column.currentTx.Writable() {
-				cdc.StatsBucket, err = cdc.CategoryBucket.CreateBucket(columnInfoCategoryStatsBucket)
-				if err != nil {
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-			}
-		}
-	}
-	tracelog.Completed(packageName, funcName)
-	return
-}
 
 func (cdc ColumnDataCategoryStatsType) String() (result string) {
 	if !cdc.IsNumeric.Value() {
