@@ -143,7 +143,7 @@ func (cdc *ColumnDataCategoryStatsType) OpenBucket(dataCategoryBytes []byte) (ne
 			return
 		}
 	}
-	if cdc.Column.categoriesBucket == nil {
+	if cdc.Column.CategoriesBucket == nil {
 		err = errors.New(fmt.Sprintf("Bucket for data categories has not been initialized! Column %v", cdc.Column.Id.Value()))
 		tracelog.Error(err, packageName, funcName)
 		return
@@ -152,10 +152,10 @@ func (cdc *ColumnDataCategoryStatsType) OpenBucket(dataCategoryBytes []byte) (ne
 	cdc.CurrentHashBucket = nil
 	cdc.BitsetBucket = nil
 	cdc.HashValuesBucket = nil
-	cdc.CategoryBucket = cdc.Column.categoriesBucket.Bucket(dataCategoryBytes)
+	cdc.CategoryBucket = cdc.Column.CategoriesBucket.Bucket(dataCategoryBytes)
 	if cdc.CategoryBucket == nil {
-		if cdc.Column.currentTx.Writable() {
-			cdc.CategoryBucket, err = cdc.Column.categoriesBucket.CreateBucket(dataCategoryBytes)
+		if cdc.Column.CurrentTx.Writable() {
+			cdc.CategoryBucket, err = cdc.Column.CategoriesBucket.CreateBucket(dataCategoryBytes)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return
@@ -179,7 +179,7 @@ func (cdc *ColumnDataCategoryStatsType) OpenBitsetBucket() (err error) {
 	if cdc.BitsetBucket == nil {
 		cdc.BitsetBucket = cdc.CategoryBucket.Bucket(columnInfoCategoryBitsetBucket)
 		if cdc.BitsetBucket == nil {
-			if cdc.Column.currentTx.Writable() {
+			if cdc.Column.CurrentTx.Writable() {
 				cdc.BitsetBucket, err = cdc.CategoryBucket.CreateBucket(columnInfoCategoryBitsetBucket)
 				if err != nil {
 					tracelog.Error(err, packageName, funcName)
@@ -197,7 +197,7 @@ func (cdc *ColumnDataCategoryStatsType) OpenHashValuesBucket() (err error) {
 	if cdc.HashValuesBucket == nil {
 		cdc.HashValuesBucket = cdc.CategoryBucket.Bucket(columnInfoCategoryHashBucket)
 		if cdc.HashValuesBucket == nil {
-			if cdc.Column.currentTx.Writable() {
+			if cdc.Column.CurrentTx.Writable() {
 				cdc.HashValuesBucket, err = cdc.CategoryBucket.CreateBucket(columnInfoCategoryHashBucket)
 				if err != nil {
 					tracelog.Error(err, packageName, funcName)

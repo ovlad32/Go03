@@ -34,8 +34,8 @@ type ColumnPairType struct {
 	CategoryBucket      *bolt.Bucket
 	CategoryHashBucket  *bolt.Bucket
 	CategoryStatsBucket *bolt.Bucket
-	StatsBucket         *bolt.Bucket
 	BitsetBucket        *bolt.Bucket
+	StatsBucket         *bolt.Bucket
 }
 
 type ColumnPairsType []*ColumnPairType;

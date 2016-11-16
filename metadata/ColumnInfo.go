@@ -58,10 +58,10 @@ type ColumnInfoType struct {
 	DataCategories   []*ColumnDataCategoryStatsType
 	NumericCount     jsnull.NullInt64
 	bucketLock       sync.Mutex
-	storage          *bolt.DB
-	currentTx        *bolt.Tx
-	categoriesBucket *bolt.Bucket
-	statsBucket      *bolt.Bucket
+	Storage          *bolt.DB
+	CurrentTx        *bolt.Tx
+	CategoriesBucket *bolt.Bucket
+	StatsBucket      *bolt.Bucket
 }
 
 
@@ -90,8 +90,8 @@ func (c ColumnInfoType) СheckTableInfo() {
 }
 
 func (ci *ColumnInfoType) ResetBuckets() {
-	ci.categoriesBucket = nil
-	ci.statsBucket = nil
+	ci.CategoriesBucket = nil
+	//ci.statsBucket = nil
 	if ci.DataCategories != nil {
 		for _, dc := range ci.DataCategories {
 			dc.ResetBuckets()
@@ -99,17 +99,17 @@ func (ci *ColumnInfoType) ResetBuckets() {
 	}
 }
 func (ci *ColumnInfoType) CleanStorage() (err error) {
-	bucket := ci.currentTx.Bucket(columnInfoCategoriesBucket);
+	bucket := ci.CurrentTx.Bucket(columnInfoCategoriesBucket);
 	if bucket != nil {
-		err = ci.currentTx.DeleteBucket(columnInfoCategoriesBucket);
+		err = ci.CurrentTx.DeleteBucket(columnInfoCategoriesBucket);
 		if err != nil {
 			return
 		}
 	}
 
-	bucket = ci.currentTx.Bucket(columnInfoStatsBucket);
+	bucket = ci.CurrentTx.Bucket(columnInfoStatsBucket);
 	if bucket != nil {
-		ci.currentTx.DeleteBucket(columnInfoStatsBucket);
+		ci.CurrentTx.DeleteBucket(columnInfoStatsBucket);
 		if err != nil {
 			return
 		}
@@ -131,11 +131,11 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 		err = TableInfoNotInitialized
 		return
 	}
-	if ci.storage == nil {
+	if ci.Storage == nil {
 		path := fmt.Sprintf("./%v", ci.TableInfo.PathToDataDir.Value())
 		_ = os.MkdirAll(path, 0)
 		file := fmt.Sprintf("%v/%v.boltdb", path, ci.Id.Value())
-		ci.storage, err = bolt.Open(
+		ci.Storage, err = bolt.Open(
 			file,
 			0600,
 			nil,
@@ -145,8 +145,8 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 			return
 		}
 	}
-	if ci.currentTx == nil {
-		ci.currentTx, err = ci.storage.Begin(writable)
+	if ci.CurrentTx == nil {
+		ci.CurrentTx, err = ci.Storage.Begin(writable)
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return
@@ -161,15 +161,15 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 
 func (ci *ColumnInfoType) OpenCategoriesBucket() (err error) {
 	funcName := "ColumnInfoType.OpenCategoriesBucket"
-	ci.categoriesBucket = ci.currentTx.Bucket(columnInfoCategoriesBucket)
-	if ci.categoriesBucket == nil {
-		if ci.currentTx.Writable() {
-			ci.categoriesBucket, err = ci.currentTx.CreateBucket(columnInfoCategoriesBucket)
+	ci.CategoriesBucket = ci.CurrentTx.Bucket(columnInfoCategoriesBucket)
+	if ci.CategoriesBucket == nil {
+		if ci.CurrentTx.Writable() {
+			ci.CategoriesBucket, err = ci.CurrentTx.CreateBucket(columnInfoCategoriesBucket)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
-			if ci.categoriesBucket == nil {
+			if ci.CategoriesBucket == nil {
 				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v data categories. Got empty value", ci.Id))
 				tracelog.Error(err, packageName, funcName)
 				return
@@ -186,15 +186,15 @@ func (ci *ColumnInfoType) OpenCategoriesBucket() (err error) {
 func (ci *ColumnInfoType) OpenStatsBucket() (err error) {
 	funcName := "ColumnInfoType.OpenStatsBucket"
 
-	ci.statsBucket = ci.currentTx.Bucket(columnInfoStatsBucket)
-	if ci.statsBucket == nil {
-		if ci.currentTx.Writable() {
-			ci.statsBucket, err = ci.currentTx.CreateBucket(columnInfoStatsBucket)
+	ci.StatsBucket = ci.CurrentTx.Bucket(columnInfoStatsBucket)
+	if ci.StatsBucket == nil {
+		if ci.CurrentTx.Writable() {
+			ci.StatsBucket, err = ci.CurrentTx.CreateBucket(columnInfoStatsBucket)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
-			if ci.statsBucket == nil {
+			if ci.StatsBucket == nil {
 				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v statistics. Got empty value", ci.Id))
 				tracelog.Error(err, packageName, funcName)
 				return
@@ -212,19 +212,19 @@ func (cp *ColumnInfoType) CloseStorageTransaction(commit bool) (err error) {
 	funcName := "ColumnInfoType.CloseStorageTransaction"
 	tracelog.Started(packageName, funcName)
 
-	if cp.currentTx != nil {
+	if cp.CurrentTx != nil {
 
 		if commit {
-			err = cp.currentTx.Commit()
+			err = cp.CurrentTx.Commit()
 		} else {
-			err = cp.currentTx.Rollback()
+			err = cp.CurrentTx.Rollback()
 		}
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return
 		}
 
-		cp.currentTx = nil
+		cp.CurrentTx = nil
 	}
 	cp.ResetBuckets()
 	tracelog.Completed(packageName, funcName)
@@ -235,18 +235,18 @@ func (cp *ColumnInfoType) CloseStorage() (err error) {
 	funcName := "ColumnPairType.CloseStorage"
 	tracelog.Started(packageName, funcName)
 
-	if cp.currentTx != nil {
-		err = cp.currentTx.Rollback()
+	if cp.CurrentTx != nil {
+		err = cp.CurrentTx.Rollback()
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return
 		}
-		cp.currentTx = nil
+		cp.CurrentTx = nil
 	}
 	cp.ResetBuckets()
-	if cp.storage != nil {
-		cp.storage.Close()
-		cp.storage = nil
+	if cp.Storage != nil {
+		cp.Storage.Close()
+		cp.Storage = nil
 	}
 
 	tracelog.Completed(packageName, funcName)

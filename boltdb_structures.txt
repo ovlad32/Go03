@@ -13,8 +13,9 @@
  |     |  |-key: base(uint64) / value: offset (uint64)
  |     |--key: "nonNullCount" / value:<nonNullCount> (uint64)
  |     |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
- |--key: "nonNullCount" / value: <nonNullCount> (uint64)
- |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
+ |--bucket: "stats"
+    |--key: "nonNullCount" / value: <nonNullCount> (uint64)
+    |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
 
 /*
  * ColumnPair key/value storage
