@@ -22,22 +22,14 @@
  *
  */
 
-<columnInfoId>-<columnInfoId>.bolt.db
+<columnInfo1Id>-<columnInfo2Id>.bolt.db
  |--bucket:"categories"
  |  |--bucket: <dataCategory> []bytes
- |     |--bucket: "hash"
- |     |  |--bucket: <hashValue>
- |     |     |--key: "column1RowCount":value<column1RowCount> uint64
- |     |     |--key: "column2RowCount":value<column2RowCount> uint64
- |     |--bucket: "stats"
- |        |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
- |--bucket:"bitset"
- |         |-key: base(uint64) / value: offset (uint64)
+ |     |--key:<hashValue>/ column1RowCount (uint64), column2RowCount (uint64) 16 bytes
  |--bucket: "stats"
    |--key: "categoryCount" / value: <categoryCount> (uint64)
-   |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
-//   |--key: "column1RowCount":value<column1RowCount> uint64
-//   |--key: "column2RowCount":value<column2RowCount> uint64
+   |--key: "column1RowCount":value<column1RowCount> uint64
+   |--key: "column2RowCount":value<column2RowCount> uint64
 
  tableid-tableid
    source
