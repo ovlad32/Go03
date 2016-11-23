@@ -903,7 +903,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 				if column2.CategoriesBucket.Bucket(dataCategory) != nil {
 
 					dataCategoryCopy := make([]byte, len(dataCategory))
-					//fmt.Println("%v",dataCategory)
+					fmt.Println("%v",dataCategory)
 					copy(dataCategoryCopy, dataCategory)
 
 					dc1 := ColumnDataCategoryStatsType{Column: column1}
@@ -943,11 +943,11 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 					var uqCnt1, uqCnt2 uint64
 					if dc1.CategoryBucket != nil {
 						uqCnt1, _ = utils.B8ToUInt64(dc1.CategoryBucket.Get(columnInfoStatsHashUniqueCountKey))
-						//fmt.Println(uqCnt1)
+						fmt.Println(uqCnt1)
 					}
 					if dc2.CategoryBucket != nil {
 						uqCnt2, _ = utils.B8ToUInt64(dc2.CategoryBucket.Get(columnInfoStatsHashUniqueCountKey))
-						//fmt.Println(uqCnt2)
+						fmt.Println(uqCnt2)
 					}
 					if uqCnt1 > uqCnt2 {
 						dc2, dc1 = dc1, dc2
@@ -1001,8 +1001,8 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 									//dc2.OpenHashBucket(hashB8)
 									//dc2.OpenHashStatsBucket()
 
-									//column1RowCountBytes := dc1.HashStatsBucket.Get(columnInfoCategoryStatsRowCountKey)
-									//column2RowCountBytes := dc2.HashStatsBucket.Get(columnInfoCategoryStatsRowCountKey)
+									column1RowCountBytes := dc1.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)
+									column2RowCountBytes := dc2.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)
 
 									if dc1.Column.Id.Value() > dc2.Column.Id.Value() {
 										column1RowCountBytes, column2RowCountBytes = column2RowCountBytes, column1RowCountBytes
@@ -1110,15 +1110,15 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 						panic(err)
 					}
 					column2.OpenCategoriesBucket()
-					if column2.categoriesBucket == nil {
+					if column2.CategoriesBucket == nil {
 						continue
 					}
 					column2.OpenStatsBucket()
 					var pair [2]*ColumnInfoType
 					var catCnt1, catCnt2 uint64
 					if !column1.CategoryCount.Valid() {
-						if column1.statsBucket != nil {
-							catCnt1, _ = utils.B8ToUInt64(column1.statsBucket.Get(columnInfoStatsCategoryCountKey))
+						if column1.StatsBucket != nil {
+							catCnt1, _ = utils.B8ToUInt64(column1.StatsBucket.Get(columnInfoStatsCategoryCountKey))
 							//fmt.Println(uqCnt1)
 							column1.CategoryCount = jsnull.NewNullInt64(int64(catCnt1))
 						}
@@ -1127,8 +1127,8 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 						catCnt1 = uint64(column1.UniqueRowCount.Value())
 					}
 					if !column2.CategoryCount.Valid() {
-						if column2.statsBucket != nil {
-							catCnt2, _ = utils.B8ToUInt64(column2.statsBucket.Get(columnInfoStatsCategoryCountKey))
+						if column2.StatsBucket != nil {
+							catCnt2, _ = utils.B8ToUInt64(column2.StatsBucket.Get(columnInfoStatsCategoryCountKey))
 							//fmt.Println(uqCnt2)
 							column2.CategoryCount = jsnull.NewNullInt64(int64(catCnt2))
 						}
@@ -1155,14 +1155,14 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 
 	for _, table1 := range tables1 {
 		for _, column1 := range table1.Columns {
-			if column1.storage != nil {
+			if column1.Storage != nil {
 				column1.CloseStorage()
 			}
 		}
 	}
 	for _, table2 := range tables2 {
 		for _, column2 := range table2.Columns {
-			if column2.storage != nil {
+			if column2.Storage != nil {
 				column2.CloseStorage()
 			}
 		}
@@ -1236,9 +1236,10 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 }
 func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 	lift := uint64(math.Pow(2, 32))
+	_=lift
 	openColumnStorage := func(col *ColumnInfoType) {
 		var err error
-		if col.storage == nil {
+		if col.Storage == nil {
 			err = col.OpenStorage(false)
 			if err != nil {
 				panic(err)
@@ -1358,7 +1359,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 				pair.OpenCategoryBucket(category)
 				pair.OpenCategoryHashBucket()
-				pair.CategoryHashBucket.ForEach(
+				/*pair.CategoryHashBucket.ForEach(
 					func(hash, _ []byte) error {
 						dc1.OpenHashBucket(hash)
 						dc2.OpenHashBucket(hash)
@@ -1401,7 +1402,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 						)
 						return nil
 					},
-				)
+				)*/
 				return nil
 			},
 		)
@@ -1412,13 +1413,13 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 func (da DataAccessType) MakeTablePairs2(metadata1, metadata2 *MetadataType) {
 	var emptyValue []byte = make([]byte, 0, 0)
-
+	_=emptyValue
 	processPair := func(column1, column2 *ColumnInfoType) {
 		var pair *ColumnPairType
 		var err error
 		var categoryCount uint64
 		//column1.bucketLock.Lock()
-
+/*
 		column1.categoriesBucket.ForEach(
 			func(dataCategory, v []byte) error {
 				if column2.categoriesBucket == nil {
@@ -1543,7 +1544,7 @@ func (da DataAccessType) MakeTablePairs2(metadata1, metadata2 *MetadataType) {
 				//column2.bucketLock.Unlock()
 				return nil
 			},
-		)
+		)*/
 		//column1.bucketLock.Unlock()
 		if pair != nil && pair.HashIntersectionCount.Value() > 0 {
 			err = pair.OpenStatsBucket()
@@ -1630,7 +1631,7 @@ func (da DataAccessType) MakeTablePairs2(metadata1, metadata2 *MetadataType) {
 							dc2.OpenBucket(category)
 
 							err = pair.OpenCategoryHashBucket()
-							pair.CategoryHashBucket.ForEach(
+							/*pair.CategoryHashBucket.ForEach(
 								func(hash, _ []byte) error {
 									dc1.OpenHashBucket(hash)
 									dc2.OpenHashBucket(hash)
@@ -1642,7 +1643,9 @@ func (da DataAccessType) MakeTablePairs2(metadata1, metadata2 *MetadataType) {
 									)
 									return nil
 								},
-							)
+
+
+							)*/
 							return nil
 						},
 					)
@@ -1697,14 +1700,14 @@ func (da DataAccessType) MakeTablePairs2(metadata1, metadata2 *MetadataType) {
 
 	for _, table1 := range tables1 {
 		for _, column1 := range table1.Columns {
-			if column1.storage != nil {
+			if column1.Storage != nil {
 				column1.CloseStorage()
 			}
 		}
 	}
 	for _, table2 := range tables2 {
 		for _, column2 := range table2.Columns {
-			if column2.storage != nil {
+			if column2.Storage != nil {
 				column2.CloseStorage()
 			}
 		}
