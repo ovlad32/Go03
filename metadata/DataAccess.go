@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	//"github.com/boltdb/bolt"
+	_ "github.com/boltdb/bolt"
 )
 
 const hashLength = 8
@@ -758,18 +758,18 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 		utils.UInt64ToB8(val.lineNumber),
 	)*/
 
-	/*
-		if hashRowCount,found := utils.B8ToUInt64(val.dataCategory.HashStatsBucket.Get(columnInfoCategoryStatsRowCountKey)); !found {
-			val.dataCategory.HashStatsBucket.Put(
+
+		if hashRowCount,found := utils.B8ToUInt64(val.dataCategory.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)); !found {
+			val.dataCategory.CategoryBucket.Put(
 				columnInfoCategoryStatsRowCountKey,
 				utils.UInt64ToB8(uint64(1)),
 			)
 		} else {
-			val.dataCategory.HashStatsBucket.Put(
+			val.dataCategory.CategoryBucket.Put(
 				columnInfoCategoryStatsRowCountKey,
 				utils.UInt64ToB8(hashRowCount+1),
 			)
-		}*/
+		}
 
 }
 
@@ -903,7 +903,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 				if column2.CategoriesBucket.Bucket(dataCategory) != nil {
 
 					dataCategoryCopy := make([]byte, len(dataCategory))
-					fmt.Println("%v",dataCategory)
+					//fmt.Println("%v",dataCategory)
 					copy(dataCategoryCopy, dataCategory)
 
 					dc1 := ColumnDataCategoryStatsType{Column: column1}
@@ -943,16 +943,16 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 					var uqCnt1, uqCnt2 uint64
 					if dc1.CategoryBucket != nil {
 						uqCnt1, _ = utils.B8ToUInt64(dc1.CategoryBucket.Get(columnInfoStatsHashUniqueCountKey))
-						fmt.Println(uqCnt1)
+						//fmt.Println(uqCnt1)
 					}
 					if dc2.CategoryBucket != nil {
 						uqCnt2, _ = utils.B8ToUInt64(dc2.CategoryBucket.Get(columnInfoStatsHashUniqueCountKey))
-						fmt.Println(uqCnt2)
+						//fmt.Println(uqCnt2)
 					}
 					if uqCnt1 > uqCnt2 {
 						dc2, dc1 = dc1, dc2
 					}
-					var dataCategoryIntersectionCount uint64
+					//var dataCategoryIntersectionCount uint64
 					dc1.BitsetBucket.ForEach(
 						func(base, offset1 []byte) error {
 							offset2 := dc2.BitsetBucket.Get(base)
@@ -967,6 +967,15 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 							}
 							intersection, _ := utils.B8ToUInt64(offsetIntersection[:])
 
+							if intersection > 0 {
+								if pair.HashIntersection == nil{
+									pair.HashIntersection = bytes.NewBuffer([]byte{})
+								}
+								pair.HashIntersection.Write(base)
+								pair.HashIntersection.Write(offsetIntersection[:])
+							}
+
+
 							prod := baseUInt * wordSize
 							rsh := uint64(0)
 							prev := uint64(0)
@@ -977,43 +986,39 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 								}
 								result := rsh + trailingZeroes64(w) + prod
 								if result != prev {
-									if pair.CategoryBucket == nil {
+									/*if pair.CategoryBucket == nil {
 										err = pair.OpenCategoryBucket(dataCategoryCopy)
 										if err != nil {
 											panic(err)
 										}
 
-										err = pair.OpenCategoryHashBucket()
-										if err != nil {
-											panic(err)
-										}
 										(*pair.CategoryIntersectionCount.Reference())++
-									}
+									}*/
 
 									(*pair.HashIntersectionCount.Reference())++
-									hashB8 := utils.UInt64ToB8(result)
-									hashBucket, err := pair.CategoryHashBucket.CreateBucketIfNotExists(hashB8)
+
+									//hashB8 := utils.UInt64ToB8(result)
+									//pair.CategoryBucket.Put(hashB8,[]byte{});
+
+									/*hashBucket, err := pair.CategoryHashBucket.CreateBucketIfNotExists(hashB8)
 									if err != nil {
 										panic(err)
-									}
+									}*/
 									//dc1.OpenHashBucket(hashB8)
 									//dc1.OpenHashStatsBucket()
 									//dc2.OpenHashBucket(hashB8)
 									//dc2.OpenHashStatsBucket()
 
-									column1RowCountBytes := dc1.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)
+									/*column1RowCountBytes := dc1.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)
 									column2RowCountBytes := dc2.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)
-
+									//fmt.Println(column1RowCountBytes )
 									if dc1.Column.Id.Value() > dc2.Column.Id.Value() {
 										column1RowCountBytes, column2RowCountBytes = column2RowCountBytes, column1RowCountBytes
 									}
-									hashBucket.Put([]byte("column1RowCount"), column1RowCountBytes)
-									hashBucket.Put([]byte("column2RowCount"), column2RowCountBytes)
-
 									column1RowCount, _ := utils.B8ToUInt64(column1RowCountBytes)
 									column2RowCount, _ := utils.B8ToUInt64(column2RowCountBytes)
 									(*pair.column1RowCount.Reference()) += int64(column1RowCount)
-									(*pair.column2RowCount.Reference()) += int64(column2RowCount)
+									(*pair.column2RowCount.Reference()) += int64(column2RowCount)*/
 
 									prev = result
 
@@ -1024,17 +1029,17 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 							return nil
 						},
 					)
-					if pair.CategoryBucket != nil {
-						err = pair.OpenCategoryStatsBucket()
-						if err != nil {
-							panic(err)
-						}
-
-						err = pair.CategoryStatsBucket.Put(columnPairStatsHashUniqueCountKey, utils.UInt64ToB8(dataCategoryIntersectionCount)[:])
-						if err != nil {
-							panic(err)
-						}
-					}
+					//if pair.CategoryBucket != nil {
+					//	err = pair.OpenCategoryStatsBucket()
+					//	if err != nil {
+					//		panic(err)
+					//	}
+					//
+					//	err = pair.CategoryStatsBucket.Put(columnPairStatsHashUniqueCountKey, utils.UInt64ToB8(dataCategoryIntersectionCount)[:])
+					//	if err != nil {
+					//		panic(err)
+					//	}
+					//}
 
 				}
 				//column2.bucketLock.Unlock()
@@ -1053,6 +1058,14 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 			}
 
 			err = pair.StatsBucket.Put(columnPairHashCategoryCountKey, utils.Int64ToB8(pair.CategoryIntersectionCount.Value()))
+			if err != nil {
+				panic(err)
+			}
+			err = pair.StatsBucket.Put([]byte("column1RowCount"), utils.Int64ToB8(pair.column1RowCount.Value()))
+			if err != nil {
+				panic(err)
+			}
+			err = pair.StatsBucket.Put([]byte("column2RowCount"), utils.Int64ToB8(pair.column2RowCount.Value()))
 			if err != nil {
 				panic(err)
 			}
@@ -1228,7 +1241,7 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 					p.column2.TotalRowCount.Value(),
 				)
 
-				//da.processTablePairs(pairsToProcess)
+				da.processTablePairs(pairsToProcess)
 				//TODO:PIPE
 			}
 		}
@@ -1252,8 +1265,8 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 		// ? err = col.OpenStatsBucket()
 
 	}
-	/*
-		openPairBuckets := func(pair *ColumnPairType) {
+
+	/*	openPairBuckets := func(pair *ColumnPairType) {
 			pair.OpenStorage(true)
 			pair.OpenStatsBucket()
 			pair.OpenCategoriesBucket()
@@ -1358,14 +1371,15 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 				dc2.OpenHashValuesBucket()
 
 				pair.OpenCategoryBucket(category)
-				pair.OpenCategoryHashBucket()
-				/*pair.CategoryHashBucket.ForEach(
-					func(hash, _ []byte) error {
-						dc1.OpenHashBucket(hash)
-						dc2.OpenHashBucket(hash)
-
-						dc1.OpenHashSourceBucket()
-						dc2.OpenHashSourceBucket()
+				//pair.OpenCategoryHashBucket()
+				pair.CategoryBucket.ForEach(
+					func(hash, countBytes []byte) error {
+						fmt.Println(countBytes)
+						//column1RowCount,_ := utils.B8ToUInt64(countBytes[:8]);
+						//column2RowCount,_ := utils.B8ToUInt64(countBytes[8:]);
+						//fmt.Println(column1RowCount,column2RowCount)
+						/*rows1byte := dc1.HashValuesBucket.Get(hash)
+						dc2.HashValuesBucket.Get(hash)
 
 						dc1.HashSourceBucket.ForEach(
 							func(lineNumber1Bytes, _ []byte) error {
@@ -1399,10 +1413,10 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 								)
 								return nil
 							},
-						)
+						)*/
 						return nil
 					},
-				)*/
+				)
 				return nil
 			},
 		)
@@ -1630,7 +1644,7 @@ func (da DataAccessType) MakeTablePairs2(metadata1, metadata2 *MetadataType) {
 							dc1.OpenBucket(category)
 							dc2.OpenBucket(category)
 
-							err = pair.OpenCategoryHashBucket()
+							//err = pair.OpenCategoryHashBucket()
 							/*pair.CategoryHashBucket.ForEach(
 								func(hash, _ []byte) error {
 									dc1.OpenHashBucket(hash)

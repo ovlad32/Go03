@@ -25,7 +25,7 @@
 <columnInfo1Id>-<columnInfo2Id>.bolt.db
  |--bucket:"categories"
  |  |--bucket: <dataCategory> []bytes
- |     |--key:<hashValue>/ column1RowCount (uint64), column2RowCount (uint64) 16 bytes
+ |     |--key:"bitset"/ intersection
  |--bucket: "stats"
    |--key: "categoryCount" / value: <categoryCount> (uint64)
    |--key: "column1RowCount":value<column1RowCount> uint64
@@ -36,4 +36,3 @@
       key:rownumber/[matchColumnCount uint16][hash][columns][hash][columns]
    stats
       key:"hashUniqueCount"
-

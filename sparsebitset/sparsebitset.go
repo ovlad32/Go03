@@ -912,14 +912,14 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 	}
 
 	for key, val := range b.set {
-		err = binary.Write(w, binary.BigEndian, key)
-		if err != nil {
-			return int64(binary.Size(uint32(0))), err
-		}
-		err = binary.Write(w, binary.BigEndian, val)
-		if err != nil {
-			return int64(binary.Size(uint32(0))), err
-		}
+			err = binary.Write(w, binary.BigEndian, key)
+			if err != nil {
+				return int64(binary.Size(uint32(0))), err
+			}
+			err = binary.Write(w, binary.BigEndian, val)
+			if err != nil {
+				return int64(binary.Size(uint32(0))), err
+			}
 	}
 
 	return int64(b.BinaryStorageSize()), nil

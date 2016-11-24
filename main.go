@@ -73,12 +73,12 @@ func main() {
 		panic(err)
 	}*/
 
-	if recreate {
+/*	if recreate {
 		da.LoadStorage()
-	}
-	//fetchPairs(da);
+	}*/
+	fetchPairs(da);
 	//metadata.ReportHashStorageContents()
-	//da.MakeTablePairs(nil,nil)
+	da.MakeTablePairs(nil,nil)
 	log.Printf("%v",time.Since(start))
 }
 

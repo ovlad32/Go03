@@ -7,6 +7,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
+	"bytes"
 )
 
 var columnPairCategoriesBucket = []byte("categories")
@@ -32,10 +33,11 @@ type ColumnPairType struct {
 	currentTx           *bolt.Tx
 	CategoriesBucket    *bolt.Bucket
 	CategoryBucket      *bolt.Bucket
-	CategoryHashBucket  *bolt.Bucket
-	CategoryStatsBucket *bolt.Bucket
-	BitsetBucket        *bolt.Bucket
+	//CategoryHashBucket  *bolt.Bucket
+	//CategoryStatsBucket *bolt.Bucket
+	//BitsetBucket        *bolt.Bucket
 	StatsBucket         *bolt.Bucket
+	HashIntersection    *bytes.Buffer
 }
 
 type ColumnPairsType []*ColumnPairType;
@@ -226,8 +228,8 @@ func (cp *ColumnPairType) OpenCategoryBucket(dataCategory []byte) (err error) {
 	funcName := "ColumnPairType.OpenCategoryBucket"
 	cp.CategoryBucket = cp.CategoriesBucket.Bucket(dataCategory)
 	if cp.CategoryBucket == nil {
-		cp.CategoryStatsBucket = nil
-		cp.CategoryHashBucket = nil
+		//cp.CategoryStatsBucket = nil
+		//cp.CategoryHashBucket = nil
 		if cp.currentTx.Writable() {
 			cp.CategoryBucket, err = cp.CategoriesBucket.CreateBucket(dataCategory)
 			if err != nil {
@@ -243,7 +245,7 @@ func (cp *ColumnPairType) OpenCategoryBucket(dataCategory []byte) (err error) {
 	}
 	return
 }
-
+/*
 func (cp *ColumnPairType) OpenCategoryHashBucket() (err error) {
 	funcName := "ColumnPairType.OpenCategoryHashBucket"
 	cp.CategoryHashBucket = cp.CategoryBucket.Bucket(columnPairCategoryHashBucket)
@@ -303,7 +305,7 @@ func (cp *ColumnPairType) OpenCategoryStatsBucket() (err error) {
 		}
 	}
 	return
-}
+}*/
 
 
 func (cp *ColumnPairType) CloseStorageTransaction(commit bool) (err error) {
