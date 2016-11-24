@@ -73,9 +73,9 @@ func main() {
 		panic(err)
 	}*/
 
-/*	if recreate {
+	if recreate {
 		da.LoadStorage()
-	}*/
+	}
 	fetchPairs(da);
 	//metadata.ReportHashStorageContents()
 	da.MakeTablePairs(nil,nil)

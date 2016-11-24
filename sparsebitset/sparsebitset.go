@@ -293,6 +293,26 @@ func New(n uint64) *BitSet {
 	return &BitSet{set: make(blockAry)}
 }
 
+func NewFromKV(kv []byte,translator binary.ByteOrder) *BitSet{
+
+	result := &BitSet{set: make(blockAry)}
+	startK := uint64(0)
+	startV := uint64(8)
+	step := uint64(2*8)
+
+	kvLength := uint64(len(kv))
+	for {
+		key := translator.Uint64(kv[startK:startV])
+		startK += step;
+		result.set[key] = translator.Uint64(kv[startK:startV])
+		startV += step;
+		if kvLength<startK {
+			break;
+		}
+	}
+	return result;
+
+}
 /*
 // Len answers the number of bytes used by this bitset.
 func (b *BitSet) Len() int {
@@ -903,7 +923,12 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 	var err error
 
 	// Write length of the data to follow.
+	if err != nil {
+		return 0, err
+	}
+
 	b.prune()
+
 	lb := len(b.set)
 	lb *= 2 * binary.Size(uint64(0))
 	err = binary.Write(w, binary.BigEndian, uint32(lb))
@@ -957,6 +982,7 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 
 	return int64(b.BinaryStorageSize()), nil
 }
+
 func (b *BitSet) BitChan() chan uint64 {
 
 	out := make(chan uint64)

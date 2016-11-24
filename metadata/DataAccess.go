@@ -1017,7 +1017,7 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 									}
 									column1RowCount, _ := utils.B8ToUInt64(column1RowCountBytes)
 									column2RowCount, _ := utils.B8ToUInt64(column2RowCountBytes)
-									(*pair.column1RowCount.Reference()) += int64(column1RowCount)
+									(*pair.column1RsowCount.Reference()) += int64(column1RowCount)
 									(*pair.column2RowCount.Reference()) += int64(column2RowCount)*/
 
 									prev = result
@@ -1029,17 +1029,17 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 							return nil
 						},
 					)
-					//if pair.CategoryBucket != nil {
-					//	err = pair.OpenCategoryStatsBucket()
-					//	if err != nil {
-					//		panic(err)
-					//	}
+					if pair.CategoryBucket != nil {
+						err = pair.CategoryBucket.Put([]byte("intersection"),pair.HashIntersection.Bytes())
+						if err != nil {
+							panic(err)
+						}
 					//
 					//	err = pair.CategoryStatsBucket.Put(columnPairStatsHashUniqueCountKey, utils.UInt64ToB8(dataCategoryIntersectionCount)[:])
 					//	if err != nil {
 					//		panic(err)
 					//	}
-					//}
+					}
 
 				}
 				//column2.bucketLock.Unlock()
