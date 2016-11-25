@@ -16,7 +16,7 @@ import (
 	"fmt"
 )
 
-var recreate bool = true
+var recreate bool = false
 
 func init() {
 	metadata.H2 = metadata.H2Type{

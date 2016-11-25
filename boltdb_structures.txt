@@ -14,6 +14,7 @@
  |     |--key: "nonNullCount" / value:<nonNullCount> (uint64)
  |     |--key: "hashUniqueCount" / value:<hashUniqueCount> (uint64)
  |--bucket: "stats"
+    |--key: "categoryCount" / value: <nonNullCount> (uint64)
     |--key: "nonNullCount" / value: <nonNullCount> (uint64)
     |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
 
@@ -25,7 +26,7 @@
 <columnInfo1Id>-<columnInfo2Id>.bolt.db
  |--bucket:"categories"
  |  |--bucket: <dataCategory> []bytes
- |     |--key:"bitset"/ intersection
+ |     |--key:"intersection"/ intersection bytes offset/bits
  |--bucket: "stats"
    |--key: "categoryCount" / value: <categoryCount> (uint64)
    |--key: "column1RowCount":value<column1RowCount> uint64

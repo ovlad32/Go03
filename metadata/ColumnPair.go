@@ -2,12 +2,12 @@ package metadata
 
 import (
 	jsnull "./../jsnull"
+	sparsebitset "./../sparsebitset"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
-	"bytes"
 )
 
 var columnPairCategoriesBucket = []byte("categories")
@@ -32,12 +32,13 @@ type ColumnPairType struct {
 	storage             *bolt.DB
 	currentTx           *bolt.Tx
 	CategoriesBucket    *bolt.Bucket
-	CategoryBucket      *bolt.Bucket
+	//CategoryBucket      *bolt.Bucket
 	//CategoryHashBucket  *bolt.Bucket
 	//CategoryStatsBucket *bolt.Bucket
 	//BitsetBucket        *bolt.Bucket
 	StatsBucket         *bolt.Bucket
-	HashIntersection    *bytes.Buffer
+//	HashIntersectionBytes    *bytes.Buffer
+	HashIntersectionBitset    *sparsebitset.BitSet
 }
 
 type ColumnPairsType []*ColumnPairType;
@@ -223,7 +224,7 @@ func (cp *ColumnPairType) OpenStatsBucket() (err error) {
 	}
 	return
 }
-
+/*
 func (cp *ColumnPairType) OpenCategoryBucket(dataCategory []byte) (err error) {
 	funcName := "ColumnPairType.OpenCategoryBucket"
 	cp.CategoryBucket = cp.CategoriesBucket.Bucket(dataCategory)
@@ -245,6 +246,7 @@ func (cp *ColumnPairType) OpenCategoryBucket(dataCategory []byte) (err error) {
 	}
 	return
 }
+*/
 /*
 func (cp *ColumnPairType) OpenCategoryHashBucket() (err error) {
 	funcName := "ColumnPairType.OpenCategoryHashBucket"
@@ -322,7 +324,7 @@ func (cp *ColumnPairType) CloseStorageTransaction(commit bool) (err error) {
 		}
 		cp.currentTx = nil
 		cp.CategoriesBucket = nil
-		cp.CategoryBucket = nil
+		//cp.CategoryBucket = nil
 		cp.StatsBucket = nil
 	}
 	tracelog.Completed(packageName, funcName)

@@ -252,32 +252,13 @@ func (a blockAry) flipBit(n uint64) (blockAry, error) {
 	a[i].flipBit(bit)
 	return a, nil
 }
-
+*/
 // testBit answers `true` if the bit at the given position is set;
 // `false` otherwise.
-func (a blockAry) testBit(n uint64) bool {
-	if n == 0 {
-		return false
-	}
 
-	off, bit := offsetBits(n)
-
-	i := -1
-	for j, el := range a {
-		if el.Offset == off {
-			i = j
-			break
-		}
-	}
-	if i == -1 {
-		return false
-	}
-
-	return a[i].testBit(bit)
-}
 
 // BitSet is a compact representation of sparse positive integer sets.
-*/
+
 type BitSet struct {
 	set blockAry
 }
@@ -298,15 +279,17 @@ func NewFromKV(kv []byte,translator binary.ByteOrder) *BitSet{
 	result := &BitSet{set: make(blockAry)}
 	startK := uint64(0)
 	startV := uint64(8)
-	step := uint64(2*8)
+	step := uint64(8)
 
 	kvLength := uint64(len(kv))
 	for {
 		key := translator.Uint64(kv[startK:startV])
 		startK += step;
-		result.set[key] = translator.Uint64(kv[startK:startV])
 		startV += step;
-		if kvLength<startK {
+		result.set[key] = translator.Uint64(kv[startK:startV])
+		startK += step;
+		startV += step;
+		if kvLength<=startK {
 			break;
 		}
 	}
@@ -983,6 +966,22 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 	return int64(b.BinaryStorageSize()), nil
 }
 
+
+func (b *BitSet) Test(n uint64) bool {
+	if n == 0 {
+		return false
+	}
+
+	off, bit := offsetBits(n)
+
+	if v, found := b.set[off]; !found {
+		return false
+	} else {
+		return (v && (1 << bit)) > 0
+	}
+}
+
+
 func (b *BitSet) BitChan() chan uint64 {
 
 	out := make(chan uint64)
@@ -1046,3 +1045,4 @@ func (b *BitSet) NextSet(n uint64) (uint64, bool) {
 	return (b.set[i].Offset * wordSize) + trailingZeroes64(b.set[i].Bits), true
 }
 */
+
