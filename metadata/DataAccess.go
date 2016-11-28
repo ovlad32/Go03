@@ -1043,7 +1043,13 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 			pair.CloseStorageTransaction(true)
 			pair.CloseStorage()
 			pairs = append(pairs, pair)
-			fmt.Printf("%v <-(%v) %v (%v)-> %v\n", pair.column1, pair.column1RowCount.Value(), pair.HashIntersectionCount.Value(), pair.column2RowCount.Value(), pair.column2)
+			fmt.Printf("%v <-(%v) %v (%v)-> %v\n",
+				pair.column1,
+				pair.column1RowCount.Value(),
+				pair.HashIntersectionCount.Value(),
+				pair.column2RowCount.Value(),
+				pair.column2,
+			)
 
 		}
 	}
