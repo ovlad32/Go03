@@ -1159,6 +1159,9 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 	if err != nil {
 		panic(err)
 	}
+
+	refs := make(map[int64]*ColumnInfoType)
+
 	for {
 		pairsToProcess := make(ColumnPairsType, 0, 10)
 
@@ -1168,16 +1171,41 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 				continue
 			}
 			if !p.column1.TableInfoId.Valid() {
-				p.column1, err = H2.ColumnInfoById(p.column1.Id)
-				if err != nil {
-					panic(err)
+
+				if ref, found := refs[p.column1.Id.Value()]; !found {
+
+					p.column1, err = H2.ColumnInfoById(p.column1.Id)
+					if err != nil {
+						panic(err)
+					}
+
+					p.column1.TableInfo, err = H2.TableInfoById(p.column1.TableInfoId)
+					if err != nil {
+						panic(err)
+					}
+					refs[p.column1.Id.Value()] = p.column1
+				} else {
+					p.column1 = ref
 				}
-				p.column1.TableInfo, err = H2.TableInfoById(p.column1.TableInfoId)
 			}
+
+
 			if !p.column2.TableInfoId.Valid() {
-				p.column2, err = H2.ColumnInfoById(p.column2.Id)
-				p.column2.TableInfo, err = H2.TableInfoById(p.column2.TableInfoId)
-			}
+				if ref, found := refs[p.column2.Id.Value()]; !found {
+
+					p.column2, err = H2.ColumnInfoById(p.column2.Id)
+					if err != nil {
+						panic(err)
+					}
+					p.column2.TableInfo, err = H2.TableInfoById(p.column2.TableInfoId)
+					if err != nil {
+						panic(err)
+					}
+					refs[p.column2.Id.Value()] = p.column2
+				} else {
+					p.column2 = ref
+				}
+  			}
 
 			if err != nil {
 				panic(err)
@@ -1200,6 +1228,21 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 		} else if processLength > 1 {
 			fmt.Println("")
 			sort.Sort(byHashCount(pairsToProcess))
+			bunch := make(map[*ColumnInfoType][]*ColumnInfoType)
+			for _, p := range pairsToProcess {
+				if peers, found := bunch[p.column1]; !found {
+					peers = make([]*ColumnInfoType, 0,len(pairsToProcess))
+					peers = append(peers, p.column2)
+					bunch[p.column1] = peers
+				} else {
+					bunch[p.column1] = append(peers, p.column2)
+				}
+			}
+			for k,v := range bunch {
+				fmt.Println("-",k,v)
+			}
+
+			/*
 			for _, p := range pairsToProcess {
 				fmt.Printf("%v - %v - %v | %v/%v - %v/%v\n",
 					p.column1,
@@ -1211,9 +1254,9 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 					p.column2.TotalRowCount.Value(),
 				)
 
-				da.processTablePairs(pairsToProcess)
+				//da.processTablePairs(pairsToProcess)
 				//TODO:PIPE
-			}
+			}*/
 		}
 	}
 }
@@ -1298,12 +1341,9 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 	col1Ref := make(map[string]*ColumnInfoType)
 	col2Ref := make(map[string]*ColumnInfoType)
 
-	var topPair *ColumnPairType
+	//svar topPair *ColumnPairType
 	for _, pair := range pairs {
-		if topPair == nil {
-			topPair = pair
-		}
-		fmt.Print(pair," ")
+		fmt.Print(pair, " ")
 		// reduce number of objects in memory
 		if table1Ref == nil {
 			table1Ref = pair.column1.TableInfo
@@ -1327,6 +1367,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 		} else {
 			pair.column2 = ref
 		}
+
 		pair.OpenStorage(true)
 		pair.OpenCategoriesBucket()
 		//? pair.OpenStatsBucket();
@@ -1334,63 +1375,26 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 		pair.CategoriesBucket.ForEach(
 			func(category, data []byte) error {
 				dc1 := ColumnDataCategoryStatsType{Column: pair.column1}
-				dc2 := ColumnDataCategoryStatsType{Column: pair.column2}
 				dc1.OpenBucket(category)
-				//dc1.OpenBitsetBucket()
-				//dc1.OpenStatsBucket()
 				dc1.OpenHashValuesBucket()
 
+				dc2 := ColumnDataCategoryStatsType{Column: pair.column2}
 				dc2.OpenBucket(category)
-				//dc2.OpenBitsetBucket()
-				//dc2.OpenStatsBucket()
 				dc2.OpenHashValuesBucket()
 
 				//data:= pair.OpenCategoryBucket()
 				//pair.OpenCategoryHashBucket()
 				pair.HashIntersectionBitset = sparsebitset.NewFromKV(data,binary.LittleEndian)
-				/*oneAgainstMany := func(one,many []bytes) bool{
-					value,_ := utils.B8ToInt64(one)
-					bs :=  sparsebitset.New(0);
-					bs.ReadFrom(bytes.NewBuffer(many));
-					return bs.Test(value)
-				}
+				/*if pair != topPair {
+					for hash := range pair.HashIntersectionBitset.BitChan() {
 
-				for hash := range pair.HashIntersectionBitset.BitChan() {
-					rows1Bytes := dc1.HashValuesBucket.Get(hash)
-					rows2Bytes := dc2.HashValuesBucket.Get(hash)
-
-					if len(rows1Bytes) == 8 && len(rows2Bytes) == 8 {
-						found := true
-						for index := 0; index<len(rows1Bytes); index++ {
-						  if rows1Bytes[index] != rows2Bytes[index] {
-							  found = false
-							  break;
-						  }
-						}
-						if found {
-							cnt ++
-						}
-					} else if len(rows1Bytes) == 8 && len(rows2Bytes)>8 {
-						if oneAgainstMany(rows1Bytes,rows2Bytes) {
-							cnt++
-						}
-					} else if len(rows2Bytes) > 8 && len(rows1Bytes) == 8 {
-						if oneAgainstMany(rows2Bytes,rows1Bytes) {
-							cnt++
-						}
-					} else {
-						bs1 :=  sparsebitset.New(0);
-						bs1.ReadFrom(bytes.NewBuffer(rows1Bytes));
-						bs2 :=  sparsebitset.New(0);
-						bs2.ReadFrom(bytes.NewBuffer(rows2Bytes));
-						cnt = cnt + bs1.IntersectionCardinality(bs2)
 					}
+				} else {
 
 				}
 
-				if pair != topPair {
 
-				}*/
+				*/
 
 
 

@@ -2,11 +2,14 @@ package metadata
 
 import (
 	jsnull "./../jsnull"
+	utils "./../utils"
+	sparsebitset "./../sparsebitset"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"encoding/binary"
 	"fmt"
 	"errors"
+	"bytes"
 )
 
 
@@ -277,3 +280,42 @@ func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
 	return
 }
 
+func (cd *ColumnDataCategoryStatsType) RowIntersectionCount(hash, rows1Bytes []byte) (result uint64) {
+
+	oneAgainstMany := func(one,many []byte) bool {
+		value, _ := utils.B8ToUInt64(one)
+		bs := sparsebitset.New(0);
+		bs.ReadFrom(bytes.NewBuffer(many));
+		return bs.Test(value)
+	}
+	rows2Bytes := cd.CategoryBucket.Get(hash)
+
+	if len(rows1Bytes) == 8 && len(rows2Bytes) == 8 {
+		found := true
+		for index := 0; index<len(rows1Bytes); index++ {
+			if rows1Bytes[index] != rows2Bytes[index] {
+				found = false
+				break;
+			}
+		}
+		if found {
+			result ++
+		}
+	} else if len(rows1Bytes) == 8 && len(rows2Bytes)>8 {
+		if oneAgainstMany(rows1Bytes,rows2Bytes) {
+			result++
+		}
+	} else if len(rows2Bytes) > 8 && len(rows1Bytes) == 8 {
+		if oneAgainstMany(rows2Bytes,rows1Bytes) {
+			result++
+		}
+	} else {
+		bs1 :=  sparsebitset.New(0);
+		bs1.ReadFrom(bytes.NewBuffer(rows1Bytes));
+		bs2 :=  sparsebitset.New(0);
+		bs2.ReadFrom(bytes.NewBuffer(rows2Bytes));
+		cardinality, _ := bs1.IntersectionCardinality(bs2)
+		result = result + cardinality
+	}
+	return
+}

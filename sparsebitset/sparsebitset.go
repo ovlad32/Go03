@@ -977,7 +977,7 @@ func (b *BitSet) Test(n uint64) bool {
 	if v, found := b.set[off]; !found {
 		return false
 	} else {
-		return (v && (1 << bit)) > 0
+		return (v & (1 << bit)) > 0
 	}
 }
 

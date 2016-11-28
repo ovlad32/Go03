@@ -816,7 +816,6 @@ func (h2 H2Type) SaveColumnPairs(pairs []*ColumnPairType) (err error) {
 }
 
 func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, err error) {
-
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
@@ -844,8 +843,8 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 
 	for rows.Next() {
 		pair := &ColumnPairType {
-			column1 : &ColumnInfoType{},
-			column2 : &ColumnInfoType{},
+			column1 : new(ColumnInfoType),
+			column2 : new(ColumnInfoType),
 		}
 		err = rows.Scan(
 			&pair.column1.Id,
@@ -856,13 +855,19 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 			&pair.ProcessStatus,
 		)
 
+
 		if err != nil {
 			return
 		}
+
+
 		if result == nil {
 			result = make(ColumnPairsType,0,10)
 		}
+
+
 		result = append(result,pair)
 	}
+
 	return
 }
