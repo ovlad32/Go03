@@ -137,10 +137,8 @@ func (h2 H2Type) metadata(whereFunc func() string) (result []*MetadataType, err 
 	query := "SELECT " +
 		" ID" +
 		" ,INDEX" +
-		" ,INDEXED" +
 		" ,VERSION" +
 		" ,DATABASE_CONFIG_ID" +
-		" ,INDEXED_KEYS" +
 		" FROM METADATA "
 
 	if whereFunc != nil {
@@ -157,10 +155,8 @@ func (h2 H2Type) metadata(whereFunc func() string) (result []*MetadataType, err 
 		err = rws.Scan(
 			&row.Id,
 			&row.Index,
-			&row.Indexed,
 			&row.Version,
 			&row.DatabaseConfigId,
-			&row.IndexedKeys,
 		)
 		if err != nil {
 			return
