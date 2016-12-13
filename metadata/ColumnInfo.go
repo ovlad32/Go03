@@ -22,6 +22,7 @@ var columnInfoCategoryStatsHashUniqueCountKey = []byte("uniqueHashCount")
 
 
 var columnInfoStatsBucket = []byte("stats")
+var columnInfoRowsBucket = []byte("rows")
 var columnInfoStatsCategoryCountKey = []byte("categoryCount")
 var columnInfoStatsNonNullCountKey = []byte("nonNullCount")
 var columnInfoStatsHashUniqueCountKey = []byte("uniqueHashCount")
@@ -61,6 +62,7 @@ type ColumnInfoType struct {
 	Storage          *bolt.DB
 	CurrentTx        *bolt.Tx
 	CategoriesBucket *bolt.Bucket
+	RowsBucket       *bolt.Bucket
 	StatsBucket      *bolt.Bucket
 }
 
@@ -91,7 +93,8 @@ func (c ColumnInfoType) СheckTableInfo() {
 
 func (ci *ColumnInfoType) ResetBuckets() {
 	ci.CategoriesBucket = nil
-	//ci.statsBucket = nil
+	ci.StatsBucket = nil
+	ci.RowsBucket = nil
 	if ci.DataCategories != nil {
 		for _, dc := range ci.DataCategories {
 			dc.ResetBuckets()
@@ -110,6 +113,13 @@ func (ci *ColumnInfoType) CleanStorage() (err error) {
 	bucket = ci.CurrentTx.Bucket(columnInfoStatsBucket);
 	if bucket != nil {
 		ci.CurrentTx.DeleteBucket(columnInfoStatsBucket);
+		if err != nil {
+			return
+		}
+	}
+	bucket = ci.CurrentTx.Bucket(columnInfoRowsBucket);
+	if bucket != nil {
+		ci.CurrentTx.DeleteBucket(columnInfoRowsBucket);
 		if err != nil {
 			return
 		}
@@ -203,6 +213,32 @@ func (ci *ColumnInfoType) OpenStatsBucket() (err error) {
 			}
 		} else {
 			//tracelog.Info(packageName, funcName, "Bucket for column id %v statistics has not been created", ci.Id)
+		}
+	}
+	return
+}
+
+
+func (ci *ColumnInfoType) OpenRowsBucket() (err error) {
+	funcName := "ColumnInfoType.OpenRowsBucket"
+
+	ci.RowsBucket = ci.CurrentTx.Bucket(columnInfoRowsBucket)
+	if ci.RowsBucket == nil {
+		if ci.CurrentTx.Writable() {
+			ci.RowsBucket, err = ci.CurrentTx.CreateBucket(columnInfoRowsBucket)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return
+			}
+			if ci.RowsBucket == nil {
+				err = errors.New(fmt.Sprintf("Could not create bucket for column id %v data. Got empty value", ci.Id))
+				tracelog.Error(err, packageName, funcName)
+				return
+			} else {
+				//tracelog.Info(packageName, funcName, "Bucket for column id %v data created", ci.Id)
+			}
+		} else {
+			//tracelog.Info(packageName, funcName, "Bucket for column id %v data has not been created", ci.Id)
 		}
 	}
 	return

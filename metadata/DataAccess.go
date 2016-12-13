@@ -661,13 +661,17 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	}
 	//val.column.DataCategories[category] = true
 	var err error
-	if val.column.CategoriesBucket == nil {
+	if val.column.RowsBucket == nil {
 		//tracelog.Info(packageName, funcName, "Lock for column %v",val.column)
 		err = val.column.OpenStorage(true)
 		if err != nil {
 			panic(err)
 		}
 		err = val.column.OpenCategoriesBucket()
+		if err != nil {
+			panic(err)
+		}
+		err = val.column.OpenRowsBucket()
 		if err != nil {
 			panic(err)
 		}
@@ -732,9 +736,15 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	val.dataCategory.BitsetBucket.Put(baseB8Value, utils.UInt64ToB8(bits))
 	//fmt.Println(val.column,string(val.bValue),hValue[:],val.lineNumber,utils.UInt64ToB8(val.lineNumber))
 	//HashSourceBucket
-	bitsetBytes := val.dataCategory.HashValuesBucket.Get(hValue[:])
+
+	lineNumberBytes := utils.UInt64ToB8(val.lineNumber);
+	categoryBytes,_ := val.dataCategory.ConvertToBytes();
+	val.column.RowsBucket.Put(lineNumberBytes,append(hValue[:],categoryBytes[:]...));
+
+	bitsetBytes := val.dataCategory.HashValuesBucket.Get(hValue[:] )
+
 	if bitsetBytes == nil {
-		bitsetBytes = utils.UInt64ToB8(val.lineNumber)
+		bitsetBytes = lineNumberBytes
 		val.dataCategory.HashValuesBucket.Put(hValue[:], bitsetBytes)
 	} else {
 
@@ -771,6 +781,7 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 				utils.UInt64ToB8(hashRowCount+1),
 			)
 		}
+
 
 }
 
@@ -1234,7 +1245,19 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 		} else if processLength > 1 {
 			fmt.Println("")
 			sort.Sort(byHashCount(pairsToProcess))
-			bunch := make(map[*ColumnInfoType][]*ColumnInfoType)
+			/*pairResult := make(map[])
+
+			for _,leadingPair := range(pairsToProcess) {
+				err = leadingPair.OpenStorage(false);
+
+				for pair := range(pairsToProcess) {
+					if pair == leadingPair {
+						continue;
+					}
+				}
+				leadingPair
+			}*/
+			/*bunch := make(map[*ColumnInfoType][]*ColumnInfoType)
 			for _, p := range pairsToProcess {
 				if peers, found := bunch[p.column1]; !found {
 					peers = make([]*ColumnInfoType, 0,len(pairsToProcess))
@@ -1246,9 +1269,11 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 			}
 			for k,v := range bunch {
 				fmt.Println("-",k,v)
-			}
+			}*/
 
-			/*
+
+
+
 			for _, p := range pairsToProcess {
 				fmt.Printf("%v - %v - %v | %v/%v - %v/%v\n",
 					p.column1,
@@ -1260,9 +1285,9 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 					p.column2.TotalRowCount.Value(),
 				)
 
-				//da.processTablePairs(pairsToProcess)
+				da.processTablePairs(pairsToProcess)
 				//TODO:PIPE
-			}*/
+			}
 		}
 	}
 }
@@ -1342,65 +1367,111 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 		} */
 
-	var table1Ref *TableInfoType
-	var table2Ref *TableInfoType
-	col1Ref := make(map[string]*ColumnInfoType)
-	col2Ref := make(map[string]*ColumnInfoType)
 
 	//svar topPair *ColumnPairType
-	for _, pair := range pairs {
-		fmt.Print(pair, " ")
-		// reduce number of objects in memory
-		if table1Ref == nil {
-			table1Ref = pair.column1.TableInfo
+	for _, leadingPair := range pairs {
+		var err error;
+		if leadingPair == nil {
+			leadingPair.OpenStorage(false)
+			leadingPair.OpenCategoriesBucket()
 		}
-		if table2Ref == nil {
-			table2Ref = pair.column2.TableInfo
-		}
-		pair.column1.TableInfo = table1Ref
-		pair.column2.TableInfo = table2Ref
-
-		if ref, found := col1Ref[pair.column1.ColumnName.Value()]; !found {
-			col1Ref[pair.column1.ColumnName.Value()] = pair.column1
-			openColumnStorage(pair.column1)
-		} else {
-			pair.column1 = ref
-		}
-
-		if ref, found := col2Ref[pair.column2.ColumnName.Value()]; !found {
-			col2Ref[pair.column2.ColumnName.Value()] = pair.column2
-			openColumnStorage(pair.column2)
-		} else {
-			pair.column2 = ref
-		}
-
-		pair.OpenStorage(true)
-		pair.OpenCategoriesBucket()
-		//? pair.OpenStatsBucket();
 		cnt := 0
-		pair.CategoriesBucket.ForEach(
+		leadingPair.CategoriesBucket.ForEach(
 			func(category, data []byte) error {
-				dc1 := ColumnDataCategoryStatsType{Column: pair.column1}
+
+				dc1 := &ColumnDataCategoryStatsType{ Column:leadingPair.column1};
 				dc1.OpenBucket(category)
 				dc1.OpenHashValuesBucket()
 
-				dc2 := ColumnDataCategoryStatsType{Column: pair.column2}
+				dc2 := &ColumnDataCategoryStatsType{ Column:leadingPair.column2};
 				dc2.OpenBucket(category)
 				dc2.OpenHashValuesBucket()
 
-				//data:= pair.OpenCategoryBucket()
-				//pair.OpenCategoryHashBucket()
-				pair.HashIntersectionBitset = sparsebitset.NewFromKV(data,binary.LittleEndian)
-				/*if pair != topPair {
-					for hash := range pair.HashIntersectionBitset.BitChan() {
+
+				intersection := sparsebitset.NewFromKV(data,binary.LittleEndian)
+					for hash := range intersection.BitChan() {
+						hashBytes := utils.UInt64ToB8(hash)[:]
+						var rowsBitset1, rowsBitset2 *sparsebitset.BitSet;
+						var rowNumberBytes1, rowNumberBytes2  *[]byte;
+						rowNumberBytes1 = dc1.HashValuesBucket.Get(hashBytes);
+
+						if len(rowNumberBytes1) > 8 {
+							rowsBitset1 = sparsebitset.NewFromKV(rowNumberBytes1,binary.LittleEndian);
+						}
+
+						rowNumberBytes2 = dc2.HashValuesBucket.Get(hashBytes);
+						if len(rowNumberBytes2) > 8 {
+							rowsBitset2 = sparsebitset.NewFromKV(rowNumberBytes2,binary.LittleEndian);
+						}
+
+						for _, pair := range pairs {
+							if  pair == leadingPair {
+								continue;
+							}
+							if pair.column1.RowsBucket == nil {
+								err = pair.column1.OpenStorage(false)
+								if err != nil {
+									panic(err)
+								}
+								err = pair.column1.OpenRowsBucket()
+								if err != nil {
+									panic(err)
+								}
+							}
+
+							if pair.column2.RowsBucket == nil {
+								err = pair.column2.OpenStorage(false)
+								if err != nil {
+									panic(err)
+								}
+								err = pair.column2.OpenRowsBucket()
+								if err != nil {
+									panic(err)
+								}
+							}
+							/*if cp.CategoriesBucket == nil {
+								err = cp.OpenCategoriesBucket();
+								if err != nil {
+									panic(err)
+								}
+							}*/
+
+
+							var hashValue1,hashValue2 *[]byte;
+
+							compare := func() {
+								if leadingPair.Assossiated == nil {
+									leadingPair.Assossiated = make (map[*ColumnPairType]uint64)
+								}
+
+								result := true;
+								for index, b := range hashValue1[:8] {
+									if hashValue2[index] != b {
+										result = false;
+										break;
+									}
+								}
+								if result {
+									leadingPair.Assossiated[pair] ++
+								}
+							}
+							hashValue2 := pair.column2.RowsBucket.Get(rowNumber2);
+
+							if rowsBitset1 == nil{
+								hashValue1 = pair.column1.RowsBucket.Get(rowNumberBytes1);
+							}
+							if rowsBitset2 == nil{
+								hashValue2 = pair.column2.RowsBucket.Get(rowNumberBytes2);
+							}
+							if rowsBitset2 == nil {}
+
+
+
+						}
 
 					}
-				} else {
-
-				}
 
 
-				*/
 
 
 

@@ -8,14 +8,15 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
+	"encoding/binary"
 )
 
 var columnPairCategoriesBucket = []byte("categories")
 var columnPairStatsBucket = []byte("stats")
-var columnPairCategoryHashBucket = []byte("hash")
-var columnPairCategoryStatsBucket = []byte("stats")
-var columnPairBitsetBucket = []byte("bitset")
-var columnPairStatsHashUniqueCountKey = []byte("uniqueHashCount")
+var columnPairIntersectionBucket = []byte("intersection")
+//var columnPairCategoryStatsBucket = []byte("stats")
+//var columnPairBitsetBucket = []byte("bitset")
+//var columnPairStatsHashUniqueCountKey = []byte("uniqueHashCount")
 var columnPairHashUniqueCountKey = []byte("uniqueHashCount")
 var columnPairHashCategoryCountKey = []byte("categoryCount")
 
@@ -38,7 +39,8 @@ type ColumnPairType struct {
 	//BitsetBucket        *bolt.Bucket
 	StatsBucket         *bolt.Bucket
 //	HashIntersectionBytes    *bytes.Buffer
-	HashIntersectionBitset    *sparsebitset.BitSet
+	//HashIntersectionBitset    *sparsebitset.BitSet
+	Assossiated  map[*ColumnPairType] uint64;
 }
 
 type ColumnPairsType []*ColumnPairType;
@@ -339,5 +341,63 @@ func (cp *ColumnPairType) CloseStorage() (err error) {
 		cp.storage = nil
 	}
 	tracelog.Completed(packageName, funcName)
+	return
+}
+
+func (cp *ColumnPairType) match(categoryString string,category, rowNumber1, rowNumber2 *[]byte) (result bool,err error) {
+
+	if cp.column1.RowsBucket == nil {
+		err = cp.column1.OpenStorage(false)
+		if err != nil {
+			panic(err)
+		}
+		err = cp.column1.OpenRowsBucket()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	if cp.column2.RowsBucket == nil {
+		err = cp.column2.OpenStorage(false)
+		if err != nil {
+			panic(err)
+		}
+		err = cp.column2.OpenRowsBucket()
+		if err != nil {
+			panic(err)
+		}
+	}
+	/*if cp.CategoriesBucket == nil {
+		err = cp.OpenCategoriesBucket();
+		if err != nil {
+			panic(err)
+		}
+	}*/
+	hashValue1 := cp.column1.RowsBucket.Get(rowNumber1);
+	hashValue2 := cp.column2.RowsBucket.Get(rowNumber2);
+	result = true;
+	for index, b := range hashValue1[:8] {
+		if hashValue2[index] != b {
+			result = false;
+			break;
+		}
+	}
+
+
+
+	/*var bitset *sparsebitset.BitSet;
+	if cp.bitsets == nil {
+		cp.bitsets = make(map[string]*sparsebitset.BitSet);
+	}
+	if foundItem,found := cp.bitsets[categoryString];!found {
+		bucket := cp.CategoriesBucket.Bucket(category)
+		foundItem = sparsebitset.NewFromKV(bucket.Get(columnPairIntersectionBucket),binary.LittleEndian)
+		cp.bitsets[categoryString] = foundItem
+		bitset = foundItem
+	} else {
+		bitset = foundItem
+	}
+
+	bitset.Test()*/
 	return
 }

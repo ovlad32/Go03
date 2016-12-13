@@ -319,3 +319,4 @@ func (cd *ColumnDataCategoryStatsType) RowIntersectionCount(hash, rows1Bytes []b
 	}
 	return
 }
+
