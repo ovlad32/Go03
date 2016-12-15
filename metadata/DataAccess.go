@@ -1284,8 +1284,22 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 					p.column2RowCount.Value(),
 					p.column2.TotalRowCount.Value(),
 				)
+			}
 
 				da.processTablePairs(pairsToProcess)
+
+				for _, p := range pairsToProcess {
+					fmt.Printf("%v - (%v) - %v \n",
+						p.column1,
+						p.HashIntersectionCount,
+						p.column2,
+					)
+					for k,v := range p.Assossiated {
+						fmt.Println(k,v)
+					}
+
+					fmt.Println()
+
 				//TODO:PIPE
 			}
 		}
@@ -1294,7 +1308,7 @@ func (da DataAccessType) MakeTablePairs(metadata1, metadata2 *MetadataType) {
 func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 	lift := uint64(math.Pow(2, 32))
 	_=lift
-	openColumnStorage := func(col *ColumnInfoType) {
+	/* openColumnStorage := func(col *ColumnInfoType) {
 		var err error
 		if col.Storage == nil {
 			err = col.OpenStorage(false)
@@ -1308,7 +1322,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 		}
 		// ? err = col.OpenStatsBucket()
 
-	}
+	}*/
 
 	/*	openPairBuckets := func(pair *ColumnPairType) {
 			pair.OpenStorage(true)
@@ -1369,11 +1383,38 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 
 	//svar topPair *ColumnPairType
+
+	rowChan := func(data []byte) chan uint64{
+		if data == nil {
+			return nil;
+		} else if len(data) > 8 {
+			bs := sparsebitset.New(0);
+			buffer := bytes.NewBuffer(data);
+			bs.ReadFrom(buffer)
+			return bs.BitChan();
+		} else {
+			result := make(chan uint64, 1)
+			value,_ := utils.B8ToUInt64(data)
+			result <- value;
+			close(result);
+			return result;
+		}
+	}
+
+
+	
 	for _, leadingPair := range pairs {
 		var err error;
-		if leadingPair == nil {
+		if leadingPair.storage == nil {
 			leadingPair.OpenStorage(false)
 			leadingPair.OpenCategoriesBucket()
+			leadingPair.column1.OpenStorage(false)
+			leadingPair.column2.OpenStorage(false)
+			leadingPair.column1.OpenCategoriesBucket()
+			leadingPair.column2.OpenCategoriesBucket()
+			if leadingPair.Assossiated == nil {
+				leadingPair.Assossiated = make(map[*ColumnPairType]uint64)
+			}
 		}
 		cnt := 0
 		leadingPair.CategoriesBucket.ForEach(
@@ -1390,24 +1431,25 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 				intersection := sparsebitset.NewFromKV(data,binary.LittleEndian)
 					for hash := range intersection.BitChan() {
-						hashBytes := utils.UInt64ToB8(hash)[:]
-						var rowsBitset1, rowsBitset2 *sparsebitset.BitSet;
-						var rowNumberBytes1, rowNumberBytes2  *[]byte;
-						rowNumberBytes1 = dc1.HashValuesBucket.Get(hashBytes);
+						hashBytes := utils.UInt64ToB8(hash)
+						//fmt.Println(hashBytes)
 
-						if len(rowNumberBytes1) > 8 {
-							rowsBitset1 = sparsebitset.NewFromKV(rowNumberBytes1,binary.LittleEndian);
+						leadingRowsChan1 := rowChan(dc1.HashValuesBucket.Get(hashBytes));
+						if leadingRowsChan1 == nil {
+							continue;
 						}
 
-						rowNumberBytes2 = dc2.HashValuesBucket.Get(hashBytes);
-						if len(rowNumberBytes2) > 8 {
-							rowsBitset2 = sparsebitset.NewFromKV(rowNumberBytes2,binary.LittleEndian);
+						leadingRowsChan2 := rowChan(dc2.HashValuesBucket.Get(hashBytes));
+						if leadingRowsChan2 == nil{
+								continue;
 						}
 
 						for _, pair := range pairs {
+
 							if  pair == leadingPair {
 								continue;
 							}
+
 							if pair.column1.RowsBucket == nil {
 								err = pair.column1.OpenStorage(false)
 								if err != nil {
@@ -1429,97 +1471,21 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 									panic(err)
 								}
 							}
-							/*if cp.CategoriesBucket == nil {
-								err = cp.OpenCategoriesBucket();
-								if err != nil {
-									panic(err)
-								}
-							}*/
+							for leadingRow1 := range(leadingRowsChan1) {
+								hashValue := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
+								for leadingRow2 := range(leadingRowsChan2) {
+									if bytes.Compare(pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2)),hashValue) == 0 {
 
-
-							var hashValue1,hashValue2 *[]byte;
-
-							compare := func() {
-								if leadingPair.Assossiated == nil {
-									leadingPair.Assossiated = make (map[*ColumnPairType]uint64)
-								}
-
-								result := true;
-								for index, b := range hashValue1[:8] {
-									if hashValue2[index] != b {
-										result = false;
-										break;
+										if stored, found := leadingPair.Assossiated[pair]; !found {
+											leadingPair.Assossiated[pair] = 0;
+										} else {
+											leadingPair.Assossiated[pair] = stored + 1;
+										}
 									}
 								}
-								if result {
-									leadingPair.Assossiated[pair] ++
-								}
 							}
-							hashValue2 := pair.column2.RowsBucket.Get(rowNumber2);
-
-							if rowsBitset1 == nil{
-								hashValue1 = pair.column1.RowsBucket.Get(rowNumberBytes1);
-							}
-							if rowsBitset2 == nil{
-								hashValue2 = pair.column2.RowsBucket.Get(rowNumberBytes2);
-							}
-							if rowsBitset2 == nil {}
-
-
-
 						}
-
 					}
-
-
-
-
-
-					//ForEach(
-					//func(hash, countBytes []byte) error {
-					//	fmt.Println(countBytes)
-						//column1RowCount,_ := utils.B8ToUInt64(countBytes[:8]);
-						//column2RowCount,_ := utils.B8ToUInt64(countBytes[8:]);
-						//fmt.Println(column1RowCount,column2RowCount)
-						/*rows1byte := dc1.HashValuesBucket.Get(hash)
-						dc2.HashValuesBucket.Get(hash)
-
-						dc1.HashSourceBucket.ForEach(
-							func(lineNumber1Bytes, _ []byte) error {
-								lineNumber1, _ := utils.B8ToUInt64(lineNumber1Bytes)
-								dc2.HashSourceBucket.ForEach(
-									func(lineNumber2Bytes, _ []byte) error {
-										lineNumber2, _ := utils.B8ToUInt64(lineNumber2Bytes)
-										value := lineNumber1 + lineNumber2*lift
-
-										//fmt.Println(pair.column1,lineNumber1,pair.column2,lineNumber2,value,)
-
-										base, offset := sparsebitset.OffsetBits(value)
-										baseBytes := utils.UInt64ToB8(base)
-										if pair.BitsetBucket == nil {
-											pair.OpenBitsetBucket()
-										}
-										offsetBytes := utils.UInt64ToB8(offset)
-
-										offsetInStorage := pair.BitsetBucket.Get(baseBytes)
-										if offsetInStorage != nil {
-											for index := range offsetInStorage {
-												offsetInStorage[index] &= offsetBytes[index]
-											}
-											pair.BitsetBucket.Put(baseBytes, offsetInStorage)
-										} else {
-											pair.BitsetBucket.Put(baseBytes, offsetBytes)
-										}
-										cnt++
-										return nil
-									},
-								)
-								return nil
-							},
-						)*/
-					//	return nil
-					//},
-				//)
 				return nil
 			},
 		)

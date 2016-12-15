@@ -2,13 +2,11 @@ package metadata
 
 import (
 	jsnull "./../jsnull"
-	sparsebitset "./../sparsebitset"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
-	"encoding/binary"
 )
 
 var columnPairCategoriesBucket = []byte("categories")
@@ -343,6 +341,7 @@ func (cp *ColumnPairType) CloseStorage() (err error) {
 	tracelog.Completed(packageName, funcName)
 	return
 }
+/**
 
 func (cp *ColumnPairType) match(categoryString string,category, rowNumber1, rowNumber2 *[]byte) (result bool,err error) {
 
@@ -367,12 +366,7 @@ func (cp *ColumnPairType) match(categoryString string,category, rowNumber1, rowN
 			panic(err)
 		}
 	}
-	/*if cp.CategoriesBucket == nil {
-		err = cp.OpenCategoriesBucket();
-		if err != nil {
-			panic(err)
-		}
-	}*/
+
 	hashValue1 := cp.column1.RowsBucket.Get(rowNumber1);
 	hashValue2 := cp.column2.RowsBucket.Get(rowNumber2);
 	result = true;
@@ -385,19 +379,6 @@ func (cp *ColumnPairType) match(categoryString string,category, rowNumber1, rowN
 
 
 
-	/*var bitset *sparsebitset.BitSet;
-	if cp.bitsets == nil {
-		cp.bitsets = make(map[string]*sparsebitset.BitSet);
-	}
-	if foundItem,found := cp.bitsets[categoryString];!found {
-		bucket := cp.CategoriesBucket.Bucket(category)
-		foundItem = sparsebitset.NewFromKV(bucket.Get(columnPairIntersectionBucket),binary.LittleEndian)
-		cp.bitsets[categoryString] = foundItem
-		bitset = foundItem
-	} else {
-		bitset = foundItem
-	}
-
-	bitset.Test()*/
 	return
 }
+*/
