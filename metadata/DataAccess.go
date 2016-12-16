@@ -753,7 +753,7 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 		sb := sparsebitset.New(0)
 		if len(bitsetBytes) == 8 {
 			prevValue, _ := utils.B8ToUInt64(bitsetBytes)
-			buffer = bytes.NewBuffer(make([]byte, 0, 8*2))
+			buffer = bytes.NewBuffer(make([]byte, 0, 8*3))
 			sb.Set(prevValue)
 		} else {
 			buffer = bytes.NewBuffer(bitsetBytes)
@@ -771,17 +771,17 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	)*/
 
 
-		if hashRowCount,found := utils.B8ToUInt64(val.dataCategory.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)); !found {
-			val.dataCategory.CategoryBucket.Put(
-				columnInfoCategoryStatsRowCountKey,
-				utils.UInt64ToB8(uint64(1)),
-			)
-		} else {
-			val.dataCategory.CategoryBucket.Put(
-				columnInfoCategoryStatsRowCountKey,
-				utils.UInt64ToB8(hashRowCount+1),
-			)
-		}
+	if hashRowCount,found := utils.B8ToUInt64(val.dataCategory.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)); !found {
+		val.dataCategory.CategoryBucket.Put(
+			columnInfoCategoryStatsRowCountKey,
+			utils.UInt64ToB8(uint64(1)),
+		)
+	} else {
+		val.dataCategory.CategoryBucket.Put(
+			columnInfoCategoryStatsRowCountKey,
+			utils.UInt64ToB8(hashRowCount+1),
+		)
+	}
 
 
 }
@@ -897,6 +897,23 @@ func (da DataAccessType) LoadStorage() {
 
 	}
 }
+
+/*
+
+select 'select * from (select null as entry, to_number(null) as cnt from dual where 1=0 ' from dual union all
+select distinct
+  'union all select '''||p.OWNER||'.'||p.TABLE_NAME||'.'||p.column_name||'<->'||
+  c.OWNER||'.'||c.TABLE_NAME||'.'||c.column_name||''', count(distinct p.'||p.column_name||') from '||
+  p.OWNER||'.'||p.TABLE_NAME||' p inner join '||c.OWNER||'.'||c.TABLE_NAME||' c on to_char(c.'||c.column_name||') = to_char(p.'||p.column_name||') '
+  from all_tab_cols p
+ cross join all_tab_cols c
+where p.OWNER = 'WFL44'
+ and c.OWNER = 'WFL44'
+ and c.TABLE_NAME<>p.TABLE_NAME
+union all
+select ') where cnt>0' from dual
+
+*/
 
 func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, stage string) {
 	//	var emptyValue []byte = make([]byte, 0, 0)
@@ -1391,6 +1408,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 		} else if len(data) > 8 {
 			bs := sparsebitset.New(0);
 			buffer := bytes.NewBuffer(data);
+			fmt.Println(bs.Cardinality());
 			bs.ReadFrom(buffer)
 			return bs.BitChan();
 		} else {
@@ -1434,7 +1452,6 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 				for hash := range intersection.BitChan() {
 					hashBytes := utils.UInt64ToB8(hash)
 					//fmt.Println(hashBytes)
-
 					leadingRowsChan1 := rowChan(dc1.HashValuesBucket.Get(hashBytes));
 					if leadingRowsChan1 == nil {
 						continue;
@@ -1477,6 +1494,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 						for leadingRow1 := range (leadingRowsChan1) {
 							hashValue := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
+
 							for leadingRow2 := range (leadingRowsChan2) {
 								if bytes.Compare(pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2)), hashValue) == 0 {
 									cnt++;
@@ -1485,15 +1503,15 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 								}
 							}
 						}
-						if len(lr2) > 0 && len(lr2) > 0 {
-							if hits,found :=leadingPair.Assossiated[pair];!found {
+						//if len(lr2) > 0 && len(lr2) > 0 {
+							if hits,found :=leadingPair.Assossiated[pair]; !found {
 								leadingPair.Assossiated[pair] = [2]uint64{uint64(len(lr1)), uint64(len(lr2))};
 							} else {
 								hits[0] += uint64(len(lr1));
 								hits[1] += uint64(len(lr2));
 								leadingPair.Assossiated[pair] = hits
 							}
-						}
+						//}
 					}
 				}
 				return nil

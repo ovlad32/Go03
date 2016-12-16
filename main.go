@@ -16,7 +16,7 @@ import (
 	"fmt"
 )
 
-var recreate bool = false;
+var recreate bool = true;
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -62,7 +62,7 @@ func main() {
 			FieldSeparator:124,
 			LineSeparator:10,
 		},
-		SubHashByteLengthThreshold: 6,
+		SubHashByteLengthThreshold: 600,
 		TransactionCountLimit:1000*50,
 		ColumnBucketsCache:utils.New(50),
 
