@@ -38,7 +38,7 @@ type ColumnPairType struct {
 	StatsBucket         *bolt.Bucket
 //	HashIntersectionBytes    *bytes.Buffer
 	//HashIntersectionBitset    *sparsebitset.BitSet
-	Assossiated  map[*ColumnPairType] uint64;
+	Assossiated  map[*ColumnPairType] [2]uint64;
 }
 
 type ColumnPairsType []*ColumnPairType;

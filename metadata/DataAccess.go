@@ -738,8 +738,9 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	//HashSourceBucket
 
 	lineNumberBytes := utils.UInt64ToB8(val.lineNumber);
-	categoryBytes,_ := val.dataCategory.ConvertToBytes();
-	val.column.RowsBucket.Put(lineNumberBytes,append(hValue[:],categoryBytes[:]...));
+	//categoryBytes,_ := val.dataCategory.ConvertToBytes();
+	//,categoryBytes[:]...
+	val.column.RowsBucket.Put(lineNumberBytes,append(hValue[:]));
 
 	bitsetBytes := val.dataCategory.HashValuesBucket.Get(hValue[:] )
 
@@ -1413,7 +1414,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 			leadingPair.column1.OpenCategoriesBucket()
 			leadingPair.column2.OpenCategoriesBucket()
 			if leadingPair.Assossiated == nil {
-				leadingPair.Assossiated = make(map[*ColumnPairType]uint64)
+				leadingPair.Assossiated = make(map[*ColumnPairType][2]uint64)
 			}
 		}
 		cnt := 0
@@ -1430,62 +1431,71 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 
 				intersection := sparsebitset.NewFromKV(data,binary.LittleEndian)
-					for hash := range intersection.BitChan() {
-						hashBytes := utils.UInt64ToB8(hash)
-						//fmt.Println(hashBytes)
+				for hash := range intersection.BitChan() {
+					hashBytes := utils.UInt64ToB8(hash)
+					//fmt.Println(hashBytes)
 
-						leadingRowsChan1 := rowChan(dc1.HashValuesBucket.Get(hashBytes));
-						if leadingRowsChan1 == nil {
+					leadingRowsChan1 := rowChan(dc1.HashValuesBucket.Get(hashBytes));
+					if leadingRowsChan1 == nil {
+						continue;
+					}
+
+					leadingRowsChan2 := rowChan(dc2.HashValuesBucket.Get(hashBytes));
+					if leadingRowsChan2 == nil{
 							continue;
+					}
+
+					for _, pair := range pairs {
+
+						if pair == leadingPair {
+							//continue;
 						}
 
-						leadingRowsChan2 := rowChan(dc2.HashValuesBucket.Get(hashBytes));
-						if leadingRowsChan2 == nil{
-								continue;
+						if pair.column1.RowsBucket == nil {
+							err = pair.column1.OpenStorage(false)
+							if err != nil {
+								panic(err)
+							}
+							err = pair.column1.OpenRowsBucket()
+							if err != nil {
+								panic(err)
+							}
 						}
 
-						for _, pair := range pairs {
-
-							if  pair == leadingPair {
-								continue;
+						if pair.column2.RowsBucket == nil {
+							err = pair.column2.OpenStorage(false)
+							if err != nil {
+								panic(err)
 							}
-
-							if pair.column1.RowsBucket == nil {
-								err = pair.column1.OpenStorage(false)
-								if err != nil {
-									panic(err)
-								}
-								err = pair.column1.OpenRowsBucket()
-								if err != nil {
-									panic(err)
-								}
+							err = pair.column2.OpenRowsBucket()
+							if err != nil {
+								panic(err)
 							}
+						}
+						lr1 := make(map[uint64]bool)
+						lr2 := make(map[uint64]bool)
 
-							if pair.column2.RowsBucket == nil {
-								err = pair.column2.OpenStorage(false)
-								if err != nil {
-									panic(err)
-								}
-								err = pair.column2.OpenRowsBucket()
-								if err != nil {
-									panic(err)
+						for leadingRow1 := range (leadingRowsChan1) {
+							hashValue := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
+							for leadingRow2 := range (leadingRowsChan2) {
+								if bytes.Compare(pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2)), hashValue) == 0 {
+									cnt++;
+									lr1[leadingRow1] = true
+									lr2[leadingRow2] = true
 								}
 							}
-							for leadingRow1 := range(leadingRowsChan1) {
-								hashValue := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
-								for leadingRow2 := range(leadingRowsChan2) {
-									if bytes.Compare(pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2)),hashValue) == 0 {
-
-										if stored, found := leadingPair.Assossiated[pair]; !found {
-											leadingPair.Assossiated[pair] = 0;
-										} else {
-											leadingPair.Assossiated[pair] = stored + 1;
-										}
-									}
-								}
+						}
+						if len(lr2) > 0 && len(lr2) > 0 {
+							if hits,found :=leadingPair.Assossiated[pair];!found {
+								leadingPair.Assossiated[pair] = [2]uint64{uint64(len(lr1)), uint64(len(lr2))};
+							} else {
+								hits[0] += uint64(len(lr1));
+								hits[1] += uint64(len(lr2));
+								leadingPair.Assossiated[pair] = hits
 							}
 						}
 					}
+				}
 				return nil
 			},
 		)
