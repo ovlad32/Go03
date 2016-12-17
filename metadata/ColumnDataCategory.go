@@ -139,7 +139,7 @@ func (cdc *ColumnDataCategoryStatsType) OpenBucket(dataCategoryBytes []byte) (ne
 			tracelog.Error(err, packageName, funcName)
 			return
 		}
-	} else if !cdc.IsNumeric.Valid() {
+	} else if !cdc.IsNumeric.Valid() { //TODO:why?
 		err = cdc.PopulateFromBytes(dataCategoryBytes)
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)

@@ -2,12 +2,14 @@ package metadata
 
 import (
 	jsnull "./../jsnull"
+	utils "./../utils"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
 	"sync"
+	"io"
 )
 
 
@@ -324,4 +326,108 @@ func (ci ColumnInfoType) FindDataCategory(
 		}
 	}
 	return nil
+}
+
+func (c *ColumnInfoType) ShowStatsReport(out io.Writer) (err error ){
+	if c.Storage == nil {
+		err = c.OpenStorage(false)
+		if err != nil {
+			return
+		}
+	}
+	fmt.Fprintf(out,"%v\n",c)
+	if c.CategoriesBucket == nil {
+		err = c.OpenCategoriesBucket()
+		if err != nil {
+			return
+		}
+	}
+	fmt.Fprintf(out,"|-\"%v\"",string(columnInfoCategoriesBucket))
+	c.CategoriesBucket.ForEach(
+		func(category,_ []byte) (err error) {
+			if category == nil {
+				fmt.Fprintf(out,"| |-%nill\n")
+				return nil
+			}
+			dc := &ColumnDataCategoryStatsType{Column:c}
+			dc.PopulateFromBytes(category)
+
+			fmt.Fprintf(out,"| |-%v\n",dc)
+			_, err  = dc.OpenBucket(category)
+			if err != nil {
+				return
+			}
+			err = dc.OpenHashValuesBucket()
+			if err != nil {
+				return
+			}
+
+			var count = uint64(0);
+			dc.HashValuesBucket.ForEach(
+				func(_,_[]byte) error{
+					count++;
+					return nil
+				},
+			)
+			fmt.Fprintf(out,"|    |-\"%v\"\n",string(columnInfoCategoryHashBucket))
+			fmt.Fprintf(out,"|       |-%v key(s)\n",count)
+
+			err = dc.OpenBitsetBucket()
+			if err != nil {
+				return
+			}
+			count = uint64(0);
+			dc.BitsetBucket.ForEach(
+				func(_,_[]byte) error{
+					count++;
+					return nil
+				},
+			)
+			fmt.Fprintf(out,"|    |-\"%v\"\n",string(columnInfoCategoryBitsetBucket))
+			fmt.Fprintf(out,"|       |-%v key(s)\n",count)
+
+			count,_ = utils.B8ToUInt64(dc.CategoryBucket.Get(columnInfoCategoryStatsHashUniqueCountKey));
+			fmt.Fprintf(out,"|    |-\"%v\" - %v\n",string(columnInfoCategoryStatsHashUniqueCountKey),count)
+
+			count,_ = utils.B8ToUInt64(dc.CategoryBucket.Get(columnInfoCategoryStatsNonNullCountKey));
+			fmt.Fprintf(out,"|    |-\"%v\" - %v\n",string(columnInfoCategoryStatsNonNullCountKey),count)
+
+			return nil;
+		},
+	)
+	err = c.OpenRowsBucket()
+	if err != nil {
+		return
+	}
+	var count = uint64(0);
+	c.RowsBucket.ForEach(
+		func(_,_[]byte) error{
+			count++;
+			return nil
+		},
+	)
+	fmt.Fprintf(out,"|-\"%\"\n",string(columnInfoRowsBucket))
+	fmt.Fprintf(out,"| |-%v key(s)\n",count)
+
+	err = c.OpenStatsBucket()
+	if err != nil {
+		return
+	}
+
+
+	fmt.Fprintf(out,"|-\"%\"\n",string(columnInfoStatsBucket))
+	count,_ = utils.B8ToUInt64(c.StatsBucket.Get(columnInfoStatsCategoryCountKey));
+	fmt.Fprintf(out,"  |-\"%v\" - %v\n",string(columnInfoStatsCategoryCountKey),count)
+
+	count,_ = utils.B8ToUInt64(c.StatsBucket.Get(columnInfoStatsHashUniqueCountKey));
+	fmt.Fprintf(out,"  |-\"%v\" - %v\n",string(columnInfoStatsHashUniqueCountKey),count)
+
+	count,_ = utils.B8ToUInt64(c.StatsBucket.Get(columnInfoStatsNonNullCountKey));
+	fmt.Fprintf(out,"  |-\"%v\" - %v\n",string(columnInfoStatsNonNullCountKey),count)
+
+	fmt.Fprintf(out,"\n")
+
+
+
+	return
 }

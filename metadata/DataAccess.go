@@ -396,13 +396,12 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 		} else if err != nil {
 			panic(err)
 		}
-		lineImage = bytes.TrimSuffix(lineImage, []byte{da.DumpConfiguration.LineSeparator})
-		lineImage = bytes.TrimSuffix(lineImage, x0D)
 		lineImageLen := len(lineImage)
-
 		line := make([]byte, lineImageLen, lineImageLen)
 		copy(line, lineImage)
-		//line := lineImage
+
+		line = bytes.TrimSuffix(line, []byte{da.DumpConfiguration.LineSeparator})
+		line = bytes.TrimSuffix(line, x0D)
 		lineNumber++
 
 		metadataColumnCount := len(table.Columns)
@@ -895,6 +894,14 @@ func (da DataAccessType) LoadStorage() {
 		close(tableСhannel)
 		goBusy.Wait()
 
+		for _, t := range tables {
+			for _, c := range t.Columns {
+				err = c.ShowStatsReport(os.Stdout)
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
 	}
 }
 
