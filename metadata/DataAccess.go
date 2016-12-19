@@ -1436,7 +1436,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 		} else if len(data) > 8 {
 			bs := sparsebitset.New(0);
 			buffer := bytes.NewBuffer(data);
-			fmt.Println(bs.Cardinality());
+			//fmt.Println(bs.Cardinality());
 			bs.ReadFrom(buffer)
 			return bs.BitChan();
 		} else {
@@ -1469,9 +1469,6 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 				dc1 := &ColumnDataCategoryStatsType{ Column:leadingPair.column1};
 				dc1.OpenBucket(category)
-				if dc1.CategoryBucket == nil {
-					fmt.Printf("%v, %v\n",leadingPair,dc1);
-				}
 				dc1.OpenHashValuesBucket()
 
 				dc2 := &ColumnDataCategoryStatsType{ Column:leadingPair.column2};
@@ -1548,7 +1545,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 				return nil
 			},
 		)
-		fmt.Println(cnt)
+	//	fmt.Println(cnt)
 	}
 
 }
