@@ -437,6 +437,7 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 					//close(storeChans[index])
 					close(chout)
 				}(statsChan, storeChan)
+
 				go func(chin ColumnDataChannelType) {
 					transactionCount := uint64(0)
 					//ticker := uint64(0)
@@ -462,11 +463,17 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 					goBusy.Done()
 				}(storeChan)
 			}
+
 			statsChannels[columnIndex] <- &ColumnDataType{
 				column:     table.Columns[columnIndex],
 				bValue:     lineColumns[columnIndex],
 				lineNumber: lineNumber,
 			}
+			/*if table.Columns[columnIndex].ColumnName.String() == "CONTRACT_NUMBER" {
+				if len(lineColumns[columnIndex]) != 19 {
+					fmt.Printf("%s, %s\n",string(lineColumns[columnIndex]),string(line));
+				}
+			}*/
 			//<-out
 
 			/*out <-columnDataType{
@@ -497,6 +504,13 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 	//	funcName := "DataAccessType.CollectDataStats"
 	//	tracelog.Started(packageName,funcName)
 	column := val.column
+
+	/*if column.ColumnName.String() == "CONTRACT_NUMBER" {
+		if len(val.bValue) != 19 {
+			fmt.Printf("%s, %v\n",string(val.bValue),val.lineNumber);
+		}
+	}*/
+
 	//	tracelog.Info(packageName,funcName,"Collecting statistics for line %v of column %v[%v]...",val.lineNumber,column,column.Id)
 	byteLength := len(val.bValue)
 	if byteLength == 0 {
@@ -516,8 +530,8 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 
 	if isNumeric {
 		var lengthChanged bool
-		if strings.Index(sValue, ".") != -1 {
-			trimmedValue := strings.TrimRight(sValue, "0")
+		if strings.Count(sValue, ".") == 1 {
+			trimmedValue := strings.TrimLeft(sValue, "0")
 			lengthChanged = len(sValue) != len(trimmedValue)
 			if lengthChanged {
 				sValue = trimmedValue
@@ -632,6 +646,12 @@ func (da *DataAccessType) collectDataStats(val *ColumnDataType) {
 	}
 	//	tracelog.Info(packageName,funcName,"Statistics for line %v of column %v[%v] collected",val.lineNumber,column,column.Id)
 	//	tracelog.Completed(packageName,funcName)
+/*
+	if column.ColumnName.String() == "CONTRACT_NUMBER" {
+		if len(val.bValue) != 19 {
+			fmt.Printf("2 %s, %v\n",string(val.bValue),val.lineNumber);
+		}
+	} */
 }
 
 func (da *DataAccessType) storeData(val *ColumnDataType) {
@@ -641,6 +661,7 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	if bLen == 0 || val.dataCategory == nil {
 		return
 	}
+
 
 	hashFunc := fnv.New64()
 	var hashUIntValue uint64
@@ -698,11 +719,11 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	if newHashValue {
 		(*val.dataCategory.HashUniqueCount.Reference())++
 	}
-	*/
+
 	err = val.dataCategory.OpenHashValuesBucket()
 	if err != nil {
 		panic(err)
-	}
+	}*/
 
 	err = val.dataCategory.OpenBitsetBucket()
 	if err != nil {
@@ -1448,6 +1469,9 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 				dc1 := &ColumnDataCategoryStatsType{ Column:leadingPair.column1};
 				dc1.OpenBucket(category)
+				if dc1.CategoryBucket == nil {
+					fmt.Printf("%v, %v\n",leadingPair,dc1);
+				}
 				dc1.OpenHashValuesBucket()
 
 				dc2 := &ColumnDataCategoryStatsType{ Column:leadingPair.column2};

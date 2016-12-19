@@ -399,7 +399,12 @@ func (c *ColumnInfoType) ShowStatsReport(out io.Writer) (err error ){
 	if err != nil {
 		return
 	}
+	if c.RowsBucket == nil {
+		return
+	}
+
 	var count = uint64(0);
+
 	c.RowsBucket.ForEach(
 		func(_,_[]byte) error{
 			count++;
