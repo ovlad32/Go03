@@ -1429,7 +1429,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 
 	//svar topPair *ColumnPairType
-
+	fmt.Println()
 	rowChan := func(data []byte) chan uint64{
 		if data == nil {
 			return nil;
