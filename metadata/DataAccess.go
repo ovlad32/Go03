@@ -1436,7 +1436,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 		} else if len(data) > 8 {
 			bs := sparsebitset.New(0);
 			buffer := bytes.NewBuffer(data);
-			//fmt.Println(bs.Cardinality());
+			//fmt.Println(bs.Cardinality(),data);
 			bs.ReadFrom(buffer)
 			return bs.BitChan();
 		} else {
@@ -1450,7 +1450,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 
 	
-	for _, leadingPair := range pairs {
+	for leadingPairIndex, leadingPair := range pairs {
 		var err error;
 		if leadingPair.storage == nil {
 			leadingPair.OpenStorage(false)
@@ -1464,10 +1464,12 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 			}
 		}
 		cnt := 0
+		//fmt.Print (leadingPair)
 		leadingPair.CategoriesBucket.ForEach(
-			func(category, data []byte) error {
+					func(category, data []byte) error {
 
 				dc1 := &ColumnDataCategoryStatsType{ Column:leadingPair.column1};
+						//fmt.Print (leadingPair)
 				dc1.OpenBucket(category)
 				dc1.OpenHashValuesBucket()
 
@@ -1480,21 +1482,25 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 				for hash := range intersection.BitChan() {
 					hashBytes := utils.UInt64ToB8(hash)
 					//fmt.Println(hashBytes)
-					leadingRowsChan1 := rowChan(dc1.HashValuesBucket.Get(hashBytes));
-					if leadingRowsChan1 == nil {
-						continue;
-					}
 
-					leadingRowsChan2 := rowChan(dc2.HashValuesBucket.Get(hashBytes));
-					if leadingRowsChan2 == nil{
+
+					for index := leadingPairIndex+1; index < len(pairs); index ++{
+					    pair := pairs[index]
+						leadingRowsChan1 := rowChan(dc1.HashValuesBucket.Get(hashBytes));
+						if leadingRowsChan1 == nil {
 							continue;
-					}
-
-					for _, pair := range pairs {
-
-						if pair == leadingPair {
-							//continue;
 						}
+
+						leadingRowsChan2 := rowChan(dc2.HashValuesBucket.Get(hashBytes));
+						if leadingRowsChan2 == nil{
+							continue;
+						}
+						if pair == leadingPair {
+							continue;
+						}
+						/*if (pair.column1.ColumnName.String() == "COLLATERAL_AMOUNT" && pair.column2.ColumnName.String() == "ORIGINAL_AMOUNT" ) {
+							fmt.Println("!")
+						}*/
 
 						if pair.column1.RowsBucket == nil {
 							err = pair.column1.OpenStorage(false)
@@ -1521,9 +1527,14 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 						lr2 := make(map[uint64]bool)
 
 						for leadingRow1 := range (leadingRowsChan1) {
+
 							hashValue := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
 
 							for leadingRow2 := range (leadingRowsChan2) {
+								/*if  !(strings.Contains(pair.column1.ColumnName.String(),"CURRENCY") ||strings.Contains(pair.column2.ColumnName.String(),"CURRENCY"))&&
+								   ! (pair.column1.ColumnName.String() == "CONTRACT_ID" && pair.column2.ColumnName.String() == "INFORMER_DEAL_ID" ) {
+									fmt.Println(pair,leadingRow1,leadingRow2,hashValue)
+								}*/
 								if bytes.Compare(pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2)), hashValue) == 0 {
 									cnt++;
 									lr1[leadingRow1] = true
@@ -1531,7 +1542,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 								}
 							}
 						}
-						//if len(lr2) > 0 && len(lr2) > 0 {
+						if len(lr2) > 0 && len(lr2) > 0 {
 							if hits,found :=leadingPair.Assossiated[pair]; !found {
 								leadingPair.Assossiated[pair] = [2]uint64{uint64(len(lr1)), uint64(len(lr2))};
 							} else {
@@ -1539,7 +1550,7 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 								hits[1] += uint64(len(lr2));
 								leadingPair.Assossiated[pair] = hits
 							}
-						//}
+						}
 					}
 				}
 				return nil
