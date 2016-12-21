@@ -867,3 +867,36 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 
 	return
 }
+
+func (h H2Type) MetadataByWorkflowId(workflowId jsnull.NullInt64)(metadataId1,metadataId2 jsnull.NullInt64, err error){
+	queryText := fmt.Sprintf("select distinct t.metadata_id from link l "+
+		" inner join column_info  c on c.id in (l.parent_column_info_id,l.child_column_info_id) "+
+		" inner join table_info t on t.id = c.table_info_id " +
+		" where l.workflow_id = %v ",workflowId.String());
+
+	tx,err := h.IDb.Begin()
+	if err != nil {
+		return
+	}
+
+	result,err := tx.Query(queryText)
+	if err != nil {
+		return
+	}
+	defer result.Close()
+	if result.Next() {
+		result.Scan(&metadataId1)
+	} else {
+		err = fmt.Errorf("There is no the first metadata id  for workflow_id = %v",workflowId);
+		return
+	}
+	if result.Next() {
+		result.Scan(&metadataId2)
+	} else {
+		var clean jsnull.NullInt64
+		metadataId1 = clean;
+		err = fmt.Errorf("There is no the second metadata id  for workflow_id = %v",workflowId);
+		return
+	}
+	return
+}

@@ -16,7 +16,7 @@ import (
 	"fmt"
 )
 
-var recreate bool = false;
+var recreate bool = true;
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -44,7 +44,7 @@ func init() {
 func main() {
 	fmt.Println(os.Getpagesize())
 	start := time.Now()
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	runtime.GOMAXPROCS(2/*runtime.NumCPU()*/)
 	//
 
 	/*router := mux.NewRouter()
@@ -56,13 +56,14 @@ func main() {
 
 	da := metadata.DataAccessType{
 		DumpConfiguration: metadata.DumpConfigurationType{
-			DumpBasePath: "C:/home/data.225/",
+			DumpBasePath: "C:/home/data.115/",
 			InputBufferSize:5 * 1024,
 			IsZipped:true,
-			FieldSeparator:124,
+			//FieldSeparator:124,
+			FieldSeparator:31,
 			LineSeparator:10,
 		},
-		SubHashByteLengthThreshold: 600,
+		SubHashByteLengthThreshold: 10,
 		TransactionCountLimit:1000*50,
 		ColumnBucketsCache:utils.New(50),
 
@@ -74,7 +75,7 @@ func main() {
 	}*/
 
 	if recreate {
-		da.LoadStorage()
+		da.LoadStorage(jsnull.NewNullInt64(int64(67)))
 	}
 	fetchPairs(da);
 	//metadata.ReportHashStorageContents()

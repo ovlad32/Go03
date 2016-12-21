@@ -806,16 +806,22 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 
 }
 
-func (da DataAccessType) LoadStorage() {
+func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 
 	var goBusy sync.WaitGroup
 
-	mtd1, err := H2.MetadataById(jsnull.NewNullInt64(10))
+	metadataId1,metadataId2, err := H2.MetadataByWorkflowId(WorkflowId)
+
 	if err != nil {
 		panic(err)
 	}
 
-	mtd2, err := H2.MetadataById(jsnull.NewNullInt64(11))
+	mtd1,err := H2.MetadataById(metadataId1)
+	if err != nil {
+		panic(err)
+	}
+
+	mtd2, err := H2.MetadataById(metadataId2)
 	if err != nil {
 		panic(err)
 	}
