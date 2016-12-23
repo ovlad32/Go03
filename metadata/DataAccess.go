@@ -771,14 +771,17 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 
 		var buffer *bytes.Buffer
 		sb := sparsebitset.New(0)
+
 		if len(bitsetBytes) == 8 {
 			prevValue, _ := utils.B8ToUInt64(bitsetBytes)
 			buffer = bytes.NewBuffer(make([]byte, 0, 8*3))
 			sb.Set(prevValue)
 		} else {
-			buffer = bytes.NewBuffer(bitsetBytes)
-			sb.ReadFrom(buffer)
+			readBuffer := bytes.NewBuffer(bitsetBytes)
+			sb.ReadFrom(readBuffer)
+			buffer = bytes.NewBuffer(make([]byte,0,len(bitsetBytes)+8))
 		}
+
 		sb.Set(val.lineNumber)
 		sb.WriteTo(buffer)
 		val.dataCategory.HashValuesBucket.Put(hValue[:], buffer.Bytes())
@@ -949,7 +952,24 @@ select ') where cnt>0' from dual
 
 */
 
-func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, stage string) {
+func (da DataAccessType) MakeColumnPairs(WorkflowId jsnull.NullInt64) {
+
+	metadataId1,metadataId2, err := H2.MetadataByWorkflowId(WorkflowId)
+
+	if err != nil {
+		panic(err)
+	}
+
+	mtd1,err := H2.MetadataById(metadataId1)
+	if err != nil {
+		panic(err)
+	}
+
+	mtd2, err := H2.MetadataById(metadataId2)
+	if err != nil {
+		panic(err)
+	}
+
 	//	var emptyValue []byte = make([]byte, 0, 0)
 	var pairs []*ColumnPairType = make([]*ColumnPairType, 0, 100)
 
@@ -1131,12 +1151,12 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 		}(pairChannel)
 	}
 
-	tables1, err := H2.TableInfoByMetadata(metadata1)
+	tables1, err := H2.TableInfoByMetadata(mtd1)
 
 	if err != nil {
 		panic(err)
 	}
-	tables2, err := H2.TableInfoByMetadata(metadata2)
+	tables2, err := H2.TableInfoByMetadata(mtd2)
 	if err != nil {
 		panic(err)
 	}
