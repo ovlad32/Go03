@@ -20,9 +20,8 @@
     |--key: "nonNullCount" / value: <nonNullCount> (uint64)
     |--key: "hashUniqueCount" / value: <hashUniqueCount> (uint64)
 
-/*
- * ColumnPair key/value storage
- *
+ /*
+  ColumnPair key/value storage
  */
 
 <columnInfo1Id>-<columnInfo2Id>.bolt.db

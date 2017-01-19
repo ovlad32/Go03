@@ -1554,14 +1554,15 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 						for leadingRow1 := range (leadingRowsChan1) {
 
-							hashValue := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
+							hashValueRow1 := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
 
 							for leadingRow2 := range (leadingRowsChan2) {
 								/*if  !(strings.Contains(pair.column1.ColumnName.String(),"CURRENCY") ||strings.Contains(pair.column2.ColumnName.String(),"CURRENCY"))&&
 								   ! (pair.column1.ColumnName.String() == "CONTRACT_ID" && pair.column2.ColumnName.String() == "INFORMER_DEAL_ID" ) {
 									fmt.Println(pair,leadingRow1,leadingRow2,hashValue)
 								}*/
-								if bytes.Compare(pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2)), hashValue) == 0 {
+								hashValueRow2 := pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2))
+								if (hashValueRow1 == nil && hashValueRow2 == nil) || bytes.Equal(hashValueRow1, hashValueRow2) {
 									cnt++;
 									lr1[leadingRow1] = true
 									lr2[leadingRow2] = true
