@@ -16,7 +16,7 @@ import (
 	"fmt"
 )
 
-var recreate bool = true;
+var recreate bool = false;
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -44,7 +44,7 @@ func init() {
 func main() {
 	fmt.Println(os.Getpagesize())
 	start := time.Now()
-	runtime.GOMAXPROCS(2/*runtime.NumCPU()*/)
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	//
 
 	/*router := mux.NewRouter()
@@ -85,13 +85,6 @@ func main() {
 
 func fetchPairs(da metadata.DataAccessType) {
 
-	mtd1,err:= metadata.H2.MetadataById(jsnull.NewNullInt64(10))
-	if err !=nil {
-		panic(err)
-	}
-	mtd2,err:= metadata.H2.MetadataById(jsnull.NewNullInt64(11))
-	if err !=nil {
-		panic(err)
-	}
-	da.MakeColumnPairs(mtd1,mtd2,"");
+
+	da.MakeColumnPairs(jsnull.NewNullInt64(int64(67)));
 }

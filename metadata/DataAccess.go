@@ -772,14 +772,17 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 
 		var buffer *bytes.Buffer
 		sb := sparsebitset.New(0)
+
 		if len(bitsetBytes) == 8 {
 			prevValue, _ := utils.B8ToUInt64(bitsetBytes)
 			buffer = bytes.NewBuffer(make([]byte, 0, 8*3))
 			sb.Set(prevValue)
 		} else {
-			buffer = bytes.NewBuffer(bitsetBytes)
-			sb.ReadFrom(buffer)
+			readBuffer := bytes.NewBuffer(bitsetBytes)
+			sb.ReadFrom(readBuffer)
+			buffer = bytes.NewBuffer(make([]byte,0,len(bitsetBytes)+8))
 		}
+
 		sb.Set(val.lineNumber)
 		sb.WriteTo(buffer)
 		val.dataCategory.HashValuesBucket.Put(hValue[:], buffer.Bytes())
@@ -950,7 +953,24 @@ select ') where cnt>0' from dual
 
 */
 
-func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, stage string) {
+func (da DataAccessType) MakeColumnPairs(WorkflowId jsnull.NullInt64) {
+
+	metadataId1,metadataId2, err := H2.MetadataByWorkflowId(WorkflowId)
+
+	if err != nil {
+		panic(err)
+	}
+
+	mtd1,err := H2.MetadataById(metadataId1)
+	if err != nil {
+		panic(err)
+	}
+
+	mtd2, err := H2.MetadataById(metadataId2)
+	if err != nil {
+		panic(err)
+	}
+
 	//	var emptyValue []byte = make([]byte, 0, 0)
 	var pairs []*ColumnPairType = make([]*ColumnPairType, 0, 100)
 
@@ -1132,12 +1152,12 @@ func (da DataAccessType) MakeColumnPairs(metadata1, metadata2 *MetadataType, sta
 		}(pairChannel)
 	}
 
-	tables1, err := H2.TableInfoByMetadata(metadata1)
+	tables1, err := H2.TableInfoByMetadata(mtd1)
 
 	if err != nil {
 		panic(err)
 	}
-	tables2, err := H2.TableInfoByMetadata(metadata2)
+	tables2, err := H2.TableInfoByMetadata(mtd2)
 	if err != nil {
 		panic(err)
 	}
@@ -1535,14 +1555,15 @@ func (da DataAccessType) processTablePairs(pairs ColumnPairsType) {
 
 						for leadingRow1 := range (leadingRowsChan1) {
 
-							hashValue := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
+							hashValueRow1 := pair.column1.RowsBucket.Get(utils.UInt64ToB8(leadingRow1));
 
 							for leadingRow2 := range (leadingRowsChan2) {
 								/*if  !(strings.Contains(pair.column1.ColumnName.String(),"CURRENCY") ||strings.Contains(pair.column2.ColumnName.String(),"CURRENCY"))&&
 								   ! (pair.column1.ColumnName.String() == "CONTRACT_ID" && pair.column2.ColumnName.String() == "INFORMER_DEAL_ID" ) {
 									fmt.Println(pair,leadingRow1,leadingRow2,hashValue)
 								}*/
-								if bytes.Compare(pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2)), hashValue) == 0 {
+								hashValueRow2 := pair.column2.RowsBucket.Get(utils.UInt64ToB8(leadingRow2))
+								if (hashValueRow1 == nil && hashValueRow2 == nil) || bytes.Equal(hashValueRow1, hashValueRow2) {
 									cnt++;
 									lr1[leadingRow1] = true
 									lr2[leadingRow2] = true
