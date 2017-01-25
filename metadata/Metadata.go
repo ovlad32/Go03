@@ -625,7 +625,7 @@ func(ti *TableInfoType) SaveRow(row[][]byte) (err error) {
 	fields := len(row)
 	size := (1+fields)*2;
 	header := bytes.NewBuffer(make([]byte,size,size));
-	
+
 
 	binary.Write()
 	header.Write()
