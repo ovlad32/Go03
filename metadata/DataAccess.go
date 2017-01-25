@@ -481,6 +481,7 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 				bValue:     lineColumns[columnIndex],
 				lineNumber: lineNumber,
 			}*/
+
 		}
 	}
 

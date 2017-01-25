@@ -11,6 +11,9 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"strings"
+	"os"
+	"encoding/binary"
+	"bytes"
 )
 
 var H2 H2Type
@@ -516,6 +519,7 @@ type TableInfoType struct {
 	TableLabelBucket  *bolt.Bucket
 	TableBucket       *bolt.Bucket
 	ColumnLabelBucket *bolt.Bucket
+	dump *os.File;
 }
 type TableInfoTypeChannel chan *TableInfoType
 
@@ -609,6 +613,29 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 	return
 }
 
+func(ti *TableInfoType) SaveRow(row[][]byte) (err error) {
+	if ti.dump == nil {
+		ti.dump,err = os.OpenFile(
+			fmt.Sprintf("%v%v%v.bindata",
+				ti.PathToDataDir,
+				os.PathSeparator,
+				ti.Id.Value(),
+			),0,os.O_CREATE);
+	}
+	fields := len(row)
+	size := (1+fields)*2;
+	header := bytes.NewBuffer(make([]byte,size,size));
+	
+
+	binary.Write()
+	header.Write()
+	for _,field := range(row) {
+
+		size + len(field)
+	}
+	err = binary.Write(w, binary.BigEndian, key)
+	ti.dump.Write(binary.LittleEndian.)
+}
 
 /*func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	funcName := "ColumnInfoType.GetOrCreateBuckets"
