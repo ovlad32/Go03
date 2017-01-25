@@ -613,28 +613,27 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 	return
 }
 
-func(ti *TableInfoType) SaveRow(row[][]byte) (err error) {
+func(ti *TableInfoType) SaveRow(row[][]byte) (length uint32, err error) {
 	if ti.dump == nil {
-		ti.dump,err = os.OpenFile(
+		ti.dump, err = os.OpenFile(
 			fmt.Sprintf("%v%v%v.bindata",
 				ti.PathToDataDir,
 				os.PathSeparator,
 				ti.Id.Value(),
-			),0,os.O_CREATE);
+			), 0, os.O_CREATE);
 	}
 	fields := len(row)
-	size := (1+fields)*2;
-	header := bytes.NewBuffer(make([]byte,size,size));
+	err = binary.Write(ti.dump, binary.BigEndian, uint16(fields))
+	length = (1 + fields)*2
 
-
-	binary.Write()
-	header.Write()
-	for _,field := range(row) {
-
-		size + len(field)
+	for _, field := range (row) {
+		err = binary.Write(ti.dump, binary.BigEndian, uint16(length))
+		length += len(field);
 	}
-	err = binary.Write(w, binary.BigEndian, key)
-	ti.dump.Write(binary.LittleEndian.)
+	for _, field := range (row) {
+		_,err = ti.dump.Write(field)
+	}
+	return
 }
 
 /*func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
