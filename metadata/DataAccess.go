@@ -65,6 +65,7 @@ type ColumnDataType struct {
 	column       *ColumnInfoType
 	dataCategory *ColumnDataCategoryStatsType
 	lineNumber   uint64
+	lineOffset   uint64
 	bValue       []byte
 }
 type ColumnDataChannelType chan *ColumnDataType
@@ -362,11 +363,13 @@ func (da *DataAccessType) updateColumnStats(table *TableInfoType) {
 
 func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 	funcName := "DataAccessType.fillColumnStorage"
+	var redump io.Writer
 
 	var x0D = []byte{0x0D}
 
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
 	var statsChannels /*,storeChans */ []ColumnDataChannelType
+	var redumpChannel chan [][]byte;
 	var goBusy sync.WaitGroup
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
@@ -387,6 +390,7 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 	//sFieldSeparator := string(da.DumpConfiguration.FieldSeparator)
 
 	lineNumber := uint64(0)
+	binDataOffset :=uint64(0);
 
 	for {
 		lineImage, err := rawData.ReadSlice(da.DumpConfiguration.LineSeparator)
@@ -415,12 +419,41 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 				lineColumnCount,
 			))
 		}
+		// columnCount:uiunt16, array of offsets:columnCount*2bytes+.. data
+		if lineNumber == 1 {
+
+		}
 
 		for columnIndex := range table.Columns {
 			if lineNumber == 1 {
 				if columnIndex == 0 {
 					statsChannels = make([]ColumnDataChannelType, 0, metadataColumnCount)
 					//storeChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
+
+					redumpChannel = make(chan [][]byte,500)
+					pathToBinData := "./BINDATA/"
+					err = os.MkdirAll(pathToBinData, 0);
+					redumpFile, err := os.Create(
+						fmt.Sprintf("%v/%v.bindata",
+							pathToBinData,
+							table.Id.Value(),
+						));
+					defer redumpFile.Close()
+					redump = bufio.NewWriterSize(redumpFile,lineImageLen*200);
+					goBusy.Add(1)
+					go func(colCount int, in chan [][]byte) {
+						for columns := range in {
+							err = binary.Write(redump, binary.BigEndian, uint16(colCount))
+							for _, columnData := range (columns) {
+								err = binary.Write(redump, binary.LittleEndian, uint16(len(columnData)))
+							}
+							for _, columnData := range (columns) {
+								_, err = redump.Write(columnData)
+							}
+						}
+						goBusy.Done()
+					} (lineColumnCount, redumpChannel)
+
 				}
 				statsChan := make(ColumnDataChannelType, 100)
 				statsChannels = append(statsChannels, statsChan)
@@ -468,12 +501,15 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 				column:     table.Columns[columnIndex],
 				bValue:     lineColumns[columnIndex],
 				lineNumber: lineNumber,
+				lineOffset: binDataOffset,
 			}
-			/*if table.Columns[columnIndex].ColumnName.String() == "CONTRACT_NUMBER" {
-				if len(lineColumns[columnIndex]) != 19 {
-					fmt.Printf("%s, %s\n",string(lineColumns[columnIndex]),string(line));
-				}
-			}*/
+
+
+		/*if table.Columns[columnIndex].ColumnName.String() == "CONTRACT_NUMBER" {
+			if len(lineColumns[columnIndex]) != 19 {
+				fmt.Printf("%s, %s\n",string(lineColumns[columnIndex]),string(line));
+			}
+		}*/
 			//<-out
 
 			/*out <-columnDataType{
@@ -483,12 +519,20 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 			}*/
 
 		}
+		redumpChannel <- lineColumns
+
+		binDataOffset += uint64((1+lineColumnCount)*2)
+		for _, columnData := range (lineColumns) {
+			binDataOffset += uint64(len(columnData))
+		}
+
 	}
 
 	if statsChannels != nil {
 		for index := range statsChannels {
 			close(statsChannels[index])
 		}
+		close(redumpChannel)
 		statsChannels = nil
 	}
 	goBusy.Wait()
@@ -682,7 +726,7 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	}
 	//val.column.DataCategories[category] = true
 	var err error
-	if val.column.RowsBucket == nil {
+	if val.column.CategoriesBucket == nil {
 		//tracelog.Info(packageName, funcName, "Lock for column %v",val.column)
 		err = val.column.OpenStorage(true)
 		if err != nil {
@@ -692,10 +736,11 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 		if err != nil {
 			panic(err)
 		}
+		/*
 		err = val.column.OpenRowsBucket()
 		if err != nil {
 			panic(err)
-		}
+		}*/
 	}
 	if val.dataCategory.CategoryBucket == nil {
 		_, err = val.dataCategory.OpenBucket(nil)
@@ -758,15 +803,15 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 	//fmt.Println(val.column,string(val.bValue),hValue[:],val.lineNumber,utils.UInt64ToB8(val.lineNumber))
 	//HashSourceBucket
 
-	lineNumberBytes := utils.UInt64ToB8(val.lineNumber);
+	lineOffsetBytes := utils.UInt64ToB8(val.lineOffset);
 	//categoryBytes,_ := val.dataCategory.ConvertToBytes();
 	//,categoryBytes[:]...
-	val.column.RowsBucket.Put(lineNumberBytes,append(hValue[:]));
+	//val.column.RowsBucket.Put(lineOffsetBytes,append(hValue[:]));
 
 	bitsetBytes := val.dataCategory.HashValuesBucket.Get(hValue[:] )
 
 	if bitsetBytes == nil {
-		bitsetBytes = lineNumberBytes
+		bitsetBytes = lineOffsetBytes
 		val.dataCategory.HashValuesBucket.Put(hValue[:], bitsetBytes)
 	} else {
 
@@ -783,7 +828,7 @@ func (da *DataAccessType) storeData(val *ColumnDataType) {
 			buffer = bytes.NewBuffer(make([]byte,0,len(bitsetBytes)+8))
 		}
 
-		sb.Set(val.lineNumber)
+		sb.Set(val.lineOffset)
 		sb.WriteTo(buffer)
 		val.dataCategory.HashValuesBucket.Put(hValue[:], buffer.Bytes())
 	}
@@ -840,9 +885,9 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 	}
 	//cayley.StartPath(da.Repo,quad.
 	tables = append(tables, tables2...)
-
+	numChannels := 3
 	{
-		tableСhannel := make(TableInfoTypeChannel, 10)
+		tableСhannel := make(TableInfoTypeChannel, numChannels)
 		goProcess := func(chin TableInfoTypeChannel) {
 			for ti := range chin {
 				da.cleanupColumnStorage(ti)
@@ -850,7 +895,7 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 			goBusy.Done()
 		}
 
-		for i := 0; i < 3; i++ {
+		for i := 0; i < numChannels; i++ {
 			goBusy.Add(1)
 			go goProcess(tableСhannel)
 		}
@@ -866,7 +911,7 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 	}
 
 	{
-		tableСhannel := make(TableInfoTypeChannel, 10)
+		tableСhannel := make(TableInfoTypeChannel, numChannels)
 		goProcess := func(chin TableInfoTypeChannel) {
 			for ti := range chin {
 				da.fillColumnStorage(ti)
@@ -879,7 +924,7 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 			panic(err)
 		}
 
-		for i := 0; i < 3; i++ {
+		for i := 0; i < numChannels; i++ {
 			goBusy.Add(1)
 			go goProcess(tableСhannel)
 		}
@@ -903,7 +948,7 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 	}
 
 	{
-		tableСhannel := make(TableInfoTypeChannel, 10)
+		tableСhannel := make(TableInfoTypeChannel, numChannels)
 		goProcess := func(chin TableInfoTypeChannel) {
 			for ti := range chin {
 				da.updateColumnStats(ti)
@@ -911,7 +956,7 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 			goBusy.Done()
 		}
 
-		for i := 0; i < 3; i++ {
+		for i := 0; i < numChannels; i++ {
 			goBusy.Add(1)
 			go goProcess(tableСhannel)
 		}
@@ -925,14 +970,14 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 		close(tableСhannel)
 		goBusy.Wait()
 
-		for _, t := range tables {
+		/*for _, t := range tables {
 			for _, c := range t.Columns {
 				err = c.ShowStatsReport(os.Stdout)
 				if err != nil {
 					panic(err)
 				}
 			}
-		}
+		}*/
 	}
 }
 

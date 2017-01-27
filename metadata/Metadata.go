@@ -12,8 +12,6 @@ import (
 	"github.com/goinggo/tracelog"
 	"strings"
 	"os"
-	"encoding/binary"
-	"bytes"
 )
 
 var H2 H2Type
@@ -612,7 +610,7 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 	tracelog.Completed(packageName, funcName)
 	return
 }
-
+/*
 func(ti *TableInfoType) SaveRow(row[][]byte) (length uint32, err error) {
 	if ti.dump == nil {
 		ti.dump, err = os.OpenFile(
@@ -635,6 +633,7 @@ func(ti *TableInfoType) SaveRow(row[][]byte) (length uint32, err error) {
 	}
 	return
 }
+*/
 
 /*func (ci *ColumnInfoType) GetOrCreateBucket(tx *bolt.Tx) (err error) {
 	funcName := "ColumnInfoType.GetOrCreateBuckets"

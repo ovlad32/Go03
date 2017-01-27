@@ -16,7 +16,7 @@ import (
 	"fmt"
 )
 
-var recreate bool = false;
+var recreate bool = true;
 
 func init() {
 	metadata.H2 = metadata.H2Type{
@@ -56,7 +56,7 @@ func main() {
 
 	da := metadata.DataAccessType{
 		DumpConfiguration: metadata.DumpConfigurationType{
-			DumpBasePath: "C:/home/data.115/",
+			DumpBasePath: "C:/home/data.151/",
 			InputBufferSize:5 * 1024,
 			IsZipped:true,
 			//FieldSeparator:124,
@@ -79,7 +79,7 @@ func main() {
 	}
 	fetchPairs(da);
 	//metadata.ReportHashStorageContents()
-	da.MakeTablePairs(nil,nil)
+	//da.MakeTablePairs(nil,nil)
 	log.Printf("%v",time.Since(start))
 }
 
