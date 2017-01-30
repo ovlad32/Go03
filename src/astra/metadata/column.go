@@ -2,7 +2,9 @@ package metadata
 
 import (
 	"fmt"
+	"errors"
 	"database/sql"
+	"github.com/goinggo/tracelog"
 )
 
 type ColumnInfoType struct {
@@ -35,7 +37,38 @@ type ColumnInfoType struct {
 }
 
 
+
+func (c ColumnInfoType) СheckId() error {
+	var funcName = "ColumnInfoType.СheckId"
+	tracelog.Started(packageName, funcName)
+
+	if !c.Id.Valid() {
+		err := errors.New("Column Id has not been initialized!")
+		tracelog.Error(err, packageName, funcName)
+		return err
+	}
+
+	tracelog.Completed(packageName, funcName)
+	return nil
+}
+
+func (c ColumnInfoType) СheckTableInfo() error {
+	var funcName = "ColumnInfoType.CheckMetadata"
+	tracelog.Started(packageName, funcName)
+	if c.TableInfo == nil {
+		err := errors.New("Table reference has not been initialized!")
+		tracelog.Error(err, packageName, funcName)
+		return err
+	}
+	tracelog.Completed(packageName, funcName)
+	return
+
+}
+
 func (c ColumnInfoType) String() string {
+	var funcName = "ColumnInfoType.String"
+	tracelog.Started(packageName, funcName)
+
 	var result string
 	if c.TableInfo != nil {
 		return fmt.Sprintf("%v.%v", c.TableInfo.String(), c.ColumnName.String())
@@ -46,15 +79,23 @@ func (c ColumnInfoType) String() string {
 }
 
 
-func (c ColumnInfoType) СheckId() {
-	if !c.Id.Valid() {
-		panic("Column Id has not been initialized!")
-	}
-}
+func (c ColumnInfoType) GoString() string {
+	var funcName = "ColumnInfoType.GoString"
+	tracelog.Started(packageName, funcName)
 
-func (c ColumnInfoType) СheckTableInfo() {
-	if c.TableInfo == nil {
-		panic("Table reference has not been initialized!")
-	}
-}
+	var result = "ColumnInfoType["
 
+	if c.TableInfo != nil {
+		result = result + "TableInfo=" + c.TableInfo.GoString() + "; "
+	}
+
+	if c.ColumnName.Value() != "" {
+		result = result + "ColumnName=" + c.ColumnName + "; "
+	}
+	if c.Id.Valid {
+		result = result + "Id=" + fmt.Sprintf("%v", c.Id.Int64) + "; "
+	}
+	result = result + "]"
+	tracelog.Completed(packageName, funcName)
+	return result
+}

@@ -2,6 +2,8 @@ package metadata
 
 import "database/sql"
 
+var packageName = "astra/metadata"
+
 type MetadataType struct {
 	Id               sql.NullInt64
 	Index            sql.NullString
