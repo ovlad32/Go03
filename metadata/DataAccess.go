@@ -431,7 +431,7 @@ func (da *DataAccessType) fillColumnStorage(table *TableInfoType) {
 					//storeChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
 
 					redumpChannel = make(chan [][]byte,500)
-					pathToBinData := "./BINDATA/"
+					pathToBinData := "G:/BINDATA/"
 					err = os.MkdirAll(pathToBinData, 0);
 					redumpFile, err := os.Create(
 						fmt.Sprintf("%v/%v.bindata",
@@ -885,7 +885,7 @@ func (da DataAccessType) LoadStorage(WorkflowId jsnull.NullInt64) {
 	}
 	//cayley.StartPath(da.Repo,quad.
 	tables = append(tables, tables2...)
-	numChannels := 3
+	numChannels := 4
 	{
 		tableСhannel := make(TableInfoTypeChannel, numChannels)
 		goProcess := func(chin TableInfoTypeChannel) {

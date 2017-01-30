@@ -144,14 +144,14 @@ func (ci *ColumnInfoType) OpenStorage(writable bool) (err error) {
 		return
 	}
 	if ci.Storage == nil {
-		path := fmt.Sprintf("./%v", ci.TableInfo.PathToDataDir.Value())
+		path := fmt.Sprintf("G:/%v", ci.TableInfo.PathToDataDir.Value())
 		_ = os.MkdirAll(path, 0)
 		file := fmt.Sprintf("%v/%v.boltdb", path, ci.Id.Value())
 		ci.Storage, err = bolt.Open(
 			file,
 			0600,
-			nil,
-		)
+			nil);
+		ci.Storage.NoSync = true;
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return

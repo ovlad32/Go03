@@ -128,7 +128,7 @@ func(cp ColumnPairType) PathToStorage() (pathTo, pathToFileName string, err erro
 		tracelog.Errorf(err, packageName, funcName, "%v",cp)
 		return
 	}
-	pathTo = "./DBS"
+	pathTo = "G:/DBS"
 	pathToFileName = fmt.Sprintf("%v/%v-%v.boltdb", pathTo, cp.column1.Id.Value(), cp.column2.Id.Value())
 	return
 }

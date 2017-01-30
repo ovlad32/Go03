@@ -14,8 +14,15 @@ import (
 
 
 
+type ColumnDataCategoryStatesConfig struct{
+	StorageDirectory string
+}
 
-
+type storageState struct{
+	storage *bolt.DB;
+	writtenCount uint64
+	writtenLimit uint64
+}
 
 
 
@@ -38,6 +45,10 @@ type ColumnDataCategoryStatsType struct {
 	BitsetBucket       *bolt.Bucket
 	HashValuesBucket   *bolt.Bucket
 	CurrentHashBucket  *bolt.Bucket
+	bitSetStorage      *storageState
+	writtenCount       uint64
+	HashValuesStorage  *bolt.DB
+	config  *ColumnDataCategoryStatesConfig
 }
 
 func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
@@ -47,7 +58,70 @@ func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsTy
 	}
 	return
 }
+/*
+func (cdc *ColumnDataCategoryStatsType) Code() (result string, err error){
+	mask := "%v%v."
+	result = "."
+	if !cdc.IsNumeric.Value() {
+		result = fmt.Sprintf(mask,result,"S")
+		result = fmt.Sprintf(mask,result,cdc.ByteLength.Value())
+		if cdc.IsSubHash.Value() {
+			result = fmt.Sprintf(mask,result,cdc.SubHash.Value())
+		}
+	} else {
+		if cdc.IsNegative.Value() {
+			result = fmt.Sprintf(mask,result,"N")
+		} else {
+			result = fmt.Sprintf(mask,result,"P")
+		}
+		result = fmt.Sprintf(mask,result,cdc.ByteLength)
+		result = fmt.Sprintf(mask,result,cdc.FloatingPointScale.Value())
+	}
+	return
+}
 
+func (cdc *ColumnDataCategoryStatsType) openStorage(suffix string,options *bolt.Options) (storage *bolt.DB,err error) {
+	code, err := cdc.Code();
+	if err != nil {
+		return err
+	}
+
+	return bolt.Open(
+		fmt.Sprintf("%v%v%v%v",
+			cdc.config.StorageDirectory,
+			cdc.Column.Id.Value(),
+			code,
+			suffix,
+		),0,options,
+	);
+}
+func(cdc *ColumnDataCategoryStatsType) openBitSetStorage(options *bolt.Options) (err error) {
+	storage, err := cdc.openStorage(".bs.boltdb",options)
+	if err != nil {
+		return err
+	}
+	cdc.bitSetStorage := &storageState{
+		storage: storage,
+		writtenCount:0,
+		writtenLimit:options.
+	}
+
+	return
+}
+
+func(cdc *ColumnDataCategoryStatsType) Write() (err error) {
+	if (cdc.BitSetStorage == nil) {
+		err = cdc.openBitSetStorage(&bolt.Options{
+			ReadOnly:false,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	cdc.BitSetStorage.
+}
+
+*/
 
 
 func (cdc *ColumnDataCategoryStatsType) ConvertToBytes() (result []byte, err error) {

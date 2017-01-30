@@ -77,7 +77,7 @@ func main() {
 	if recreate {
 		da.LoadStorage(jsnull.NewNullInt64(int64(67)))
 	}
-	fetchPairs(da);
+	//fetchPairs(da);
 	//metadata.ReportHashStorageContents()
 	//da.MakeTablePairs(nil,nil)
 	log.Printf("%v",time.Since(start))
