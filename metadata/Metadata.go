@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	jsnull "./../jsnull"
+	jsnull "../src/util/jsnull"
 	utils "./../utils"
 	"database/sql"
 	"errors"
@@ -398,60 +398,6 @@ func (h2 H2Type) ColumnInfoById(Id jsnull.NullInt64) (result *ColumnInfoType, er
 	return
 }
 
-func (t TableInfoType) СheckId() {
-
-	if !t.Id.Valid() {
-		panic("Table Id is not initialized!")
-	}
-}
-
-func (t TableInfoType) СheckTableName() {
-	if !t.TableName.Valid() {
-		panic("Table Name is not initialized!")
-	}
-
-	if t.TableName.Value() == "" {
-		panic("Table Name is empty!")
-	}
-}
-
-func (t TableInfoType) МheckMetadata() {
-	if t.Metadata == nil {
-		panic("Metadata reference is not initialized!")
-	}
-}
-
-func (t TableInfoType) СheckColumns() {
-	t.СheckTableName()
-	if len(t.Columns) == 0 {
-		panic(fmt.Sprintf("Table %v does not have columns", t))
-	}
-}
-
-func (t TableInfoType) String() string {
-	var result string
-
-	if t.SchemaName.Value() != "" {
-		result = t.SchemaName.Value() + "."
-	}
-
-	if t.TableName.Value() == "" {
-		result += "Table name is not defined"
-	} else {
-		result += t.TableName.Value()
-	}
-
-	return result
-}
-
-func (t TableInfoType) СheckDumpFileName() {
-	if !t.PathToFile.Valid() {
-		panic("Dump File Name is not initialized!")
-	}
-	if t.PathToFile.Value() == "" {
-		panic("Dump File Name is empty!")
-	}
-}
 
 
 

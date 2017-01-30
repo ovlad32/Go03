@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	jsnull "./../jsnull"
+	jsnull "../src/util/jsnull"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"

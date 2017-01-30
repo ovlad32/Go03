@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	jsnull "./../jsnull"
+	jsnull "../src/util/jsnull"
 	sparsebitset "./../sparsebitset"
 	utils "./../utils"
 	"bufio"

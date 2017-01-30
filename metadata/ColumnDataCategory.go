@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	jsnull "./../jsnull"
+	jsnull "../src/util/jsnull"
 	utils "./../utils"
 	sparsebitset "./../sparsebitset"
 	"github.com/boltdb/bolt"
