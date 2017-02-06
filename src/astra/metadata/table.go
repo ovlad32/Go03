@@ -1,23 +1,23 @@
 package metadata
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/goinggo/tracelog"
 	"errors"
+	"astra/nullable"
 )
 
 type TableInfoType struct {
-	Id            sql.NullInt64  `json:"tale-id"`
-	MetadataId    sql.NullInt64  `json:"metadata-id"`
-	DatabaseName  sql.NullString `json:"database-name"`
-	SchemaName    sql.NullString `json:"schema-name"`
-	TableName     sql.NullString `json:"table-name"`
-	RowCount      sql.NullInt64  `json:"row-count"`
-	Dumped        sql.NullString `json:"data-dumped"`
-	Indexed       sql.NullString `json:"data-indexed"`
-	PathToFile    sql.NullString `json:"path-to-file"`
-	PathToDataDir sql.NullString `json:"path-to-data-dir"`
+	Id            nullable.NullInt64  `json:"tale-id"`
+	MetadataId    nullable.NullInt64  `json:"metadata-id"`
+	DatabaseName  nullable.NullString `json:"database-name"`
+	SchemaName    nullable.NullString `json:"schema-name"`
+	TableName     nullable.NullString `json:"table-name"`
+	RowCount      nullable.NullInt64  `json:"row-count"`
+	Dumped        nullable.NullString `json:"data-dumped"`
+	Indexed       nullable.NullString `json:"data-indexed"`
+	PathToFile    nullable.NullString `json:"path-to-file"`
+	PathToDataDir nullable.NullString `json:"path-to-data-dir"`
 	Metadata      *MetadataType
 	Columns       []*ColumnInfoType `json:"columns"`
 }

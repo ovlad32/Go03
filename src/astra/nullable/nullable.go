@@ -1,10 +1,11 @@
-package jsnull
+package nullable
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
+	"encoding/json"
 )
+
 
 //-------------------------------------------------------------------------------
 type NullString struct {
@@ -30,7 +31,7 @@ func (n *NullString) Valid() bool {
 
 func (n NullString) String() (result string) {
 	if n.Valid() {
-		result = fmt.Sprintf("%v", n.internal.String)
+		result = n.internal.String
 	} else {
 		result = "null"
 	}

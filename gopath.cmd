@@ -1,0 +1,1 @@
+set GOPATH=C:\Users\Admin\IdeaProjects\Go03\

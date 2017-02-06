@@ -3,36 +3,36 @@ package metadata
 import (
 	"fmt"
 	"errors"
-	"database/sql"
+	"astra/nullable"
 	"github.com/goinggo/tracelog"
 )
 
 type ColumnInfoType struct {
-	Id               sql.NullInt64  `json:"column-id"`
-	TableInfoId      sql.NullInt64  `json:"table-id"`
-	ColumnName       sql.NullString `json:"column-name"`
-	Position         sql.NullInt64  `json:"column-position"`
-	DataType         sql.NullString `json:"data-type"`
-	DataPrecision    sql.NullInt64  `json:"numeric-precision"`
-	DataScale        sql.NullInt64  `json:"numeric-scale"`
-	DataLength       sql.NullInt64  `json:"byte-length"`
-	CharLength       sql.NullInt64  `json:"character-length"`
-	Nullable         sql.NullString `json:"nullable"`
-	RealDataType     sql.NullString `json:"java-data-type"`
-	MinStringValue   sql.NullString `json:"min-string-value"`
-	MaxStringValue   sql.NullString `json:"max-string-value"`
-	CategoryCount    sql.NullInt64
-	HashUniqueCount  sql.NullInt64
-	UniqueRowCount   sql.NullInt64
-	TotalRowCount    sql.NullInt64
-	MinStringLength  sql.NullInt64
-	MaxStringLength  sql.NullInt64
-	IsAllNumeric     sql.NullString
-	IsAllInteger     sql.NullString
-	MinNumericValue  sql.NullFloat64
-	MaxNumericValue  sql.NullFloat64
-	NonNullCount     sql.NullInt64
-	DistinctCount    sql.NullInt64
+	Id               nullable.NullInt64  `json:"column-id"`
+	TableInfoId      nullable.NullInt64  `json:"table-id"`
+	ColumnName       nullable.NullString `json:"column-name"`
+	Position         nullable.NullInt64  `json:"column-position"`
+	DataType         nullable.NullString `json:"data-type"`
+	DataPrecision    nullable.NullInt64  `json:"numeric-precision"`
+	DataScale        nullable.NullInt64  `json:"numeric-scale"`
+	DataLength       nullable.NullInt64  `json:"byte-length"`
+	CharLength       nullable.NullInt64  `json:"character-length"`
+	Nullable         nullable.NullString `json:"astra.nullable"`
+	RealDataType     nullable.NullString `json:"java-data-type"`
+	MinStringValue   nullable.NullString `json:"min-string-value"`
+	MaxStringValue   nullable.NullString `json:"max-string-value"`
+	CategoryCount    nullable.NullInt64
+	HashUniqueCount  nullable.NullInt64
+	UniqueRowCount   nullable.NullInt64
+	TotalRowCount    nullable.NullInt64
+	MinStringLength  nullable.NullInt64
+	MaxStringLength  nullable.NullInt64
+	IsAllNumeric     nullable.NullString
+	IsAllInteger     nullable.NullString
+	MinNumericValue  nullable.NullFloat64
+	MaxNumericValue  nullable.NullFloat64
+	NonNullCount     nullable.NullInt64
+	DistinctCount    nullable.NullInt64
 	TableInfo        *TableInfoType
 }
 

@@ -1,14 +1,16 @@
 package metadata
 
-import "database/sql"
+import (
+	"astra/nullable"
+)
 
 var packageName = "astra/metadata"
 
 type MetadataType struct {
-	Id               sql.NullInt64
-	Index            sql.NullString
-	Indexed          sql.NullString
-	Version          sql.NullInt64
-	DatabaseConfigId sql.NullInt64
-	IndexedKeys      sql.NullString
+	Id               nullable.NullInt64
+	Index            nullable.NullString
+	Indexed          nullable.NullString
+	Version          nullable.NullInt64
+	DatabaseConfigId nullable.NullInt64
+	IndexedKeys      nullable.NullString
 }

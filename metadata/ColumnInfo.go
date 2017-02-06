@@ -41,7 +41,7 @@ type ColumnInfoType struct {
 	DataScale        jsnull.NullInt64  `json:"numeric-scale"`
 	DataLength       jsnull.NullInt64  `json:"byte-length"`
 	CharLength       jsnull.NullInt64  `json:"character-length"`
-	Nullable         jsnull.NullString `json:"nullable"`
+	Nullable         jsnull.NullString `json:"astra.nullable"`
 	RealDataType     jsnull.NullString `json:"java-data-type"`
 	MinStringValue   jsnull.NullString `json:"min-string-value"`
 	MaxStringValue   jsnull.NullString `json:"max-string-value"`

@@ -21,7 +21,7 @@ type Repository struct {
 	IDb           *sql.DB
 }
 
-func ConnectToAstraDB(conf RepositoryConfig) (result *Repository, err error) {
+func ConnectToAstraDB(conf *RepositoryConfig) (result *Repository, err error) {
 	var funcName = "ConnectToAstraDB"
 	tracelog.Started(packageName,funcName)
 	result = new(Repository)
