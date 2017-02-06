@@ -1,1 +1,1 @@
-set GOPATH=C:\Users\Admin\IdeaProjects\Go03\
+set GOPATH=C:\Users\vladymyr.orlovskiy\IdeaProjects\Go03\

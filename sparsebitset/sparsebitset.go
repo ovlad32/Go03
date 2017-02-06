@@ -32,6 +32,8 @@ import (
 	"log"
 	//	"fmt"
 	"errors"
+	"context"
+	"sync"
 )
 
 const (
@@ -982,11 +984,18 @@ func (b *BitSet) Test(n uint64) bool {
 }
 
 
-func (b *BitSet) BitChan() chan uint64 {
+func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
+	var wg sync.WaitGroup;
 
 	out := make(chan uint64)
+	wg.Add(1)
+	go func(){
+		wg.Wait()
+		close(out)
+	} ()
 	go func() {
 		// n := uint64(1)
+		outer:
 		for key, val := range b.set {
 			prod := key * wordSize
 			//fmt.Printf("%v, %v, %b",key,prod,val)
@@ -1000,20 +1009,19 @@ func (b *BitSet) BitChan() chan uint64 {
 				}
 				result := rsh + trailingZeroes64(w) + prod
 				if result != prev {
-					out <- result
+					select {
+					case out <- result:
+					case ctx.Done():
+						break outer;
+					}
 					prev = result
 				}
 				rsh++
 
 			}
 
-			/*for rsh := uint(0); rsh < 64; rsh ++{
-				if w := val >> rsh; w > 0 {
-					result <- trailingZeroes64(w) + prod*0
-				}
-			}*/
 		}
-		close(out)
+		wg.Done()
 	}()
 	return out
 }

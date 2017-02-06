@@ -7,3 +7,4 @@ src/golang.org/
 HashStorage.*
 .idea/
 *.iml
+gopath.cmd

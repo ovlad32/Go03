@@ -48,6 +48,8 @@ func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfo
 		errChan <- err
 		return
 	}
+	bufferedFile := bufio.NewReaderSize(file, da.config.InputBufferSize)
+
 	wg.Add(1)
 	go func() {
 		wg.Wait()
@@ -57,15 +59,39 @@ func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfo
 	} ()
 
 	go func () {
+		var x0D = []byte{0x0D}
+
+		lineNumber := uint64(0);
 		for {
-			rawData := bufio.NewReaderSize(file, da.config.InputBufferSize)
-			lineImage, err := rawData.ReadSlice(da.config.LineSeparator)
+			lineImage, err := bufferedFile.ReadSlice(da.config.LineSeparator)
 			if err == io.EOF {
 				break
 			} else if err != nil {
 				errChan <- err
 				break
 			}
+			lineImageLen := len(lineImage)
+			line := make([]byte, lineImageLen, lineImageLen)
+			copy(line, lineImage)
+
+			line = bytes.TrimSuffix(line, []byte{da.config.LineSeparator})
+			line = bytes.TrimSuffix(line, x0D)
+			lineNumber++
+
+			metadataColumnCount := len(table.Columns)
+
+			lineColumns := bytes.Split(line, []byte{da.config.FieldSeparator})
+			lineColumnCount := len(lineColumns)
+			if metadataColumnCount != lineColumnCount {
+
+				panic(fmt.Sprintf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+					lineNumber,
+					metadataColumnCount,
+					lineColumnCount,
+				))
+			}
+			// columnCount:uiunt16, array of offsets:columnCount*2bytes+.. data
+
 
 		}
 		wg.Done()
