@@ -5,13 +5,13 @@ import "astra/metadata"
 type ColumnDataType struct {
 	Column       *metadata.ColumnInfoType
 	dataCategory *DataCategoryType
-	lineNumber   uint64
-	lineOffset   uint64
-	data       []byte
+	LineNumber   uint64
+	LineOffset   uint64
+	Data       []byte
 }
 type RowDataType struct{
 	Table *metadata.TableInfoType
-	lineNumber   uint64
-	data      [][]byte
+	LineNumber   uint64
+	Data      [][]byte
 }
 //  |assdf sdfsdf sdfsdf

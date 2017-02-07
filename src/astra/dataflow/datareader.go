@@ -28,24 +28,26 @@ type DataReaderType struct {
 }
 
 
-func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfoType) (
-		resultChan chan *RowDataType,
+func (da DataReaderType) ReadSource(ctx context.Context, table *metadata.TableInfoType) (
+		rowDataChan chan *RowDataType,
 		errChan chan error,
 	){
 	funcName := "DataReaderType.fillColumnStorage"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
-	resultChan = make(chan []byte)
+	rowDataChan = make(chan []byte)
 	errChan = make(chan error, 1)
 	var wg sync.WaitGroup
 
 	gzfile, err := os.Open(da.config.BasePath + table.PathToFile.Value())
 	if err != nil {
 		errChan <- err
+		tracelog.Errorf(packageName, funcName, "for table %v", table)
 		return
 	}
 	file, err := gzip.NewReader(gzfile)
 	if err != nil {
 		errChan <- err
+		tracelog.Errorf(packageName, funcName, "for table %v", table)
 		return
 	}
 	bufferedFile := bufio.NewReaderSize(file, da.config.InputBufferSize)
@@ -55,7 +57,7 @@ func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfo
 		wg.Wait()
 		file.Close()
 		gzfile.Close()
-		close(resultChan);
+		close(rowDataChan);
 		close(errChan);
 	} ()
 
@@ -92,21 +94,152 @@ func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfo
 				)
 				break;
 			}
+			result := &RowDataType{
+				Data:lineColumns,
+				LineNumber:lineNumber,
+				Table:table,
+			}
+			select {
+				case rowDataChan <- result:
+				case ctx.Done():
+					break;
+			}
 		}
 		wg.Done()
 	} ()
 
-
-	select {
-	case <-ctx.Done():
-		//tr.CancelRequest(req)
-		<-c // Wait for f to return.
-		return ctx.Err()
-	case err := <-c:
-		return err
-	}
+	tracelog.Completedf(packageName, funcName, "for table %v", table)
+	return rowDataChan, errChan
 }
 
+
+
+func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  chan *RowDataType) (columnDataChan chan *ColumnDataType, errChan chan error) {
+	var wg sync.WaitGroup;
+	columnDataChan = make(chan *RowDataType)
+	errChan = make(chan error, 1)
+
+	wg.Add(1)
+	go func() {
+		wg.Wait()
+		close(columnDataChan)
+		close(errChan)
+	}()
+
+	go func() {
+		for {
+			select {
+			case rt := <- rowDataChan:
+				for columnNumber, columnDataBytes := range rt.Data {
+					columnData := &ColumnDataType{
+						LineNumber : rt.LineNumber,
+						Column: rt.Table.Columns[columnNumber],
+						Data:columnDataBytes,
+					}
+					select {
+						case columnDataChan <- columnData:
+						case <-ctx.Done():
+							break;
+					}
+				}
+			case <- ctx.Done():
+			}
+		}
+		wg.Done();
+	} ()
+
+	return columnDataChan, errChan
+}
+
+
+
+		for columnIndex := range table.Columns {
+			if lineNumber == 1 {
+				if columnIndex == 0 {
+					statsChannels = make([]ColumnDataChannelType, 0, metadataColumnCount)
+					//storeChans = make([]ColumnDataChannelType, 0,metadataColumnCount);
+
+					redumpChannel = make(chan [][]byte,500)
+					pathToBinData := "G:/BINDATA/"
+					err = os.MkdirAll(pathToBinData, 0);
+					redumpFile, err := os.Create(
+						fmt.Sprintf("%v/%v.bindata",
+							pathToBinData,
+							table.Id.Value(),
+						));
+					defer redumpFile.Close()
+					redump = bufio.NewWriterSize(redumpFile,lineImageLen*200);
+					goBusy.Add(1)
+					go func(colCount int, in chan [][]byte) {
+						for columns := range in {
+							err = binary.Write(redump, binary.BigEndian, uint16(colCount))
+							for _, columnData := range (columns) {
+								err = binary.Write(redump, binary.LittleEndian, uint16(len(columnData)))
+							}
+							for _, columnData := range (columns) {
+								_, err = redump.Write(columnData)
+							}
+						}
+						goBusy.Done()
+					} (lineColumnCount, redumpChannel)
+
+				}
+				statsChan := make(ColumnDataChannelType, 100)
+				statsChannels = append(statsChannels, statsChan)
+				storeChan := make(ColumnDataChannelType, 100)
+
+				goBusy.Add(2)
+				go func(cnin, chout ColumnDataChannelType) {
+					for iVal := range cnin {
+						da.collectDataStats(iVal)
+						//storeChans[index] <- iVal
+						chout <- iVal
+					}
+					goBusy.Done()
+					//close(storeChans[index])
+					close(chout)
+				}(statsChan, storeChan)
+
+				go func(chin ColumnDataChannelType) {
+					transactionCount := uint64(0)
+					//ticker := uint64(0)
+					for iVal := range chin {
+						//tracelog.Info(packageName,funcName,"%v,%v",iVal.column,transactionCount)
+						/*ticker++
+						if ticker > 10000 {
+							ticker = 0
+							tracelog.Info(packageName,funcName,"10000 for column %v",iVal.column)
+						}*/
+						iVal.column.bucketLock.Lock()
+						da.storeData(iVal)
+						iVal.column.bucketLock.Unlock()
+						transactionCount++
+						if transactionCount > da.TransactionCountLimit {
+							//tracelog.Info(packageName,funcName,"Intermediate commit for column %v",iVal.column)
+							iVal.column.bucketLock.Lock()
+							iVal.column.CloseStorageTransaction(true)
+							iVal.column.bucketLock.Unlock()
+							transactionCount = 0
+						}
+					}
+					goBusy.Done()
+				}(storeChan)
+			}
+
+			statsChannels[columnIndex] <- &ColumnDataType{
+				column:     table.Columns[columnIndex],
+				bValue:     lineColumns[columnIndex],
+				lineNumber: lineNumber,
+				lineOffset: binDataOffset,
+			}
+	wg.Done()
+	} ()
+
+
+	return columnDataChan,errChan
+}
+
+func  (da *DataReaderType) GatherStatistics( rowDataChan  chan *RowDataType)
 
 func (da *DataReaderType) fillColumnStorage(table *metadata.TableInfoType) {
 	funcName := "DataReaderType.fillColumnStorage"
@@ -423,13 +556,6 @@ func (da *DataReaderType) storeData(val *ColumnDataType) {
 		sb.WriteTo(buffer)
 		val.dataCategory.HashValuesBucket.Put(hValue[:], buffer.Bytes())
 	}
-
-	/*val.dataCategory.HashSourceBucket.Put(
-		utils.UInt64ToB8(val.lineNumber),
-		//TODO: switch to real file offset to column value instead of lineNumber
-		utils.UInt64ToB8(val.lineNumber),
-	)*/
-
 
 	if hashRowCount,found := utils.B8ToUInt64(val.dataCategory.CategoryBucket.Get(columnInfoCategoryStatsRowCountKey)); !found {
 		val.dataCategory.CategoryBucket.Put(
