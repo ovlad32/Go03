@@ -29,7 +29,7 @@ type DataReaderType struct {
 
 
 func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfoType) (
-		resultChan chan []byte,
+		resultChan chan *RowDataType,
 		errChan chan error,
 	){
 	funcName := "DataReaderType.fillColumnStorage"
@@ -56,6 +56,7 @@ func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfo
 		file.Close()
 		gzfile.Close()
 		close(resultChan);
+		close(errChan);
 	} ()
 
 	go func () {
@@ -82,17 +83,15 @@ func (da DataReaderType) readDump(ctx context.Context, table *metadata.TableInfo
 
 			lineColumns := bytes.Split(line, []byte{da.config.FieldSeparator})
 			lineColumnCount := len(lineColumns)
-			if metadataColumnCount != lineColumnCount {
 
-				panic(fmt.Sprintf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+			if metadataColumnCount != lineColumnCount {
+				errChan <- fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
 					lineNumber,
 					metadataColumnCount,
 					lineColumnCount,
-				))
+				)
+				break;
 			}
-			// columnCount:uiunt16, array of offsets:columnCount*2bytes+.. data
-
-
 		}
 		wg.Done()
 	} ()
