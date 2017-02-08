@@ -1,6 +1,10 @@
 package dataflow
 
-import "astra/metadata"
+import (
+	"astra/metadata"
+	"io"
+	"encoding/binary"
+)
 
 type ColumnDataType struct {
 	Column       *metadata.ColumnInfoType
@@ -10,8 +14,29 @@ type ColumnDataType struct {
 	Data       []byte
 }
 type RowDataType struct{
-	Table *metadata.TableInfoType
+	Table *TableInfoType
 	LineNumber   uint64
 	Data      [][]byte
 }
-//  |assdf sdfsdf sdfsdf
+
+
+func (ti *RowDataType) WriteTo(writer io.Writer){
+	//writer.Write([]byte{0xBF}); //SPARE
+	columnCount := len(ti.Data)
+	binary.Write(writer,binary.LittleEndian,uint16(columnCount)) //
+	for _, data := range ti.Data {
+		binary.Write(writer, binary.LittleEndian, uint16(len(data)))
+		writer.Write(data)
+	}
+}
+
+/*func (ti *RowDataType) ReadFrom(reader io.Reader){
+	columnCount := uint16(0)
+	binary.Read(reader,binary.LittleEndian,&columnCount)
+
+	for _, data := range ti.Data {
+		binary.Write(writer, binary.LittleEndian, uint16(len(data)))
+		writer.Write(data)
+	}
+}
+*/

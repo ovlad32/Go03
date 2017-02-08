@@ -17,6 +17,7 @@ import (
 
 type DumpConfigType struct {
 	BasePath    string
+	TankPath    string
 	GZipped         bool
 	FieldSeparator  byte
 	LineSeparator   byte
@@ -114,7 +115,10 @@ func (da DataReaderType) ReadSource(ctx context.Context, table *metadata.TableIn
 
 
 
-func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  chan *RowDataType) (columnDataChan chan *ColumnDataType, errChan chan error) {
+func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  chan *RowDataType) (
+		columnDataChan chan *ColumnDataType,
+		errChan chan error,
+	) {
 	var wg sync.WaitGroup;
 	columnDataChan = make(chan *RowDataType)
 	errChan = make(chan error, 1)
@@ -152,7 +156,61 @@ func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  cha
 }
 
 
+func(da *DataReaderType) WriteTank( ctx context.Context, InRowDataChan  chan *RowDataType) (
+		outRowDataChan  chan *RowDataType,
+		outErrChan chan error,
+	) {
+	outRowDataChan = make(chan *RowDataType);
+	outErrChan = make(chan error,1)
+	var wg sync.WaitGroup;
+	wg.Add(1)
 
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				break;
+			case rowData := <-InRowDataChan:
+				if rowData.Table.Tank == nil {
+					{
+						err := os.MkdirAll(da.config.TankPath, 0);
+						select {
+						case outErrChan <- err:
+							break;
+						}
+					}
+					{
+						pathToTank := fmt.Sprintf("%v%v%v.tank",
+								da.config.TankPath,
+								os.PathSeparator,
+								rowData.Table.Id.String(),
+							)
+						if _, err := os.Stat(pathToTank); os.IsNotExist(err) {
+
+							file, err := os.Create(pathToTank)
+							//TODO:HOW TO CLOSE THE FILE?
+							if err != nil {
+								select {
+								case outErrChan <- err:
+									break;
+								}
+							}
+							rowData.Table.Tank = file;
+						}
+					}
+
+
+
+				}
+
+
+			}
+
+		}
+		wg.Done()
+	} ()
+	return
+}
 		for columnIndex := range table.Columns {
 			if lineNumber == 1 {
 				if columnIndex == 0 {
@@ -238,6 +296,8 @@ func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  cha
 
 	return columnDataChan,errChan
 }
+
+
 
 func  (da *DataReaderType) GatherStatistics( rowDataChan  chan *RowDataType)
 
