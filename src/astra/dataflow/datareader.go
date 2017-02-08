@@ -2,7 +2,6 @@ package dataflow
 
 import (
 	"bytes"
-	"hash/fnv"
 	"github.com/goinggo/tracelog"
 	"io"
 	"sync"
@@ -11,7 +10,6 @@ import (
 	"bufio"
 	"fmt"
 	"encoding/binary"
-	"astra/metadata"
 	"context"
 )
 
@@ -25,52 +23,84 @@ type DumpConfigType struct {
 }
 
 type DataReaderType struct {
-	config *DumpConfigType
+	Config *DumpConfigType
 }
 
 
-func (da DataReaderType) ReadSource(ctx context.Context, table *metadata.TableInfoType) (
+func (da DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 		rowDataChan chan *RowDataType,
 		errChan chan error,
 	){
 	funcName := "DataReaderType.fillColumnStorage"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
-	rowDataChan = make(chan []byte)
+
+	var x0D = []byte{0x0D}
+
+	rowDataChan = make(chan *RowDataType)
 	errChan = make(chan error, 1)
-	var wg sync.WaitGroup
 
-	gzfile, err := os.Open(da.config.BasePath + table.PathToFile.Value())
-	if err != nil {
-		errChan <- err
-		tracelog.Errorf(packageName, funcName, "for table %v", table)
+
+	writeToTank := func (rowData [][]byte) (result int){
+		columnCount := len(rowData)
+		binary.Write(table.TankWriter, binary.LittleEndian,uint16(columnCount)) //
+		result = 2
+		for _, colData := range rowData {
+			colDataLength := len(rowData)
+			binary.Write(table.TankWriter, binary.LittleEndian, uint16(colDataLength))
+			result = result + 2
+			table.TankWriter.Write(colData)
+			result = result + colDataLength
+		}
 		return
 	}
-	file, err := gzip.NewReader(gzfile)
-	if err != nil {
-		errChan <- err
-		tracelog.Errorf(packageName, funcName, "for table %v", table)
-		return
-	}
-	bufferedFile := bufio.NewReaderSize(file, da.config.InputBufferSize)
 
-	wg.Add(1)
-	go func() {
-		wg.Wait()
-		file.Close()
-		gzfile.Close()
-		close(rowDataChan);
-		close(errChan);
-	} ()
+
+
 
 	go func () {
-		var x0D = []byte{0x0D}
 
-		lineNumber := uint64(0);
+		var tankCancelFunc context.CancelFunc
+		var tankContext context.Context
+
+		var wg sync.WaitGroup
+
+		gzfile, err := os.Open(da.Config.BasePath + table.PathToFile.Value())
+		if err != nil {
+			errChan <- err
+			tracelog.Errorf(err,packageName, funcName, "for table %v", table)
+			return
+		}
+		file, err := gzip.NewReader(gzfile)
+		if err != nil {
+			errChan <- err
+			tracelog.Errorf(err,packageName, funcName, "for table %v", table)
+			return
+		}
+		bufferedFile := bufio.NewReaderSize(file, da.Config.InputBufferSize)
+
+		wg.Add(1)
+		go func() {
+			wg.Wait()
+			file.Close()
+			gzfile.Close()
+			close(rowDataChan);
+			close(errChan);
+		} ()
+
+		lineNumber := uint64(0)
+		lineOffset := uint64(0)
+
 		for {
-			lineImage, err := bufferedFile.ReadSlice(da.config.LineSeparator)
+			lineImage, err := bufferedFile.ReadSlice(da.Config.LineSeparator)
 			if err == io.EOF {
+				if tankCancelFunc != nil {
+					tankCancelFunc()
+				}
 				break
 			} else if err != nil {
+				if tankCancelFunc != nil {
+					tankCancelFunc()
+				}
 				errChan <- err
 				break
 			}
@@ -78,13 +108,12 @@ func (da DataReaderType) ReadSource(ctx context.Context, table *metadata.TableIn
 			line := make([]byte, lineImageLen, lineImageLen)
 			copy(line, lineImage)
 
-			line = bytes.TrimSuffix(line, []byte{da.config.LineSeparator})
+			line = bytes.TrimSuffix(line, []byte{da.Config.LineSeparator})
 			line = bytes.TrimSuffix(line, x0D)
-			lineNumber++
 
 			metadataColumnCount := len(table.Columns)
 
-			lineColumns := bytes.Split(line, []byte{da.config.FieldSeparator})
+			lineColumns := bytes.Split(line, []byte{da.Config.FieldSeparator})
 			lineColumnCount := len(lineColumns)
 
 			if metadataColumnCount != lineColumnCount {
@@ -95,14 +124,29 @@ func (da DataReaderType) ReadSource(ctx context.Context, table *metadata.TableIn
 				)
 				break;
 			}
+
+			lineNumber++
+			if lineNumber == 1 {
+				tankContext, tankCancelFunc = context.WithCancel(context.Background());
+				err = table.OpenTank(tankContext,da.Config.TankPath,os.O_CREATE)
+				if err != nil {
+					tankCancelFunc()
+					errChan <- err
+					break;
+				}
+			}
+
 			result := &RowDataType{
 				Data:lineColumns,
 				LineNumber:lineNumber,
+				LineOffset:lineOffset,
 				Table:table,
 			}
+			lineOffset = lineOffset + uint64(writeToTank(result.Data));
+
 			select {
 				case rowDataChan <- result:
-				case ctx.Done():
+				case <-ctx.Done():
 					break;
 			}
 		}
@@ -120,7 +164,7 @@ func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  cha
 		errChan chan error,
 	) {
 	var wg sync.WaitGroup;
-	columnDataChan = make(chan *RowDataType)
+	columnDataChan = make(chan *ColumnDataType)
 	errChan = make(chan error, 1)
 
 	wg.Add(1)
@@ -156,7 +200,8 @@ func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  cha
 }
 
 
-func(da *DataReaderType) WriteTank( ctx context.Context, InRowDataChan  chan *RowDataType) (
+/*
+func(da *DataReaderType) WriteToTank( ctx context.Context, InRowDataChan  chan *RowDataType) (
 		outRowDataChan  chan *RowDataType,
 		outErrChan chan error,
 	) {
@@ -186,9 +231,7 @@ func(da *DataReaderType) WriteTank( ctx context.Context, InRowDataChan  chan *Ro
 								rowData.Table.Id.String(),
 							)
 						if _, err := os.Stat(pathToTank); os.IsNotExist(err) {
-
 							file, err := os.Create(pathToTank)
-							//TODO:HOW TO CLOSE THE FILE?
 							if err != nil {
 								select {
 								case outErrChan <- err:
@@ -198,14 +241,9 @@ func(da *DataReaderType) WriteTank( ctx context.Context, InRowDataChan  chan *Ro
 							rowData.Table.Tank = file;
 						}
 					}
-
-
-
+					rowData.WriteTo(rowData.Table.Tank)
 				}
-
-
 			}
-
 		}
 		wg.Done()
 	} ()
@@ -263,11 +301,6 @@ func(da *DataReaderType) WriteTank( ctx context.Context, InRowDataChan  chan *Ro
 					//ticker := uint64(0)
 					for iVal := range chin {
 						//tracelog.Info(packageName,funcName,"%v,%v",iVal.column,transactionCount)
-						/*ticker++
-						if ticker > 10000 {
-							ticker = 0
-							tracelog.Info(packageName,funcName,"10000 for column %v",iVal.column)
-						}*/
 						iVal.column.bucketLock.Lock()
 						da.storeData(iVal)
 						iVal.column.bucketLock.Unlock()
@@ -299,7 +332,7 @@ func(da *DataReaderType) WriteTank( ctx context.Context, InRowDataChan  chan *Ro
 
 
 
-func  (da *DataReaderType) GatherStatistics( rowDataChan  chan *RowDataType)
+
 
 func (da *DataReaderType) fillColumnStorage(table *metadata.TableInfoType) {
 	funcName := "DataReaderType.fillColumnStorage"
@@ -308,7 +341,7 @@ func (da *DataReaderType) fillColumnStorage(table *metadata.TableInfoType) {
 	var x0D = []byte{0x0D}
 
 	//	lineSeparatorArray[0] = da.DumpConfiguration.LineSeparator
-	var statsChannels /*,storeChans */ []ColumnDataChannelType
+	var statsChannels  []ColumnDataChannelType
 	var redumpChannel chan [][]byte;
 	var goBusy sync.WaitGroup
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
@@ -413,11 +446,7 @@ func (da *DataReaderType) fillColumnStorage(table *metadata.TableInfoType) {
 					//ticker := uint64(0)
 					for iVal := range chin {
 						//tracelog.Info(packageName,funcName,"%v,%v",iVal.column,transactionCount)
-						/*ticker++
-						if ticker > 10000 {
-							ticker = 0
-							tracelog.Info(packageName,funcName,"10000 for column %v",iVal.column)
-						}*/
+
 						iVal.column.bucketLock.Lock()
 						da.storeData(iVal)
 						iVal.column.bucketLock.Unlock()
@@ -442,18 +471,7 @@ func (da *DataReaderType) fillColumnStorage(table *metadata.TableInfoType) {
 			}
 
 
-			/*if table.Columns[columnIndex].ColumnName.String() == "CONTRACT_NUMBER" {
-				if len(lineColumns[columnIndex]) != 19 {
-					fmt.Printf("%s, %s\n",string(lineColumns[columnIndex]),string(line));
-				}
-			}*/
-			//<-out
 
-			/*out <-columnDataType{
-				column:     source.Columns[columnIndex],
-				bValue:     lineColumns[columnIndex],
-				lineNumber: lineNumber,
-			}*/
 
 		}
 		redumpChannel <- lineColumns
@@ -520,11 +538,7 @@ func (da *DataReaderType) storeData(val *ColumnDataType) {
 		if err != nil {
 			panic(err)
 		}
-		/*
-		err = val.column.OpenRowsBucket()
-		if err != nil {
-			panic(err)
-		}*/
+
 	}
 	if val.dataCategory.CategoryBucket == nil {
 		_, err = val.dataCategory.OpenBucket(nil)
@@ -542,41 +556,11 @@ func (da *DataReaderType) storeData(val *ColumnDataType) {
 		panic(err)
 	}
 
-	/*newHashValue, err := val.dataCategory.OpenHashBucket(hValue[:])
-	if err != nil {
-		panic(err)
-	}
-	if newHashValue {
-		(*val.dataCategory.HashUniqueCount.Reference())++
-	}
-
-	err = val.dataCategory.OpenHashValuesBucket()
-	if err != nil {
-		panic(err)
-	}*/
 
 	err = val.dataCategory.OpenBitsetBucket()
 	if err != nil {
 		panic(err)
 	}
-
-	/*err = val.dataCategory.OpenHashSourceBucket()
-	if err != nil {
-		panic(err)
-	}
-	err = val.dataCategory.OpenHashStatsBucket()
-	if err != nil {
-		panic(err)
-	}
-	if val.dataCategory.HashValuesBucket == nil {
-		panic("HashValues bucket has not been created!")
-	}
-	if val.dataCategory.BitsetBucket == nil {
-		panic("Bitset bucket has not been created!")
-	}
-	if val.dataCategory.HashSourceBucket == nil {
-		panic("HashSource bucket has not been created!")
-	}*/
 
 	baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(hashUIntValue)
 	baseB8Value := utils.UInt64ToB8(baseUIntValue)
@@ -631,3 +615,4 @@ func (da *DataReaderType) storeData(val *ColumnDataType) {
 
 
 }
+*/

@@ -2,10 +2,11 @@ package metadata
 
 import (
 	"fmt"
-	"strings"
 	"database/sql"
 	"errors"
 	"github.com/goinggo/tracelog"
+	"astra/nullable"
+	_ "github.com/lib/pq"
 )
 
 type RepositoryConfig struct {
@@ -38,7 +39,7 @@ func ConnectToAstraDB(conf *RepositoryConfig) (result *Repository, err error) {
 		return
 	}
 	result.IDb = idb
-	result.config = &conf;
+	result.config = conf;
 
 	tracelog.Completed(packageName,funcName)
 	return
@@ -109,7 +110,7 @@ func (rps Repository) DatabaseConfigAll() (result []DatabaseConfigType, err erro
 	return rps.databaseConfig(nil)
 }
 
-func (tps Repository) DatabaseConfigById(Id sql.NullInt64) (result DatabaseConfigType, err error) {
+func (tps Repository) DatabaseConfigById(Id nullable.NullInt64) (result DatabaseConfigType, err error) {
 	whereFunc := func() string {
 		if Id.Valid() {
 			return fmt.Sprintf(" WHERE ID = %v", Id)
@@ -165,7 +166,7 @@ func (rps Repository) metadata(whereFunc func() string) (result []*MetadataType,
 	return
 }
 
-func (rps Repository) HighestDatabaseConfigVersion(DatabaseConfigId sql.NullInt64) (result sql.NullInt64, err error) {
+func (rps Repository) HighestDatabaseConfigVersion(DatabaseConfigId nullable.NullInt64) (result nullable.NullInt64, err error) {
 
 	if !DatabaseConfigId.Valid() {
 		err = errors.New("DatabaseConfigId is not valid")
@@ -181,7 +182,7 @@ func (rps Repository) HighestDatabaseConfigVersion(DatabaseConfigId sql.NullInt6
 	return
 }
 
-func (rps Repository) LastMetadata(DatabaseConfigId sql.NullInt64) (result *MetadataType, err error) {
+func (rps Repository) LastMetadata(DatabaseConfigId nullable.NullInt64) (result *MetadataType, err error) {
 	version, err := rps.HighestDatabaseConfigVersion(DatabaseConfigId)
 
 	tx, err := rps.IDb.Begin()
@@ -200,7 +201,7 @@ func (rps Repository) LastMetadata(DatabaseConfigId sql.NullInt64) (result *Meta
 	}
 	return
 }
-func (rps Repository) MetadataById(MetadataId sql.NullInt64) (result *MetadataType, err error) {
+func (rps Repository) MetadataById(MetadataId nullable.NullInt64) (result *MetadataType, err error) {
 	if !MetadataId.Valid() {
 		err = errors.New("MetadataId is not valid")
 		return
@@ -287,7 +288,7 @@ func (h2 Repository) TableInfoByMetadata(metadata *MetadataType) (result []*Tabl
 	return
 }
 
-func (h2 Repository) TableInfoById(Id sql.NullInt64) (result *TableInfoType, err error) {
+func (h2 Repository) TableInfoById(Id nullable.NullInt64) (result *TableInfoType, err error) {
 	whereFunc := func() string {
 		if Id.Valid() {
 			return fmt.Sprintf(" WHERE ID = %v", Id)
@@ -381,7 +382,7 @@ func (h2 Repository) ColumnInfoByTable(tableInfo *TableInfoType) (result []*Colu
 	return
 }
 
-func (h2 Repository) ColumnInfoById(Id sql.NullInt64) (result *ColumnInfoType, err error) {
+func (h2 Repository) ColumnInfoById(Id nullable.NullInt64) (result *ColumnInfoType, err error) {
 	whereFunc := func() string {
 		if Id.Valid() {
 			return fmt.Sprintf(" WHERE ID = %v", Id)
@@ -397,212 +398,11 @@ func (h2 Repository) ColumnInfoById(Id sql.NullInt64) (result *ColumnInfoType, e
 }
 
 
-func (h2 Repository) SaveColumnCategory(column *ColumnInfoType) (err error) {
-	tx, err := h2.IDb.Begin()
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
-	/*stmt,err := tx.Prepare("merge into column_datacategory_stats(" +
-		" id" +
-		", byte_length" +
-		", is_numeric" +
-		", is_float" +
-		", is_negative" +
-		", non_null_count" +
-		", hash_unique_count" +
-		", min_sval" +
-		", max_sval" +
-		", min_fval" +
-		", max_fval) " +
-		" key(id,byte_length,is_numeric,is_float,is_negative) " +
-		" values(%v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v) ")
-	if err != nil {
-		return
-	}*/
-
-	for _, c := range column.DataCategories {
-		_, err = tx.Exec(
-			fmt.Sprintf("merge into column_datacategory_stats("+
-				" id"+
-				", byte_length"+
-				", is_numeric"+
-				", is_negative"+
-				", fp_scale"+
-				", non_null_count"+
-				", hash_unique_count"+
-				", min_sval"+
-				", max_sval"+
-				", min_fval"+
-				", max_fval) "+
-				" key(id, byte_length, is_numeric, is_negative, fp_scale) "+
-				" values(%v, %v, %v, %v, %v, %v, %v, '%v', '%v', %v, %v) ",
-				column.Id,
-				c.ByteLength,
-				c.IsNumeric,
-				c.IsNegative,
-				c.FloatingPointScale,
-				c.NonNullCount,
-				c.HashUniqueCount,
-				strings.Replace(c.MinStringValue.Value(), "'", "''", -1),
-				strings.Replace(c.MaxStringValue.Value(), "'", "''", -1),
-				c.MinNumericValue,
-				c.MaxNumericValue,
-			),
-		)
-		if err != nil {
-			return
-		}
-	}
-	tx.Commit()
-	return
-}
-func (h2 Repository) CreateDataCategoryTable() (err error) {
-	tx, err := h2.IDb.Begin()
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
-	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
-
-	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
-		" id bigint not null " +
-		", byte_length int not null " +
-		", is_numeric bool not null " +
-		", is_negative bool not null " +
-		", fp_scale int not null " +
-		", non_null_count bigint" +
-		", hash_unique_count bigint" +
-		", min_sval varchar(4000)" +
-		", max_sval varchar(4000)" +
-		", min_fval float" +
-		", max_fval float" +
-		", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_negative, fp_scale) " +
-		" ) ")
-	tx.Commit()
-
-	tx, err = h2.IDb.Begin()
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
-	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
-
-	_, err = tx.Exec("create table if not exists column_pair( " +
-		"id integer, "+
-		"column_1_id integer,  "+
-		"column_1_rowcount integer,  "+
-		"column_2_id integer,  "+
-		"column_2_rowcount integer,  "+
-		"category_Intersection_Count integer,  "+
-		"hash_Intersection_Count integer,  "+
-		"status char(1),"+
-		"constraint column_pair_pk primary key (column_1_id,column_2_id) "+
-		")  ");
-	tx.Commit()
-
-
-	return
-}
-
-
-func (h2 Repository) SaveColumnPairs(pairs []*ColumnPairType) (err error) {
-	tx, err := h2.IDb.Begin()
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
-	for _, p := range pairs  {
-		merge := fmt.Sprintf("merge into column_pair("+
-		//" id"+
-			" column_1_id "+
-			", column_2_id"+
-			", column_1_rowcount"+
-			", column_2_rowcount"+
-			", category_intersection_count"+
-			", hash_intersection_count"+
-			", status "+
-			") key (column_1_id, column_2_id) "+
-			" values (%v, %v, %v, %v, %v, %v,'N') ",
-			//column.Id,
-			p.column1.Id,
-			p.column2.Id,
-			p.column1RowCount,
-			p.column2RowCount,
-			p.CategoryIntersectionCount,
-			p.HashIntersectionCount,
-		)
-		_, err = tx.Exec( merge)
-		if err != nil {
-			return
-		}
-	}
-	tx.Commit()
-	return
-}
-
-func (h2 Repository) columnPairs(whereFunc func() string) (result ColumnPairsType, err error) {
-	tx, err := h2.IDb.Begin()
-	if err != nil {
-		return
-	}
-	defer tx.Rollback();
-	queryText := "select " +
-		"  p.column_1_id" +
-		", p.column_2_id" +
-		", p.column_1_rowcount" +
-		", p.column_2_rowcount" +
-		", p.hash_intersection_count " +
-		", p.status " +
-		" from column_pair p  "
-	if whereFunc != nil{
-		queryText = queryText + whereFunc()
-	}
-
-	queryText = queryText + " order by p.hash_intersection_count desc"
-
-	rows,err := tx.Query(queryText);
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		pair := &ColumnPairType {
-			column1 : new(ColumnInfoType),
-			column2 : new(ColumnInfoType),
-		}
-		err = rows.Scan(
-			&pair.column1.Id,
-			&pair.column2.Id,
-			&pair.column1RowCount,
-			&pair.column2RowCount,
-			&pair.HashIntersectionCount,
-			&pair.ProcessStatus,
-		)
-
-
-		if err != nil {
-			return
-		}
-
-
-		if result == nil {
-			result = make(ColumnPairsType,0,10)
-		}
-
-
-		result = append(result,pair)
-	}
-
-	return
-}
-
-func (h Repository) MetadataByWorkflowId(workflowId sql.NullInt64)(metadataId1,metadataId2 sql.NullInt64, err error){
+func (h Repository) MetadataByWorkflowId(workflowId nullable.NullInt64)(metadataId1,metadataId2 nullable.NullInt64, err error){
 	queryText := fmt.Sprintf("select distinct t.metadata_id from link l "+
 		" inner join column_info  c on c.id in (l.parent_column_info_id,l.child_column_info_id) "+
 		" inner join table_info t on t.id = c.table_info_id " +
-		" where l.workflow_id = %v ",workflowId.String());
+		" where l.workflow_id = %v ",workflowId.Value());
 
 	tx,err := h.IDb.Begin()
 	if err != nil {
@@ -617,15 +417,15 @@ func (h Repository) MetadataByWorkflowId(workflowId sql.NullInt64)(metadataId1,m
 	if result.Next() {
 		result.Scan(&metadataId1)
 	} else {
-		err = fmt.Errorf("There is no the first metadata id  for workflow_id = %v",workflowId);
+		err = fmt.Errorf("There is no the first metadata id  for workflow_id = %v",workflowId.Value());
 		return
 	}
 	if result.Next() {
 		result.Scan(&metadataId2)
 	} else {
-		var clean sql.NullInt64
+		var clean nullable.NullInt64
 		metadataId1 = clean;
-		err = fmt.Errorf("There is no the second metadata id  for workflow_id = %v",workflowId);
+		err = fmt.Errorf("There is no the second metadata id  for workflow_id = %v",workflowId.Value());
 		return
 	}
 	return

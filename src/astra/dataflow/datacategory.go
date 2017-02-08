@@ -93,11 +93,3 @@ func (cdc DataCategoryType) String() (result string) {
 	return
 }
 
-
-func FilenameSuffix() String {
-
-}
-
-func Save(){
-
-}

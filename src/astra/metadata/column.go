@@ -52,17 +52,16 @@ func (c ColumnInfoType) СheckId() error {
 	return nil
 }
 
-func (c ColumnInfoType) СheckTableInfo() error {
+func (c ColumnInfoType) СheckTableInfo()  (err error) {
 	var funcName = "ColumnInfoType.CheckMetadata"
 	tracelog.Started(packageName, funcName)
 	if c.TableInfo == nil {
-		err := errors.New("Table reference has not been initialized!")
+		err = errors.New("Table reference has not been initialized!")
 		tracelog.Error(err, packageName, funcName)
 		return err
 	}
 	tracelog.Completed(packageName, funcName)
 	return
-
 }
 
 func (c ColumnInfoType) String() string {
@@ -90,10 +89,10 @@ func (c ColumnInfoType) GoString() string {
 	}
 
 	if c.ColumnName.Value() != "" {
-		result = result + "ColumnName=" + c.ColumnName + "; "
+		result = result + "ColumnName=" + c.ColumnName.Value() + "; "
 	}
-	if c.Id.Valid {
-		result = result + "Id=" + fmt.Sprintf("%v", c.Id.Int64) + "; "
+	if c.Id.Valid() {
+		result = result + "Id=" + fmt.Sprintf("%v", c.Id.Value()) + "; "
 	}
 	result = result + "]"
 	tracelog.Completed(packageName, funcName)

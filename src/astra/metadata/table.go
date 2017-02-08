@@ -36,7 +36,7 @@ func (t TableInfoType) СheckId() error {
 	return nil
 }
 
-func (t TableInfoType) СheckTableName() error {
+func (t TableInfoType) СheckTableName() (err error) {
 	var funcName = "TableInfoType.СheckTableName"
 	tracelog.Started(packageName, funcName)
 
@@ -55,7 +55,7 @@ func (t TableInfoType) СheckTableName() error {
 	return
 }
 
-func (t TableInfoType) CheckMetadata() error {
+func (t TableInfoType) CheckMetadata() (err error)  {
 	var funcName = "TableInfoType.CheckMetadata"
 	tracelog.Started(packageName, funcName)
 	if t.Metadata == nil {
@@ -67,7 +67,7 @@ func (t TableInfoType) CheckMetadata() error {
 	return
 }
 
-func (t TableInfoType) СheckColumnListExistence() error {
+func (t TableInfoType) СheckColumnListExistence() (err error)  {
 	var funcName = "TableInfoType.СheckColumnListExistence"
 	tracelog.Started(packageName, funcName)
 
@@ -93,7 +93,7 @@ func (t TableInfoType) СheckColumnListExistence() error {
 }
 
 
-func (t TableInfoType) СheckDumpFileName() error{
+func (t TableInfoType) СheckDumpFileName() (err error) {
 	var funcName = "TableInfoType.СheckDumpFileName"
 	tracelog.Started(packageName, funcName)
 
@@ -118,14 +118,14 @@ func (t TableInfoType) String() string {
 	var result = ""
 
 	if t.SchemaName.Value() != "" {
-		result = result +t.SchemaName + "."
+		result = result +t.SchemaName.Value() + "."
 	}
 
 	if t.TableName.Value() != "" {
-		result = result + t.TableName
+		result = result + t.TableName.Value()
 	}
-	if false && t.Id.Valid {
-		result = result + " (Id=" + fmt.Sprintf("%v", t.Id.Int64) + ")"
+	if false && t.Id.Valid() {
+		result = result + " (Id=" + fmt.Sprintf("%v", t.Id.Value()) + ")"
 	}
 	tracelog.Completed(packageName, funcName)
 	return result
@@ -139,14 +139,14 @@ func (t TableInfoType) GoString() string {
 	var result = "TableInfo["
 
 	if t.SchemaName.Value() != "" {
-		result = result + "SchemaName=" + t.SchemaName + "; "
+		result = result + "SchemaName=" + t.SchemaName.Value() + "; "
 	}
 
 	if t.TableName.Value() != "" {
-		result = result + "TableName=" + t.TableName + "; "
+		result = result + "TableName=" + t.TableName.Value() + "; "
 	}
-	if t.Id.Valid {
-		result = result + "Id=" + fmt.Sprintf("%v", t.Id.Int64) + "; "
+	if t.Id.Valid() {
+		result = result + "Id=" + fmt.Sprintf("%v", t.Id.Value()) + "; "
 	}
 	result = result + "]"
 	tracelog.Completed(packageName, funcName)
