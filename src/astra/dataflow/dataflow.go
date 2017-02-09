@@ -9,9 +9,74 @@ import (
 	"os"
 	"bufio"
 	"sync"
+	"astra/nullable"
 )
 
 var packageName = "astra/dataflow"
+
+type ColumnInfoType struct {
+	*metadata.ColumnInfoType
+	stringAnalysisLock sync.Mutex
+	numericAnalysisLock sync.Mutex
+}
+
+func(ci *ColumnInfoType) AnalyzeStringValue(stringValue string) {
+	ci.stringAnalysisLock.Lock()
+	defer ci.stringAnalysisLock.Unlock()
+
+	(*ci.NonNullCount.Reference())++
+
+	if !ci.MaxStringValue.Valid() || ci.MaxStringValue.Value() < stringValue {
+		ci.MaxStringValue = nullable.NewNullString(stringValue)
+	}
+	if !ci.MinStringValue.Valid() || ci.MinStringValue.Value() > stringValue {
+		ci.MinStringValue = nullable.NewNullString(stringValue)
+	}
+
+	lValue := int64(len(stringValue))
+	if !ci.MaxStringLength.Valid() {
+		ci.MaxStringLength = nullable.NewNullInt64(lValue)
+	} else if ci.MaxStringLength.Value() < lValue {
+		(*ci.MaxStringLength.Reference()) = lValue
+
+	}
+	if !ci.MinStringLength.Valid() {
+		ci.MinStringLength = nullable.NewNullInt64(lValue)
+	} else if ci.MinStringLength.Value() > lValue {
+		(*ci.MinStringLength.Reference()) = lValue
+
+	}
+}
+
+
+func(ci *ColumnInfoType) AnalyzeNumericValue(floatValue float64) {
+	ci.numericAnalysisLock.Lock()
+	defer ci.numericAnalysisLock.Unlock()
+
+	(*ci.NumericCount.Reference())++
+	if !ci.MaxNumericValue.Valid() {
+		ci.MaxNumericValue = nullable.NewNullFloat64(floatValue)
+	} else if ci.MaxNumericValue.Value() < floatValue {
+		(*ci.MaxNumericValue.Reference()) = floatValue
+	}
+
+	if !ci.MinNumericValue.Valid() {
+		ci.MinNumericValue = nullable.NewNullFloat64(floatValue)
+	} else if ci.MinNumericValue.Value() > floatValue {
+		(*ci.MinNumericValue.Reference()) = floatValue
+	}
+
+}
+
+
+
+
+
+if !column.MaxNumericValue.Valid() {
+column.MaxNumericValue = jsnull.NewNullFloat64(floatValue)
+} else if column.MaxNumericValue.Value() < floatValue {
+(*column.MaxNumericValue.Reference()) = floatValue
+}
 
 type TableInfoType struct {
 	*metadata.TableInfoType

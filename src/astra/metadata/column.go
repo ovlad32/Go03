@@ -27,8 +27,9 @@ type ColumnInfoType struct {
 	TotalRowCount    nullable.NullInt64
 	MinStringLength  nullable.NullInt64
 	MaxStringLength  nullable.NullInt64
-	IsAllNumeric     nullable.NullString
-	IsAllInteger     nullable.NullString
+	//IsAllNumeric     nullable.NullString
+	//IsAllInteger     nullable.NullString
+	NumericCount     nullable.NullInt64
 	MinNumericValue  nullable.NullFloat64
 	MaxNumericValue  nullable.NullFloat64
 	NonNullCount     nullable.NullInt64

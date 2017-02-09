@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"sync"
+	"strings"
+	"strconv"
 )
 
 type DumpConfigType struct {
@@ -113,12 +115,12 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 			}
 
 			result := &RowDataType{
-				Data:       lineColumns,
+				RawData:    lineColumns,
 				LineNumber: lineNumber,
 				LineOffset: lineOffset,
 				Table:      table,
 			}
-			lineOffset = lineOffset + uint64(writeToTank(result.Data))
+			lineOffset = lineOffset + uint64(writeToTank(result.RawData))
 
 			select {
 			case rowDataChan <- result:
@@ -142,11 +144,11 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 	return rowDataChan, errChan
 }
 
-func (da *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType, degree int) (
-	columnDataChan chan *ColumnDataType,
+func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType, degree int) (
+	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
-	columnDataChan = make(chan *ColumnDataType)
+	outChan = make(chan *ColumnDataType)
 	errChan = make(chan error, 1)
 	var wg sync.WaitGroup
 	processRows := func() {
@@ -157,16 +159,18 @@ func (da *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 			if !opened {
 				break outer
 			}
-			for columnNumber, columnDataBytes := range rt.Data {
+			for columnNumber, columnDataBytes := range rt.RawData {
 
 				columnData := &ColumnDataType{
 					LineNumber: rt.LineNumber,
 					LineOffset: rt.LineOffset,
-					Column:     rt.Table.Columns[columnNumber],
-					Data:       columnDataBytes,
+					Column:     &ColumnInfoType{
+									ColumnInfoType :rt.Table.Columns[columnNumber],
+								},
+					RawData:   columnDataBytes,
 				}
 				select {
-				case columnDataChan <- columnData:
+				case outChan <- columnData:
 				case <-ctx.Done():
 					break outer
 				}
@@ -179,17 +183,117 @@ func (da *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 		wg.Done()
 		return
 	}
+
 	go func() {
 		for index := 0;index < degree; index ++ {
 			wg.Add(1)
 			go processRows()
 		}
 		wg.Wait()
-		close(columnDataChan)
+		close(outChan)
 		close(errChan)
 	}()
 
-	return columnDataChan, errChan
+	return outChan, errChan
+}
+func (dr DataReaderType) Category(ctx context.Context, colDataChan chan *ColumnDataType) (
+	outChan *ColumnDataType,
+	errChan chan error,
+){
+	errChan = make(chan error, 1)
+	outChan = make(chan *ColumnDataType)
+	var wg sync.WaitGroup
+
+
+	f := func () {
+		outer:
+		for {
+			select {
+			case columnData, opened := <- colDataChan:
+				if !opened {
+					break outer
+				}
+				if columnData == nil {
+					continue
+				}
+
+
+
+
+			case <-ctx.Done():
+				break outer
+			}
+
+
+		}
+	}
+
+
+
+
+
+	found := val.column.FindDataCategory(
+		uint16(byteLength),
+		isNumeric,
+		isNegative,
+		int8(fpScale),
+		isSubHash,
+		bSubHash,
+	)
+	if found == nil {
+		found = &ColumnDataCategoryStatsType{
+			Column:             column,
+			ByteLength:         jsnull.NewNullInt64(int64(byteLength)),
+			IsNumeric:          jsnull.NewNullBool(isNumeric),
+			FloatingPointScale: jsnull.NewNullInt64(int64(fpScale)),
+			IsNegative:         jsnull.NewNullBool(isNegative),
+			NonNullCount:       jsnull.NewNullInt64(int64(0)),
+			HashUniqueCount:    jsnull.NewNullInt64(int64(0)),
+			IsSubHash:          jsnull.NewNullBool(isSubHash),
+			SubHash:            jsnull.NewNullInt64(int64(bSubHash)),
+		}
+		//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] created",found,column,column.Id)
+		if column.DataCategories == nil {
+			column.DataCategories = make([]*ColumnDataCategoryStatsType, 0, 2)
+		}
+		column.DataCategories = append(column.DataCategories, found)
+	} else {
+		//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] found",found,column,column.Id)
+	}
+	val.dataCategory = found
+	(*found.NonNullCount.Reference())++
+
+	if found.MaxStringValue.Value() < sValue || !found.MaxStringValue.Valid() {
+		found.MaxStringValue = jsnull.NewNullString(sValue)
+	}
+
+	if found.MinStringValue.Value() > sValue || !found.MinStringValue.Valid() {
+		found.MinStringValue = jsnull.NewNullString(sValue)
+	}
+
+	if found.IsNumeric.Value() {
+		if !found.MaxNumericValue.Valid() {
+			found.MaxNumericValue = jsnull.NewNullFloat64(nValue)
+
+		} else if found.MaxNumericValue.Value() < nValue {
+			(*found.MaxNumericValue.Reference()) = nValue
+		}
+		if !column.MinNumericValue.Valid() {
+			found.MinNumericValue = jsnull.NewNullFloat64(nValue)
+		} else if column.MinNumericValue.Value() > nValue {
+			(*found.MinNumericValue.Reference()) = nValue
+		}
+	}
+	//	tracelog.Info(packageName,funcName,"Statistics for line %v of column %v[%v] collected",val.lineNumber,column,column.Id)
+	//	tracelog.Completed(packageName,funcName)
+	/*
+		if column.ColumnName.String() == "CONTRACT_NUMBER" {
+			if len(val.bValue) != 19 {
+				fmt.Printf("2 %s, %v\n",string(val.bValue),val.lineNumber);
+			}
+		} */
+
+	return
 }
 
 /*

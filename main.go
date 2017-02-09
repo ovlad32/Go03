@@ -123,11 +123,11 @@ func main() {
 		outer:
 			for {
 				select {
-				case r, opened := <-drainChan:
+				case value, opened := <-drainChan:
 					if !opened {
 						break outer
 					}
-					_ = r
+					_ = value
 
 				case err, opened := <-ec1:
 					if !opened {
