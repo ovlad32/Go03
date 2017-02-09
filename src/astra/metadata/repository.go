@@ -417,7 +417,7 @@ func (h Repository) MetadataByWorkflowId(workflowId nullable.NullInt64)(metadata
 	if result.Next() {
 		result.Scan(&metadataId1)
 	} else {
-		err = fmt.Errorf("There is no the first metadata id  for workflow_id = %v",workflowId.Value());
+		err = fmt.Errorf("There is no the first metadata id for workflow_id = %v",workflowId.Value());
 		return
 	}
 	if result.Next() {
@@ -425,7 +425,7 @@ func (h Repository) MetadataByWorkflowId(workflowId nullable.NullInt64)(metadata
 	} else {
 		var clean nullable.NullInt64
 		metadataId1 = clean;
-		err = fmt.Errorf("There is no the second metadata id  for workflow_id = %v",workflowId.Value());
+		err = fmt.Errorf("There is no the second metadata id for workflow_id = %v",workflowId.Value());
 		return
 	}
 	return

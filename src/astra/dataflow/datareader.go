@@ -1,21 +1,21 @@
 package dataflow
 
 import (
+	"bufio"
 	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/binary"
+	"fmt"
 	"github.com/goinggo/tracelog"
 	"io"
-	"sync"
 	"os"
-	"compress/gzip"
-	"bufio"
-	"fmt"
-	"encoding/binary"
-	"context"
+	"sync"
 )
 
 type DumpConfigType struct {
-	BasePath    string
-	TankPath    string
+	BasePath        string
+	TankPath        string
 	GZipped         bool
 	FieldSeparator  byte
 	LineSeparator   byte
@@ -26,12 +26,11 @@ type DataReaderType struct {
 	Config *DumpConfigType
 }
 
-
-func (da DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
-		rowDataChan chan *RowDataType,
-		errChan chan error,
-	){
-	funcName := "DataReaderType.fillColumnStorage"
+func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
+	rowDataChan chan *RowDataType,
+	errChan chan error,
+) {
+	funcName := "DataReaderType.ReadSource"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
 	var x0D = []byte{0x0D}
@@ -39,10 +38,9 @@ func (da DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 	rowDataChan = make(chan *RowDataType)
 	errChan = make(chan error, 1)
 
-
-	writeToTank := func (rowData [][]byte) (result int){
+	writeToTank := func(rowData [][]byte) (result int) {
 		columnCount := len(rowData)
-		binary.Write(table.TankWriter, binary.LittleEndian,uint16(columnCount)) //
+		binary.Write(table.TankWriter, binary.LittleEndian, uint16(columnCount)) //
 		result = 2
 		for _, colData := range rowData {
 			colDataLength := len(rowData)
@@ -54,151 +52,145 @@ func (da DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 		return
 	}
 
-
-
-
-	go func () {
+	readFromDump := func() (err error) {
+		funcName := "DataReaderType.ReadSource.readFromDump"
 
 		var tankCancelFunc context.CancelFunc
 		var tankContext context.Context
 
-		var wg sync.WaitGroup
-
-		gzfile, err := os.Open(da.Config.BasePath + table.PathToFile.Value())
+		gzfile, err := os.Open(dr.Config.BasePath + table.PathToFile.Value())
 		if err != nil {
-			errChan <- err
-			tracelog.Errorf(err,packageName, funcName, "for table %v", table)
+			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
 			return
 		}
+		defer gzfile.Close()
 		file, err := gzip.NewReader(gzfile)
 		if err != nil {
-			errChan <- err
-			tracelog.Errorf(err,packageName, funcName, "for table %v", table)
+			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
 			return
 		}
-		bufferedFile := bufio.NewReaderSize(file, da.Config.InputBufferSize)
-
-		wg.Add(1)
-		go func() {
-			wg.Wait()
-			file.Close()
-			gzfile.Close()
-			close(rowDataChan);
-			close(errChan);
-		} ()
+		defer file.Close()
+		bufferedFile := bufio.NewReaderSize(file, dr.Config.InputBufferSize)
 
 		lineNumber := uint64(0)
 		lineOffset := uint64(0)
-
 		for {
-			lineImage, err := bufferedFile.ReadSlice(da.Config.LineSeparator)
+			lineImage, err := bufferedFile.ReadSlice(dr.Config.LineSeparator)
 			if err == io.EOF {
-				if tankCancelFunc != nil {
-					tankCancelFunc()
-				}
-				break
+				return nil
 			} else if err != nil {
-				if tankCancelFunc != nil {
-					tankCancelFunc()
-				}
-				errChan <- err
-				break
+				return err
 			}
 			lineImageLen := len(lineImage)
 			line := make([]byte, lineImageLen, lineImageLen)
 			copy(line, lineImage)
 
-			line = bytes.TrimSuffix(line, []byte{da.Config.LineSeparator})
+			line = bytes.TrimSuffix(line, []byte{dr.Config.LineSeparator})
 			line = bytes.TrimSuffix(line, x0D)
 
 			metadataColumnCount := len(table.Columns)
 
-			lineColumns := bytes.Split(line, []byte{da.Config.FieldSeparator})
+			lineColumns := bytes.Split(line, []byte{dr.Config.FieldSeparator})
 			lineColumnCount := len(lineColumns)
 
 			if metadataColumnCount != lineColumnCount {
-				errChan <- fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+				err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
 					lineNumber,
 					metadataColumnCount,
 					lineColumnCount,
 				)
-				break;
+				return err
 			}
 
 			lineNumber++
 			if lineNumber == 1 {
-				tankContext, tankCancelFunc = context.WithCancel(context.Background());
-				err = table.OpenTank(tankContext,da.Config.TankPath,os.O_CREATE)
+				tankContext, tankCancelFunc = context.WithCancel(context.Background())
+				err = table.OpenTank(tankContext, dr.Config.TankPath, os.O_CREATE)
 				if err != nil {
-					tankCancelFunc()
-					errChan <- err
-					break;
+					return err
 				}
+				defer tankCancelFunc()
 			}
 
 			result := &RowDataType{
-				Data:lineColumns,
-				LineNumber:lineNumber,
-				LineOffset:lineOffset,
-				Table:table,
+				Data:       lineColumns,
+				LineNumber: lineNumber,
+				LineOffset: lineOffset,
+				Table:      table,
 			}
-			lineOffset = lineOffset + uint64(writeToTank(result.Data));
+			lineOffset = lineOffset + uint64(writeToTank(result.Data))
 
 			select {
-				case rowDataChan <- result:
-				case <-ctx.Done():
-					break;
+			case rowDataChan <- result:
+			case <-ctx.Done():
+				return ctx.Err()
 			}
 		}
-		wg.Done()
-	} ()
+		return nil
+	}
+
+	go func() {
+		err := readFromDump()
+		if err != nil {
+			errChan <- err
+		}
+		close(rowDataChan)
+		close(errChan)
+	}()
 
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
 	return rowDataChan, errChan
 }
 
-
-
-func  (da *DataReaderType) SplitToColumns( ctx context.Context, rowDataChan  chan *RowDataType) (
-		columnDataChan chan *ColumnDataType,
-		errChan chan error,
-	) {
-	var wg sync.WaitGroup;
+func (da *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType, degree int) (
+	columnDataChan chan *ColumnDataType,
+	errChan chan error,
+) {
 	columnDataChan = make(chan *ColumnDataType)
 	errChan = make(chan error, 1)
+	var wg sync.WaitGroup
+	processRows := func() {
+		outer:
+		for {
+			select {
+			case rt,opened := <-rowDataChan:
+			if !opened {
+				break outer
+			}
+			for columnNumber, columnDataBytes := range rt.Data {
 
-	wg.Add(1)
+				columnData := &ColumnDataType{
+					LineNumber: rt.LineNumber,
+					LineOffset: rt.LineOffset,
+					Column:     rt.Table.Columns[columnNumber],
+					Data:       columnDataBytes,
+				}
+				select {
+				case columnDataChan <- columnData:
+				case <-ctx.Done():
+					break outer
+				}
+			}
+
+			case <-ctx.Done():
+				break outer
+			}
+		}
+		wg.Done()
+		return
+	}
 	go func() {
+		for index := 0;index < degree; index ++ {
+			wg.Add(1)
+			go processRows()
+		}
 		wg.Wait()
 		close(columnDataChan)
 		close(errChan)
 	}()
 
-	go func() {
-		for {
-			select {
-			case rt := <- rowDataChan:
-				for columnNumber, columnDataBytes := range rt.Data {
-					columnData := &ColumnDataType{
-						LineNumber : rt.LineNumber,
-						Column: rt.Table.Columns[columnNumber],
-						Data:columnDataBytes,
-					}
-					select {
-						case columnDataChan <- columnData:
-						case <-ctx.Done():
-							break;
-					}
-				}
-			case <- ctx.Done():
-			}
-		}
-		wg.Done();
-	} ()
-
 	return columnDataChan, errChan
 }
-
 
 /*
 func(da *DataReaderType) WriteToTank( ctx context.Context, InRowDataChan  chan *RowDataType) (

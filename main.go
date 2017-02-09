@@ -1,34 +1,35 @@
 package main
 
 import (
-	"astra/metadata"
-	"github.com/goinggo/tracelog"
-	"os"
-	"time"
-	"runtime"
 	"astra/dataflow"
+	"astra/metadata"
 	"astra/nullable"
-	"fmt"
-	"log"
 	"context"
+	"fmt"
+	"github.com/goinggo/tracelog"
+	"log"
+	"os"
+	"runtime"
+	"sync"
+	"time"
 )
 
-
 var packageName = "main"
-var recreate bool = true;
+var recreate bool = true
 var repo *metadata.Repository
+
 func init() {
 	var err error
 	funcName := "init"
 	tracelog.Start(tracelog.LevelInfo)
-	tracelog.Started(packageName,funcName)
+	tracelog.Started(packageName, funcName)
 	repo, err = metadata.ConnectToAstraDB(
 		&metadata.RepositoryConfig{
-			Login:"edm",
-			DatabaseName:"edm",
-			Host:"localhost",
-			Password:"edmedm",
-			Port:"5435",
+			Login:        "edm",
+			DatabaseName: "edm",
+			Host:         "localhost",
+			Password:     "edmedm",
+			Port:         "5435",
 		},
 	)
 	if err != nil {
@@ -45,14 +46,13 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-*/
-	tracelog.Completed(packageName,funcName)
+	*/
+	tracelog.Completed(packageName, funcName)
 }
-
 
 func main() {
 	funcName := "main"
-	tracelog.Started(packageName,funcName)
+	tracelog.Started(packageName, funcName)
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	//
@@ -65,24 +65,23 @@ func main() {
 	http.ListenAndServe(":3000", n)*/
 
 	dr := dataflow.DataReaderType{
-		Config:&dataflow.DumpConfigType{
-			BasePath: "C:/home/data.151/",
-			TankPath: "./BINDATA/",
-			InputBufferSize:5 * 1024,
-			GZipped:true,
-			FieldSeparator:31,
-			LineSeparator:10,
+		Config: &dataflow.DumpConfigType{
+			BasePath:        "C:/home/data.151/",
+			TankPath:        "./BINDATA/",
+			InputBufferSize: 5 * 1024,
+			GZipped:         true,
+			FieldSeparator:  31,
+			LineSeparator:   10,
 		},
 	}
 
-
-	metadataId1,metadataId2, err := repo.MetadataByWorkflowId(nullable.NewNullInt64(int64(67)))
+	metadataId1, metadataId2, err := repo.MetadataByWorkflowId(nullable.NewNullInt64(int64(67)))
 
 	if err != nil {
 		panic(err)
 	}
 
-	mtd1,err := repo.MetadataById(metadataId1)
+	mtd1, err := repo.MetadataById(metadataId1)
 	if err != nil {
 		panic(err)
 	}
@@ -101,33 +100,56 @@ func main() {
 		panic(err)
 	}
 	_ = tables2
+	var wg sync.WaitGroup
+	for _, table := range tables {
+		go func(inTable *metadata.TableInfoType) {
+			wg.Add(1)
+			fmt.Print(inTable)
+			var drainChan chan *dataflow.ColumnDataType
+			var rowChan chan *dataflow.RowDataType
 
-	var chin chan *dataflow.RowDataType;
-	var cher chan error
-	for _,table := range tables {
-		var ctxf context.CancelFunc
-		ctx,ctxf := context.WithCancel(context.Background())
-		chin,cher = dr.ReadSource(
-			ctx,
-			&dataflow.TableInfoType{
-				TableInfoType:table,
-			},
-		)
+			var ctxf context.CancelFunc
+			ctx, ctxf := context.WithCancel(context.Background())
+			defer ctxf()
+
+			rowChan, ec1 := dr.ReadSource(
+				ctx,
+				&dataflow.TableInfoType{
+					TableInfoType: inTable,
+				},
+			)
+			drainChan, ec2 := dr.SplitToColumns(ctx, rowChan, 5)
+
 		outer:
-		for {
-			select {
-				case r := <-chin:
-				_ = r
-				//	fmt.Print(r.LineNumber)
-				case err := <-cher:
-				if err != nil{
-					fmt.Println(err.Error())
+			for {
+				select {
+				case r, opened := <-drainChan:
+					if !opened {
+						break outer
+					}
+					_ = r
+
+				case err, opened := <-ec1:
+					if !opened {
+						break outer
+					}
+					if err != nil {
+						fmt.Println(err.Error())
+					}
+				case err, opened := <-ec2:
+					if !opened {
+						break outer
+					}
+					if err != nil {
+						fmt.Println(err.Error())
+					}
 				}
-				break outer;
 			}
-		}
-		ctxf();
+			wg.Done()
+			fmt.Println(". Done")
+		}(table)
 	}
+	wg.Wait()
 
 	/*var err error
 	da.Repo, err = cayley.NewGraph("bolt","./dfd.cayley.db",nil)
@@ -136,13 +158,13 @@ func main() {
 	}*/
 
 	if recreate {
-//		da.LoadStorage(jsnull.NewNullInt64(int64(67)))
+		//		da.LoadStorage(jsnull.NewNullInt64(int64(67)))
 	}
 	//fetchPairs(da);
 	//metadata.ReportHashStorageContents()
 	//da.MakeTablePairs(nil,nil)
-	log.Printf("%v",time.Since(start))
-	tracelog.Completed(packageName,funcName)
+	log.Printf("%v", time.Since(start))
+	tracelog.Completed(packageName, funcName)
 }
 
 /*func fetchPairs(da metadata.DataAccessType) {
