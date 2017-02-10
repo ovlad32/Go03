@@ -102,8 +102,8 @@ func main() {
 	_ = tables2
 	var wg sync.WaitGroup
 	for _, table := range tables {
+		wg.Add(1)
 		go func(inTable *metadata.TableInfoType) {
-			wg.Add(1)
 			fmt.Print(inTable)
 			var drainChan chan *dataflow.ColumnDataType
 			var rowChan chan *dataflow.RowDataType
@@ -118,7 +118,7 @@ func main() {
 					TableInfoType: inTable,
 				},
 			)
-			drainChan, ec2 := dr.SplitToColumns(ctx, rowChan, 5)
+			drainChan, ec2 := dr.SplitToColumns(ctx, rowChan)
 
 		outer:
 			for {

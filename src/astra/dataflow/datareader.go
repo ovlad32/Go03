@@ -11,8 +11,7 @@ import (
 	"io"
 	"os"
 	"sync"
-	"strings"
-	"strconv"
+
 )
 
 type DumpConfigType struct {
@@ -40,12 +39,13 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 	rowDataChan = make(chan *RowDataType)
 	errChan = make(chan error, 1)
 
+
 	writeToTank := func(rowData [][]byte) (result int) {
 		columnCount := len(rowData)
 		binary.Write(table.TankWriter, binary.LittleEndian, uint16(columnCount)) //
 		result = 2
 		for _, colData := range rowData {
-			colDataLength := len(rowData)
+			colDataLength := len(colData)
 			binary.Write(table.TankWriter, binary.LittleEndian, uint16(colDataLength))
 			result = result + 2
 			table.TankWriter.Write(colData)
@@ -60,13 +60,13 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 		var tankCancelFunc context.CancelFunc
 		var tankContext context.Context
 
-		gzfile, err := os.Open(dr.Config.BasePath + table.PathToFile.Value())
+		gzFile, err := os.Open(dr.Config.BasePath + table.PathToFile.Value())
 		if err != nil {
 			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
 			return
 		}
-		defer gzfile.Close()
-		file, err := gzip.NewReader(gzfile)
+		defer gzFile.Close()
+		file, err := gzip.NewReader(gzFile)
 		if err != nil {
 			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
 			return
@@ -120,13 +120,14 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 				LineOffset: lineOffset,
 				Table:      table,
 			}
-			lineOffset = lineOffset + uint64(writeToTank(result.RawData))
 
 			select {
 			case rowDataChan <- result:
 			case <-ctx.Done():
 				return ctx.Err()
 			}
+			lineOffset = lineOffset + uint64(writeToTank(result.RawData))
+
 		}
 		return nil
 	}
@@ -144,37 +145,41 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 	return rowDataChan, errChan
 }
 
-func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType, degree int) (
+func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType) (
 	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
 	outChan = make(chan *ColumnDataType)
 	errChan = make(chan error, 1)
 	var wg sync.WaitGroup
-	processRows := func() {
+	processRowData := func() {
 		outer:
 		for {
 			select {
-			case rt,opened := <-rowDataChan:
+			case rd,opened := <-rowDataChan:
 			if !opened {
 				break outer
 			}
-			for columnNumber, columnDataBytes := range rt.RawData {
-
-				columnData := &ColumnDataType{
-					LineNumber: rt.LineNumber,
-					LineOffset: rt.LineOffset,
-					Column:     &ColumnInfoType{
-									ColumnInfoType :rt.Table.Columns[columnNumber],
-								},
-					RawData:   columnDataBytes,
+			wg.Add(1)
+			go func(ird *RowDataType) {
+				outer:
+				for columnNumber, columnDataBytes := range ird.RawData {
+					columnData := &ColumnDataType{
+						LineNumber: ird.LineNumber,
+						LineOffset: ird.LineOffset,
+						Column:     &ColumnInfoType{
+							ColumnInfoType :ird.Table.Columns[columnNumber],
+						},
+						RawData:   columnDataBytes,
+					}
+					select {
+					case outChan <- columnData:
+					case <-ctx.Done():
+						break outer
+					}
 				}
-				select {
-				case outChan <- columnData:
-				case <-ctx.Done():
-					break outer
-				}
-			}
+				wg.Done()
+			}(rd)
 
 			case <-ctx.Done():
 				break outer
@@ -184,11 +189,10 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 		return
 	}
 
+	wg.Add(1)
+	go processRowData()
+
 	go func() {
-		for index := 0;index < degree; index ++ {
-			wg.Add(1)
-			go processRows()
-		}
 		wg.Wait()
 		close(outChan)
 		close(errChan)
@@ -196,8 +200,9 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 
 	return outChan, errChan
 }
-func (dr DataReaderType) Category(ctx context.Context, colDataChan chan *ColumnDataType) (
-	outChan *ColumnDataType,
+
+func (dr DataReaderType) GatherStatistics(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
+	outChan chan *ColumnDataType,
 	errChan chan error,
 ){
 	errChan = make(chan error, 1)
@@ -205,96 +210,49 @@ func (dr DataReaderType) Category(ctx context.Context, colDataChan chan *ColumnD
 	var wg sync.WaitGroup
 
 
-	f := func () {
+	processColumnData := func() {
 		outer:
 		for {
 			select {
-			case columnData, opened := <- colDataChan:
+			case columnData,opened := <-columnDataChan:
 				if !opened {
 					break outer
 				}
-				if columnData == nil {
-					continue
+
+				columnData.AnalyzeDataCategory()
+
+				select {
+				case outChan <- columnData:
+				case <-ctx.Done():
+					break outer
 				}
-
-
-
-
 			case <-ctx.Done():
 				break outer
 			}
-
-
 		}
+		wg.Done()
+		return
+	}
+	wg.Add(degree)
+
+	for ;degree>0;degree-- {
+		go processColumnData()
 	}
 
+	go func() {
+		wg.Wait()
+		close(outChan)
+		close(errChan)
+	}()
 
-
-
-
-	found := val.column.FindDataCategory(
-		uint16(byteLength),
-		isNumeric,
-		isNegative,
-		int8(fpScale),
-		isSubHash,
-		bSubHash,
-	)
-	if found == nil {
-		found = &ColumnDataCategoryStatsType{
-			Column:             column,
-			ByteLength:         jsnull.NewNullInt64(int64(byteLength)),
-			IsNumeric:          jsnull.NewNullBool(isNumeric),
-			FloatingPointScale: jsnull.NewNullInt64(int64(fpScale)),
-			IsNegative:         jsnull.NewNullBool(isNegative),
-			NonNullCount:       jsnull.NewNullInt64(int64(0)),
-			HashUniqueCount:    jsnull.NewNullInt64(int64(0)),
-			IsSubHash:          jsnull.NewNullBool(isSubHash),
-			SubHash:            jsnull.NewNullInt64(int64(bSubHash)),
-		}
-		//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] created",found,column,column.Id)
-		if column.DataCategories == nil {
-			column.DataCategories = make([]*ColumnDataCategoryStatsType, 0, 2)
-		}
-		column.DataCategories = append(column.DataCategories, found)
-	} else {
-		//	tracelog.Info(packageName,funcName,"dataCategory %v for column %v[%v] found",found,column,column.Id)
-	}
-	val.dataCategory = found
-	(*found.NonNullCount.Reference())++
-
-	if found.MaxStringValue.Value() < sValue || !found.MaxStringValue.Valid() {
-		found.MaxStringValue = jsnull.NewNullString(sValue)
-	}
-
-	if found.MinStringValue.Value() > sValue || !found.MinStringValue.Valid() {
-		found.MinStringValue = jsnull.NewNullString(sValue)
-	}
-
-	if found.IsNumeric.Value() {
-		if !found.MaxNumericValue.Valid() {
-			found.MaxNumericValue = jsnull.NewNullFloat64(nValue)
-
-		} else if found.MaxNumericValue.Value() < nValue {
-			(*found.MaxNumericValue.Reference()) = nValue
-		}
-		if !column.MinNumericValue.Valid() {
-			found.MinNumericValue = jsnull.NewNullFloat64(nValue)
-		} else if column.MinNumericValue.Value() > nValue {
-			(*found.MinNumericValue.Reference()) = nValue
-		}
-	}
-	//	tracelog.Info(packageName,funcName,"Statistics for line %v of column %v[%v] collected",val.lineNumber,column,column.Id)
-	//	tracelog.Completed(packageName,funcName)
-	/*
-		if column.ColumnName.String() == "CONTRACT_NUMBER" {
-			if len(val.bValue) != 19 {
-				fmt.Printf("2 %s, %v\n",string(val.bValue),val.lineNumber);
-			}
-		} */
-
-	return
+	return outChan, errChan
 }
+
+
+
+
+
+
 
 /*
 func(da *DataReaderType) WriteToTank( ctx context.Context, InRowDataChan  chan *RowDataType) (

@@ -1,12 +1,8 @@
 package dataflow
 
 import (
-	"astra/metadata"
-	"io"
-	"encoding/binary"
 	"strconv"
 	"strings"
-	"astra/nullable"
 )
 
 type ColumnDataType struct {
@@ -29,19 +25,16 @@ func(dc *ColumnDataType) AnalyzeDataCategory() {
 	if byteLength == 0 {
 		return
 	}
-	var err error
-	var floatValue float64
-	var fpScale int
-	var isNegative bool
-
 	stringValue := string(dc.RawData)
 
-	floatValue, err = strconv.ParseFloat(stringValue, 64)
-	isNumeric := err == nil
+	floatValue, err := strconv.ParseFloat(stringValue, 64)
+	simple := &DataCategorySimpleType{
+		IsNumeric : err == nil,
+		IsSubHash : false , //byteLength > da.SubHashByteLengthThreshold
+	}
 
-	isSubHash := false //byteLength > da.SubHashByteLengthThreshold
 
-	if isNumeric {
+	if simple.IsNumeric {
 		//var lengthChanged bool
 		if strings.Count(stringValue, ".") == 1 {
 			//trimmedValue := strings.TrimLeft(stringValue, "0")
@@ -49,84 +42,36 @@ func(dc *ColumnDataType) AnalyzeDataCategory() {
 			//if lengthChanged {
 			//	stringValue = trimmedValue
 			//}
-			fpScale = len(stringValue) - (strings.Index(stringValue, ".") + 1)
-			isSubHash = false
+			simple.FloatingPointScale = len(stringValue) - (strings.Index(stringValue, ".") + 1)
 			//if fpScale != -1 && lengthChanged {
 			//	stringValue = strings.TrimRight(fmt.Sprintf("%f", floatValue), "0")
 			//	columnData.RawData = []byte(stringValue)
 			//	byteLength = len(columnData.RawData)
 			//}
 		} else {
-			fpScale = -1
+			simple.FloatingPointScale = 0
 		}
 
-		isNegative = strings.HasPrefix(stringValue, "-")
+		simple.IsNegative = floatValue<float64(0)
 		dc.Column.AnalyzeNumericValue(floatValue);
 
 
 	}
-	bSubHash := uint8(0)
-	if isSubHash {
+	simple.SubHash = uint(0)
+	if simple.IsSubHash {
 		for _, bChar := range dc.RawData {
 			if bChar > 0 {
-				bSubHash = ((uint8(37) * bSubHash) + uint8(bChar)) & 0xff
+				simple.SubHash = uint((uint8(37*simple.SubHash) + uint8(bChar)) & 0xff)
 			}
 		}
 	}
-
 	dc.Column.AnalyzeStringValue(stringValue)
-	if isNumeric {
-		dc.dataCategory = &DataCategoryType{
-			IsNumeric:nullable.NewNullBool(false),
-			ByteLength:nullable.NewNullInt64(int64(len)),
-		}
-		dc.dataCategory.AnalyzeNumericValue(floatValue)
-	} else {
-		dc.dataCategory = &DataCategoryType{
-			IsNumeric:nullable.NewNullBool(true),
-			ByteLength:nullable.NewNullInt64(int64(len)),
-			IsNegative:nullable.NewNullBool(isNegative),
-			FloatingPointScale:nullable.NewNullInt64(fpScale),
-		}
+
+	dataCategory := dc.Column.CategoryByKey(simple)
+	if simple.IsNumeric{
+		dataCategory.AnalyzeNumericValue(floatValue)
 	}
-
-	dc.dataCategory.AnalyzeStringValue(stringValue)
-
-
-
+	dataCategory.AnalyzeStringValue(stringValue)
 
 }
 
-func NumericCategory(len int,negative bool,fpScale int) *DataCategoryType {
-	return
-}
-
-}
-
-func (ti *RowDataType) WriteTo(writer io.Writer) (result int){
-	//writer.Write([]byte{0xBF}); //SPARE
-
-	columnCount := len(ti.RawData)
-	binary.Write(writer,binary.LittleEndian,uint16(columnCount)) //
-	result = 2
-	for _, data := range ti.RawData {
-		lenData := len(data)
-		binary.Write(writer, binary.LittleEndian, uint16(lenData))
-		result = result + 2
-		writer.Write(data)
-		result = result + lenData
-	}
-	return
-}
-
-
-/*func (ti *RowDataType) ReadFrom(reader io.Reader){
-	columnCount := uint16(0)
-	binary.Read(reader,binary.LittleEndian,&columnCount)
-
-	for _, data := range ti.Data {
-		binary.Write(writer, binary.LittleEndian, uint16(len(data)))
-		writer.Write(data)
-	}
-}
-*/

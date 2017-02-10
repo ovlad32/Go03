@@ -3,11 +3,63 @@ package dataflow
 import (
 	"astra/metadata"
 	"astra/nullable"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
 )
+
+type DataCategorySimpleType struct{
+	ByteLength int
+	IsNumeric bool
+	IsNegative bool
+	FloatingPointScale int
+	IsSubHash bool
+	SubHash uint
+}
+
+func (simple *DataCategorySimpleType) Key() (result string) {
+	if !simple.IsNumeric {
+		result = fmt.Sprintf("C%v", simple.ByteLength)
+	} else {
+		if simple.FloatingPointScale > 0 {
+			if simple.IsNegative {
+				result = "M"
+			} else {
+				result = "F"
+			}
+			result = result + fmt.Sprintf("%vP%v", simple.ByteLength, simple.FloatingPointScale)
+		} else {
+			if simple.IsNegative {
+				result = "I"
+			} else {
+				result = "N"
+			}
+			result = result + fmt.Sprintf("%v", simple.ByteLength)
+		}
+	}
+	if simple.IsSubHash {
+		result = result + fmt.Sprintf("H%v", simple.SubHash)
+	}
+	return
+}
+
+
+func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
+	result = &DataCategoryType{
+		IsNumeric:nullable.NewNullBool(simple.IsNumeric),
+		ByteLength:nullable.NewNullInt64(int64(simple.ByteLength)),
+	}
+	if simple.IsNumeric {
+		result.IsNegative = nullable.NewNullBool(simple.IsNegative)
+		result.FloatingPointScale = nullable.NewNullInt64(int64(simple.FloatingPointScale))
+	}
+
+	if simple.IsSubHash {
+		result.SubHash = nullable.NewNullInt64(int64(simple.SubHash))
+	}
+	return
+}
+
+
 
 type DataCategoryType struct {
 	*metadata.ColumnInfoType
@@ -21,7 +73,6 @@ type DataCategoryType struct {
 	MaxStringValue      nullable.NullString
 	MinNumericValue     nullable.NullFloat64
 	MaxNumericValue     nullable.NullFloat64
-	IsSubHash           nullable.NullBool
 	SubHash             nullable.NullInt64
 	stringAnalysisLock  sync.Mutex
 	numericAnalysisLock sync.Mutex
@@ -76,70 +127,18 @@ func (dc *DataCategoryType) AnalyzeNumericValue(floatValue float64) {
 
 // Type,byteLength,
 //
-func (dc *DataCategoryType) PopulateFromBytes(k []byte) (err error) {
-	kLen := len(k)
-	if kLen < 2 {
-		err = errors.New(fmt.Sprintf("Can not explan category for chain of bytes %v. Too short.", k))
-		return
-	}
 
-	dc.ByteLength = nullable.NewNullInt64(
-		int64(binary.LittleEndian.Uint16(k[1:])),
-	)
-
-	dc.IsNumeric = nullable.NewNullBool(k[0] == 0)
-	if !dc.IsNumeric.Value() {
-		dc.IsSubHash = nullable.NewNullBool(kLen > 3)
-		if dc.IsSubHash.Value() {
-			dc.SubHash = nullable.NewNullInt64(int64(k[3]))
-		}
-	} else {
-		dc.IsNegative = nullable.NewNullBool(((k[0] >> 0) & 0x01) > 0)
-		isFp := (k[0]>>1)&0x01 == 0
-		if isFp {
-			dc.FloatingPointScale = nullable.NewNullInt64(int64(k[3]))
-			dc.IsSubHash = nullable.NewNullBool(kLen > 4)
-			if dc.IsSubHash.Value() {
-				dc.SubHash = nullable.NewNullInt64(int64(k[4]))
-			}
-		} else {
-			dc.FloatingPointScale = nullable.NewNullInt64(int64(0))
-			dc.IsSubHash = nullable.NewNullBool(kLen > 3)
-			if dc.IsSubHash.Value() {
-				dc.SubHash = nullable.NewNullInt64(int64(k[3]))
-			}
-		}
-	}
-	return
-}
 
 func (cdc DataCategoryType) Key() (result string) {
-	if !cdc.IsNumeric.Value() {
-		result = fmt.Sprintf("C%v", cdc.ByteLength.Value())
-	} else {
-		if cdc.FloatingPointScale.Value() != 0 {
-			if cdc.IsNegative.Value() {
-				result = "M"
-			} else {
-				result = "F"
-			}
-			result = result + fmt.Sprintf("%vP%v",
-				cdc.ByteLength,
-				cdc.FloatingPointScale.Value(),
-			)
-		} else {
-			if cdc.IsNegative.Value() {
-				result = "I"
-			} else {
-				result = "N"
-			}
-			result = result + fmt.Sprintf("%v", cdc.ByteLength)
-		}
+	simple := DataCategorySimpleType{
+		ByteLength:int(cdc.ByteLength.Value()),
+		IsNumeric:cdc.IsNumeric.Value(),
+		IsNegative:cdc.IsNegative.Value(),
+		FloatingPointScale:int(cdc.FloatingPointScale.Value()),
+		IsSubHash:cdc.SubHash.Valid(),
+		SubHash:uint(cdc.SubHash.Value()),
 	}
-	if cdc.IsSubHash.Value() {
-		result = result + fmt.Sprintf("H%v", cdc.SubHash.Value())
-	}
-	return
+	return simple.Key()
 }
 
 func (cdc DataCategoryType) String() (result string) {
@@ -164,7 +163,7 @@ func (cdc DataCategoryType) String() (result string) {
 			)
 		}
 	}
-	if cdc.IsSubHash.Value() {
+	if cdc.SubHash.Valid() {
 		result = fmt.Sprintf("%v(%v)", result, cdc.SubHash.Value())
 	}
 	return
