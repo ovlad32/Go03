@@ -29,6 +29,7 @@ func(dc *ColumnDataType) AnalyzeDataCategory() {
 
 	floatValue, err := strconv.ParseFloat(stringValue, 64)
 	simple := &DataCategorySimpleType{
+		ByteLength: byteLength,
 		IsNumeric : err == nil,
 		IsSubHash : false , //byteLength > da.SubHashByteLengthThreshold
 	}

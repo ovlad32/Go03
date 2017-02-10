@@ -61,10 +61,10 @@ func (n *NullInt64) Scan(value interface{}) error {
 	return n.internal.Scan(value)
 }
 
-func (n *NullInt64) Value() int64 {
+func (n NullInt64) Value() int64 {
 	return n.internal.Int64
 }
-func (n *NullInt64) Valid() bool {
+func (n NullInt64) Valid() bool {
 	return n.internal.Valid
 }
 func (n NullInt64) String() string {
@@ -75,7 +75,7 @@ func (n NullInt64) String() string {
 }
 
 func (n *NullInt64) Reference() *int64 {
-	return &n.internal.Int64
+	return &(n.internal.Int64)
 }
 
 func (n *NullInt64) MarshalJSON() ([]byte, error) {

@@ -18,24 +18,38 @@ type ColumnInfoType struct {
 	stringAnalysisLock  sync.Mutex
 	numericAnalysisLock sync.Mutex
 
-	categoryLock sync.Mutex
+	categoryLock sync.RWMutex
 	categories   map[string]*DataCategoryType
 }
 
 func (ci *ColumnInfoType) CategoryByKey(simple *DataCategorySimpleType) (result *DataCategoryType) {
-	ci.categoryLock.Lock()
-	defer ci.categoryLock.Unlock()
-
 	if ci.categories == nil {
-		ci.categories = make(map[string]*DataCategoryType)
+		ci.categoryLock.Lock()
+		if ci.categories == nil {
+			ci.categories = make(map[string]*DataCategoryType)
+			ci.categoryLock.Unlock()
+		}
 	}
+
 	key := simple.Key()
+
+	ci.categoryLock.RLock()
 	if value, found := ci.categories[key]; !found {
+		ci.categoryLock.RUnlock()
 		result = simple.covert()
+
+		ci.categoryLock.Lock()
 		ci.categories[key] = result
+		ci.categoryLock.Unlock()
+
 	} else {
+		ci.categoryLock.RUnlock()
 		result = value
 	}
+	if result == nil {
+		panic("!")
+	}
+
 	return result
 }
 

@@ -107,6 +107,7 @@ func main() {
 			fmt.Print(inTable)
 			var drainChan chan *dataflow.ColumnDataType
 			var rowChan chan *dataflow.RowDataType
+			var colChan1 chan *dataflow.ColumnDataType
 
 			var ctxf context.CancelFunc
 			ctx, ctxf := context.WithCancel(context.Background())
@@ -118,7 +119,15 @@ func main() {
 					TableInfoType: inTable,
 				},
 			)
-			drainChan, ec2 := dr.SplitToColumns(ctx, rowChan)
+			colChan1, ec2 := dr.SplitToColumns(
+				ctx,
+				rowChan,
+			)
+			drainChan, ec3 := dr.GatherStatistics(
+				ctx,
+				colChan1,
+				len(table.Columns),
+			)
 
 		outer:
 			for {
@@ -137,6 +146,13 @@ func main() {
 						fmt.Println(err.Error())
 					}
 				case err, opened := <-ec2:
+					if !opened {
+						break outer
+					}
+					if err != nil {
+						fmt.Println(err.Error())
+					}
+				case err, opened := <-ec3:
 					if !opened {
 						break outer
 					}

@@ -1,7 +1,6 @@
 package dataflow
 
 import (
-	"astra/metadata"
 	"astra/nullable"
 	"fmt"
 	"sync"
@@ -47,6 +46,7 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	result = &DataCategoryType{
 		IsNumeric:nullable.NewNullBool(simple.IsNumeric),
 		ByteLength:nullable.NewNullInt64(int64(simple.ByteLength)),
+
 	}
 	if simple.IsNumeric {
 		result.IsNegative = nullable.NewNullBool(simple.IsNegative)
@@ -62,7 +62,7 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 
 
 type DataCategoryType struct {
-	*metadata.ColumnInfoType
+	//column *metadata.ColumnInfoType
 	ByteLength          nullable.NullInt64
 	IsNumeric           nullable.NullBool // if array of bytes represents a numeric value
 	IsNegative          nullable.NullBool
@@ -73,6 +73,7 @@ type DataCategoryType struct {
 	MaxStringValue      nullable.NullString
 	MinNumericValue     nullable.NullFloat64
 	MaxNumericValue     nullable.NullFloat64
+	NonNullCount        nullable.NullInt64
 	SubHash             nullable.NullInt64
 	stringAnalysisLock  sync.Mutex
 	numericAnalysisLock sync.Mutex
@@ -81,6 +82,13 @@ type DataCategoryType struct {
 func (dc *DataCategoryType) AnalyzeStringValue(stringValue string) {
 	dc.stringAnalysisLock.Lock()
 	defer dc.stringAnalysisLock.Unlock()
+	if dc == nil {
+		panic ("!")
+	}
+
+	if dc.NonNullCount.Reference() == nil {
+		dc.NonNullCount = nullable.NewNullInt64(int64(0))
+	}
 
 	(*dc.NonNullCount.Reference())++
 
@@ -91,26 +99,12 @@ func (dc *DataCategoryType) AnalyzeStringValue(stringValue string) {
 		dc.MinStringValue = nullable.NewNullString(stringValue)
 	}
 
-	lValue := int64(len(stringValue))
-	if !dc.MaxStringLength.Valid() {
-		dc.MaxStringLength = nullable.NewNullInt64(lValue)
-	} else if dc.MaxStringLength.Value() < lValue {
-		(*dc.MaxStringLength.Reference()) = lValue
-
-	}
-	if !dc.MinStringLength.Valid() {
-		dc.MinStringLength = nullable.NewNullInt64(lValue)
-	} else if dc.MinStringLength.Value() > lValue {
-		(*dc.MinStringLength.Reference()) = lValue
-
-	}
 }
 
 func (dc *DataCategoryType) AnalyzeNumericValue(floatValue float64) {
 	dc.numericAnalysisLock.Lock()
 	defer dc.numericAnalysisLock.Unlock()
 
-	(*dc.NumericCount.Reference())++
 	if !dc.MaxNumericValue.Valid() {
 		dc.MaxNumericValue = nullable.NewNullFloat64(floatValue)
 	} else if dc.MaxNumericValue.Value() < floatValue {
