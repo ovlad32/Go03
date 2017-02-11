@@ -7,6 +7,7 @@ import (
 
 type ColumnDataType struct {
 	Column       *ColumnInfoType
+	dataCategoryKey  string
 	dataCategory *DataCategoryType
 	LineNumber   uint64
 	LineOffset   uint64
@@ -17,6 +18,7 @@ type RowDataType struct{
 	Table *TableInfoType
 	LineNumber   uint64
 	LineOffset   uint64
+	//auxDataBuffer []byte
 	RawData      [][]byte
 }
 
@@ -68,11 +70,20 @@ func(dc *ColumnDataType) AnalyzeDataCategory() {
 	}
 	dc.Column.AnalyzeStringValue(stringValue)
 
-	dataCategory := dc.Column.CategoryByKey(simple)
+	dc.dataCategory,dc.dataCategoryKey = dc.Column.CategoryByKey(simple)
 	if simple.IsNumeric{
-		dataCategory.AnalyzeNumericValue(floatValue)
+		dc.dataCategory.AnalyzeNumericValue(floatValue)
 	}
-	dataCategory.AnalyzeStringValue(stringValue)
+	dc.dataCategory.AnalyzeStringValue(stringValue)
+}
+func (cd *ColumnDataType) StoreHash() {
 
+	tx,err := cd.Column.hashStorage.Begin(true)
+	if err != nil {
+
+	}
+	bucket,err := tx.CreateBucketIfNotExists([]byte(cd.dataCategoryKey))
+	bucket.Put()
+	cd.Column.hashStorage.
 }
 

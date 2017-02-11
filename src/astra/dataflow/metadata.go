@@ -10,6 +10,7 @@ import (
 	"golang.org/x/net/context"
 	"os"
 	"sync"
+	"github.com/boltdb/bolt"
 )
 
 type ColumnInfoType struct {
@@ -20,9 +21,14 @@ type ColumnInfoType struct {
 
 	categoryLock sync.RWMutex
 	categories   map[string]*DataCategoryType
+
+
 }
 
-func (ci *ColumnInfoType) CategoryByKey(simple *DataCategorySimpleType) (result *DataCategoryType) {
+func (ci *ColumnInfoType) CategoryByKey(simple *DataCategorySimpleType) (
+	result *DataCategoryType,
+	key string,
+	) {
 	if ci.categories == nil {
 		ci.categoryLock.Lock()
 		if ci.categories == nil {
@@ -31,7 +37,7 @@ func (ci *ColumnInfoType) CategoryByKey(simple *DataCategorySimpleType) (result 
 		}
 	}
 
-	key := simple.Key()
+	key = simple.Key()
 
 	ci.categoryLock.RLock()
 	if value, found := ci.categories[key]; !found {
@@ -100,13 +106,7 @@ func (ci *ColumnInfoType) AnalyzeNumericValue(floatValue float64) {
 
 }
 
-/*
 
-if !column.MaxNumericValue.Valid() {
-column.MaxNumericValue = jsnull.NewNullFloat64(floatValue)
-} else if column.MaxNumericValue.Value() < floatValue {
-(*column.MaxNumericValue.Reference()) = floatValue
-}*/
 
 type TableInfoType struct {
 	*metadata.TableInfoType
@@ -120,7 +120,7 @@ func (ti *TableInfoType) OpenTank(ctx context.Context, pathToTankDir string, fla
 	tracelog.Started(packageName, funcName)
 
 	if pathToTankDir == "" {
-		err = errors.New("Given path is empty")
+		err = errors.New("Given path to binary tank directory is empty")
 		tracelog.Error(err, packageName, funcName)
 		return err
 	}
@@ -150,7 +150,7 @@ func (ti *TableInfoType) OpenTank(ctx context.Context, pathToTankDir string, fla
 			ti.TankWriter = bufio.NewWriter(file)
 			ti.tankFile = file
 			go func() {
-				funcName := "TableInfoType.OpenTank.closeTank"
+				funcName := "TableInfoType.OpenTank.delayedClose"
 				tracelog.Started(packageName, funcName)
 				if ti.TankWriter != nil {
 					select {

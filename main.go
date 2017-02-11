@@ -101,6 +101,7 @@ func main() {
 	}
 	_ = tables2
 	var wg sync.WaitGroup
+	var RowData chan *dataflow.ColumnDataType
 	for _, table := range tables {
 		wg.Add(1)
 		go func(inTable *metadata.TableInfoType) {

@@ -84,7 +84,8 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 				return err
 			}
 			lineImageLen := len(lineImage)
-			line := make([]byte, lineImageLen, lineImageLen)
+
+			line:= make([]byte, lineImageLen, lineImageLen)
 			copy(line, lineImage)
 
 			line = bytes.TrimSuffix(line, []byte{dr.Config.LineSeparator})
@@ -668,5 +669,140 @@ func (da *DataReaderType) storeData(val *ColumnDataType) {
 	}
 
 
+}
+*/
+
+
+
+
+
+
+/*
+func (dr DataReaderType) ReadSource(ctx context.Context, inPool chan*RowDataType, table *TableInfoType, ) (
+	rowDataChan chan *RowDataType,
+	errChan chan error,
+) {
+	funcName := "DataReaderType.ReadSource"
+	tracelog.Startedf(packageName, funcName, "for table %v", table)
+
+	var x0D = []byte{0x0D}
+
+	rowDataChan = make(chan *RowDataType)
+	errChan = make(chan error, 1)
+
+
+	writeToTank := func(rowData [][]byte) (result int) {
+		columnCount := len(rowData)
+		binary.Write(table.TankWriter, binary.LittleEndian, uint16(columnCount)) //
+		result = 2
+		for _, colData := range rowData {
+			colDataLength := len(colData)
+			binary.Write(table.TankWriter, binary.LittleEndian, uint16(colDataLength))
+			result = result + 2
+			table.TankWriter.Write(colData)
+			result = result + colDataLength
+		}
+		return
+	}
+
+	readFromDump := func() (err error) {
+		funcName := "DataReaderType.ReadSource.readFromDump"
+
+		var tankCancelFunc context.CancelFunc
+		var tankContext context.Context
+
+		gzFile, err := os.Open(dr.Config.BasePath + table.PathToFile.Value())
+		if err != nil {
+			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
+			return
+		}
+		defer gzFile.Close()
+		file, err := gzip.NewReader(gzFile)
+		if err != nil {
+			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
+			return
+		}
+		defer file.Close()
+		bufferedFile := bufio.NewReaderSize(file, dr.Config.InputBufferSize)
+
+		lineNumber := uint64(0)
+		lineOffset := uint64(0)
+		for {
+			lineImage, err := bufferedFile.ReadSlice(dr.Config.LineSeparator)
+			if err == io.EOF {
+				return nil
+			} else if err != nil {
+				return err
+			}
+			lineImage = bytes.TrimSuffix(lineImage, []byte{dr.Config.LineSeparator})
+			lineImage = bytes.TrimSuffix(lineImage, x0D)
+
+			lineImageLen := len(lineImage)
+
+			var result *RowDataType
+			select {
+			case result = <-inPool:
+			case ctx.Done():
+				return ctx.Err()
+			}
+
+			if result.auxDataBuffer == nil || cap(result.auxDataBuffer)<lineImageLen {
+				result.auxDataBuffer = make([]byte,0,lineImageLen)
+			} else {
+				result.auxDataBuffer = result.auxDataBuffer[0:0]
+			}
+
+			lineNumber++
+			result.LineNumber = lineNumber
+			result.auxDataBuffer = append(result.auxDataBuffer,lineImage...)
+			result.RawData = bytes.Split(result.auxDataBuffer, []byte{dr.Config.FieldSeparator})
+			result.LineOffset =  lineOffset
+			result.Table =   table
+
+			metadataColumnCount := len(table.Columns)
+			lineColumnCount := len(result.RawData)
+
+			if metadataColumnCount != lineColumnCount {
+				err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+					lineNumber,
+					metadataColumnCount,
+					lineColumnCount,
+				)
+				return err
+			}
+
+
+			if lineNumber == 1 {
+				tankContext, tankCancelFunc = context.WithCancel(context.Background())
+				err = table.OpenTank(tankContext, dr.Config.TankPath, os.O_CREATE)
+				if err != nil {
+					return err
+				}
+				defer tankCancelFunc()
+			}
+
+
+			select {
+			case rowDataChan <- result:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			lineOffset = lineOffset + uint64(writeToTank(result.RawData))
+
+		}
+		return nil
+	}
+
+	go func() {
+		err := readFromDump()
+		if err != nil {
+			errChan <- err
+		}
+		close(rowDataChan)
+		close(errChan)
+	}()
+
+	tracelog.Completedf(packageName, funcName, "for table %v", table)
+	return rowDataChan, errChan
 }
 */

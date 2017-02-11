@@ -4,6 +4,11 @@ import (
 	"astra/nullable"
 	"fmt"
 	"sync"
+	"os"
+	"github.com/goinggo/tracelog"
+	"errors"
+	"context"
+	"github.com/boltdb/bolt"
 )
 
 type DataCategorySimpleType struct{
@@ -59,6 +64,76 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	return
 }
 
+type boltStorageGroupType struct{
+	storagingLock sync.Mutex
+	storage *bolt.DB
+	currentTx bolt.Tx
+	rootBucket *bolt.Bucket
+}
+
+
+func(s *boltStorageGroupType) Open(
+ctx context.Context,
+storageName string,
+pathToStorageDir string,
+columnID int64,
+dataCategoryKey string,
+) (err error) {
+	funcName := "boltStorageGroupType.OpenStorage."+storageName
+	tracelog.Started(packageName, funcName)
+
+	if pathToStorageDir == "" {
+		err = errors.New("Given path to "+storageName+" storage directory is empty")
+		tracelog.Error(err, packageName, funcName)
+		return err
+	}
+
+	err = os.MkdirAll(pathToStorageDir, 700)
+
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Making directories for path %v", pathToStorageDir)
+		return err
+	}
+
+	pathToStorageFile := fmt.Sprintf("%v%v%v.%v.%v.bolt.db",
+		pathToStorageDir,
+		os.PathSeparator,
+		columnID,
+		dataCategoryKey,
+		storageName,
+	)
+
+	s.storage, err =  bolt.Open(pathToStorageFile,700,nil);
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Opening database for "+storageName+" storage %v", pathToStorageFile)
+		return err
+	}
+	s.currentTx,err = s.storage.Begin()
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Opening transaction on "+storageName+" storage %v", pathToStorageFile)
+		return err
+	}
+	s.rootBucket,err = s.currentTx.CreateBucketIfNotExists("0");
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Creating root bucket on "+storageName+" storage %v", pathToStorageFile)
+		return err
+	}
+	go func() {
+		funcName := "boltStorageGroupType.OpenStorage."+dataCategoryKey+".delayedClose"
+		tracelog.Started(packageName, funcName)
+		if s.storage != nil {
+			select {
+			case <-ctx.Done():
+				err = s.currentTx.Commit()
+				tracelog.Errorf(err, packageName, funcName, "Closing transaction on "+storageName+" storage %v", pathToStorageFile)
+				err = s.storage.Close()
+				tracelog.Errorf(err, packageName, funcName, "Closing database for "+storageName+" storage %v", pathToStorageFile)
+			}
+		}
+		tracelog.Completed(packageName, funcName)
+	}()
+	return
+}
 
 
 type DataCategoryType struct {
@@ -77,6 +152,8 @@ type DataCategoryType struct {
 	SubHash             nullable.NullInt64
 	stringAnalysisLock  sync.Mutex
 	numericAnalysisLock sync.Mutex
+	hashStorage *boltStorageGroupType
+	bitsetStorage *boltStorageGroupType
 }
 
 func (dc *DataCategoryType) AnalyzeStringValue(stringValue string) {
@@ -160,5 +237,14 @@ func (cdc DataCategoryType) String() (result string) {
 	if cdc.SubHash.Valid() {
 		result = fmt.Sprintf("%v(%v)", result, cdc.SubHash.Value())
 	}
+	return
+}
+func (dc *DataCategoryType) OpenHashStorage(
+	ctx context.Context,
+	pathToStorageDir string,
+	columnID int64,
+) (err error) {
+	dc.hashStorage = &boltStorageGroupType{}
+	err = dc.hashStorage.Open(ctx,"hash",pathToStorageDir,columnID,dc.Key())
 	return
 }
