@@ -77,24 +77,24 @@ func(cd *ColumnDataType) StoreByDataCategory(ctx context.Context) {
 
 	dataCategory := cd.Column.CategoryByKey(ctx, simple)
 	select {
-		case dataCategory.stringAnalysisChan <- stringValue:
-		case <-ctx.Done():
-			return
+	case <-ctx.Done():
+		return
+	case dataCategory.stringAnalysisChan <- stringValue:
 	}
 
 	if simple.IsNumeric{
 		select {
-		case dataCategory.numericAnalysisChan <-floatValue:
 		case <-ctx.Done():
 			return
+		case dataCategory.numericAnalysisChan <-floatValue:
 		}
 	}
 
-	select {
+	/*select {
 	case dataCategory.columnDataChan <- cd:
 	case <-ctx.Done():
 		return
-	}
+	}*/
 
 }
 

@@ -160,6 +160,8 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 		outer:
 		for {
 			select {
+			case <-ctx.Done():
+				break outer
 			case rd,opened := <-rowDataChan:
 			if !opened {
 				break outer
@@ -174,12 +176,11 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 					if byteLength == 0 {
 						continue
 					}
+
 					columnData := &ColumnDataType{
 						LineNumber: ird.LineNumber,
 						LineOffset: ird.LineOffset,
-						Column:     &ColumnInfoType{
-							ColumnInfoType :ird.Table.Columns[columnNumber],
-						},
+						Column:     ird.Table.Columns[columnNumber],
 						RawDataLength:byteLength,
 					}
 					if columnData.RawDataLength>dr.Config.HashValueLength{
@@ -197,16 +198,14 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 						columnData.RawData = columnData.HashValue[:columnData.RawDataLength]
 					}
 					select {
-					case outChan <- columnData:
 					case <-ctx.Done():
 						break outer
+					case outChan <- columnData:
 					}
 				}
 				wg.Done()
 			}(rd)
 
-			case <-ctx.Done():
-				break outer
 			}
 		}
 		wg.Done()
@@ -226,15 +225,19 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 }
 
 func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
+	outChan chan *ColumnDataType,
 	errChan chan error,
 ){
 	errChan = make(chan error, 1)
+	outChan = make(chan *ColumnDataType)
 	var wg sync.WaitGroup
 
 	processColumnData := func() {
 		outer:
 		for {
 			select {
+			case <-ctx.Done():
+				break outer
 			case columnData,opened := <-columnDataChan:
 				if !opened {
 					break outer
@@ -243,28 +246,32 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				columnData.StoreByDataCategory(ctx)
 
 				select {
-				case <-ctx.Done():
-					break outer
+					case <-ctx.Done():
+						break outer
+					case outChan<-columnData:
 				}
-			case <-ctx.Done():
-				break outer
 			}
 		}
 		wg.Done()
 		return
 	}
-	wg.Add(degree)
+	/*wg.Add(degree)
 
 	for ;degree>0;degree-- {
 		go processColumnData()
-	}
+	}*/
+	wg.Add(1)
+	go processColumnData()
+
 
 	go func() {
 		wg.Wait()
+
+		close(outChan)
 		close(errChan)
 	}()
 
-	return errChan
+	return outChan, errChan
 }
 
 

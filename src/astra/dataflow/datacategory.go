@@ -162,6 +162,7 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
 	if dc.stringAnalysisChan == nil{
 		var wg sync.WaitGroup
 		dc.stringAnalysisChan = make(chan string)
+		wg.Add(1)
 		go func () {
 			outer:
 			for {
@@ -188,7 +189,6 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
 			}
 			wg.Done()
 		} ()
-		wg.Add(1)
 		go func() {
 			wg.Wait()
 			close(dc.stringAnalysisChan)
@@ -199,6 +199,7 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
 	if dc.numericAnalysisChan == nil{
 		var wg sync.WaitGroup
 		dc.numericAnalysisChan = make(chan float64)
+		wg.Add(1)
 		go func () {
 			outer:
 			for {
@@ -225,7 +226,7 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
 			}
 			wg.Done()
 		} ()
-		wg.Add(1)
+
 		go func() {
 			wg.Wait()
 			close(dc.numericAnalysisChan)

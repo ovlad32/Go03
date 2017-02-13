@@ -18,41 +18,32 @@ type ColumnInfoType struct {
 	stringAnalysisLock  sync.Mutex
 	numericAnalysisLock sync.Mutex
 
-	categoryLock sync.RWMutex
-	categories   map[string]*DataCategoryType
-
-
+	categoryLock        sync.RWMutex
+	Categories          map[string]*DataCategoryType
 }
 
 func (ci *ColumnInfoType) CategoryByKey(ctx context.Context, simple *DataCategorySimpleType) (
 	result *DataCategoryType,
-	) {
-	if ci.categories == nil {
+) {
+	if ci.Categories == nil {
 		ci.categoryLock.Lock()
-		if ci.categories == nil {
-			ci.categories = make(map[string]*DataCategoryType)
+		if ci.Categories == nil {
+			ci.Categories = make(map[string]*DataCategoryType)
 			ci.categoryLock.Unlock()
 		}
 	}
 
 	key := simple.Key()
 
-	ci.categoryLock.RLock()
-	if value, found := ci.categories[key]; !found {
-		ci.categoryLock.RUnlock()
+	ci.categoryLock.Lock()
+	if value, found := ci.Categories[key]; !found {
 		result = simple.covert()
 		result.RunAnalyzer(ctx)
-		ci.categoryLock.Lock()
-		ci.categories[key] = result
-		ci.categoryLock.Unlock()
-
+		ci.Categories[key] = result
 	} else {
-		ci.categoryLock.RUnlock()
 		result = value
 	}
-	if result == nil {
-		panic("!")
-	}
+	ci.categoryLock.Unlock()
 
 	return result
 }
@@ -104,10 +95,23 @@ func (ci *ColumnInfoType) AnalyzeNumericValue(floatValue float64) {
 
 }
 
-
+func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoType) {
+	result = &TableInfoType{
+		TableInfoType: table,
+		Columns:       make([]*ColumnInfoType, 0, len(table.Columns)),
+	}
+	for index := range table.Columns {
+		result.Columns = append(result.Columns, &ColumnInfoType{
+			ColumnInfoType: table.Columns[index],
+		},
+		)
+	}
+	return result
+}
 
 type TableInfoType struct {
 	*metadata.TableInfoType
+	Columns      []*ColumnInfoType
 	TankWriter   *bufio.Writer
 	tankFile     *os.File
 	tankFileLock sync.Mutex

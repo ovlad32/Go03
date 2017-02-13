@@ -12,10 +12,13 @@ import (
 	"runtime"
 	"sync"
 	"time"
+_	"runtime/trace"
+	"runtime/trace"
 )
 
 var packageName = "main"
 var recreate bool = true
+var isTrace bool = true
 var repo *metadata.Repository
 
 func init() {
@@ -52,6 +55,11 @@ func init() {
 
 func main() {
 	funcName := "main"
+	var trfile *os.File
+	if !isTrace {
+		trfile, _ = os.Create("./trace.out")
+		trace.Start(trfile)
+	}
 	tracelog.Started(packageName, funcName)
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -104,67 +112,68 @@ func main() {
 	//var RowData chan *dataflow.ColumnDataType
 	for _, table := range tables {
 		wg.Add(1)
-		go func(inTable *metadata.TableInfoType) {
+		func(inTable *dataflow.TableInfoType) {
 			fmt.Print(inTable)
 			//var drainChan chan *dataflow.ColumnDataType
 			var rowChan chan *dataflow.RowDataType
-			var colChan1 chan *dataflow.ColumnDataType
+			//var colChan1 chan *dataflow.ColumnDataType
+			//var colChan2 chan *dataflow.ColumnDataType
 
 			var ctxf context.CancelFunc
 			ctx, ctxf := context.WithCancel(context.Background())
 			defer ctxf()
 
 			rowChan, ec1 := dr.ReadSource(
-				ctx,
-				&dataflow.TableInfoType{
-					TableInfoType: inTable,
-				},
+			ctx,
+				inTable,
 			)
 			colChan1, ec2 := dr.SplitToColumns(
 				ctx,
 				rowChan,
 			)
-			ec3 := dr.StoreByDataCategory(
+			colChan2, ec3 := dr.StoreByDataCategory(
 				ctx,
 				colChan1,
 				len(table.Columns),
 			)
 
+
 		outer:
 			for {
 				select {
-				/*case value, opened := <-drainChan:
-					if !opened {
+				case value,closed := <-colChan2:
+					if !closed {
 						break outer
 					}
-					_ = value*/
+					_ = value
 
-				case err, opened := <-ec1:
-					if !opened {
-						break outer
-					}
+				case err := <-ec1:
 					if err != nil {
 						fmt.Println(err.Error())
 					}
-				case err, opened := <-ec2:
-					if !opened {
-						break outer
-					}
+				case err:= <-ec2:
 					if err != nil {
 						fmt.Println(err.Error())
 					}
-				case err, opened := <-ec3:
-					if !opened {
-						break outer
-					}
+				case err := <-ec3:
 					if err != nil {
 						fmt.Println(err.Error())
 					}
 				}
 			}
+			for _,col := range inTable.Columns{
+				fmt.Println(col.ColumnName.String())
+				fmt.Println("----------------")
+				for k,_ := range(col.Categories) {
+					fmt.Printf("%v,",k)
+				}
+				fmt.Println("\n----------------\n")
+			}
 			wg.Done()
 			fmt.Println(". Done")
-		}(table)
+
+		}(dataflow.ExpandFromMetadataTable(table))
+		//break;
 	}
 	wg.Wait()
 
@@ -181,6 +190,9 @@ func main() {
 	//metadata.ReportHashStorageContents()
 	//da.MakeTablePairs(nil,nil)
 	log.Printf("%v", time.Since(start))
+	if trfile != nil {
+		trace.Stop()
+	}
 	tracelog.Completed(packageName, funcName)
 }
 
