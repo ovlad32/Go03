@@ -12,6 +12,8 @@ import (
 	"os"
 	"sync"
 
+	"hash/fnv"
+	"astra/B8"
 )
 
 type DumpConfigType struct {
@@ -21,6 +23,7 @@ type DumpConfigType struct {
 	FieldSeparator  byte
 	LineSeparator   byte
 	InputBufferSize int
+	HashValueLength int
 }
 
 type DataReaderType struct {
@@ -163,15 +166,35 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 			}
 			wg.Add(1)
 			go func(ird *RowDataType) {
+				var hashMethod = fnv.New64()
+
 				outer:
 				for columnNumber, columnDataBytes := range ird.RawData {
+					byteLength := len(columnDataBytes)
+					if byteLength == 0 {
+						continue
+					}
 					columnData := &ColumnDataType{
 						LineNumber: ird.LineNumber,
 						LineOffset: ird.LineOffset,
 						Column:     &ColumnInfoType{
 							ColumnInfoType :ird.Table.Columns[columnNumber],
 						},
-						RawData:   columnDataBytes,
+						RawDataLength:byteLength,
+					}
+					if columnData.RawDataLength>dr.Config.HashValueLength{
+						columnData.RawData = columnDataBytes
+						hashMethod.Reset()
+						hashMethod.Write(columnData.RawData)
+						hashUIntValue := hashMethod.Sum64()
+						columnData.HashValue = B8.UInt64ToB8(hashUIntValue)
+					} else if columnData.RawDataLength == dr.Config.HashValueLength {
+						columnData.RawData = columnDataBytes
+						columnData.HashValue = columnDataBytes
+					} else {
+						columnData.HashValue = make([]byte, dr.Config.HashValueLength)
+						copy(columnData.HashValue, columnDataBytes)
+						columnData.RawData = columnData.HashValue[:columnData.RawDataLength]
 					}
 					select {
 					case outChan <- columnData:
@@ -202,14 +225,11 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 	return outChan, errChan
 }
 
-func (dr DataReaderType) GatherStatistics(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
-	outChan chan *ColumnDataType,
+func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
 	errChan chan error,
 ){
 	errChan = make(chan error, 1)
-	outChan = make(chan *ColumnDataType)
 	var wg sync.WaitGroup
-
 
 	processColumnData := func() {
 		outer:
@@ -220,10 +240,9 @@ func (dr DataReaderType) GatherStatistics(ctx context.Context, columnDataChan ch
 					break outer
 				}
 
-				columnData.AnalyzeDataCategory()
+				columnData.StoreByDataCategory(ctx)
 
 				select {
-				case outChan <- columnData:
 				case <-ctx.Done():
 					break outer
 				}
@@ -242,11 +261,10 @@ func (dr DataReaderType) GatherStatistics(ctx context.Context, columnDataChan ch
 
 	go func() {
 		wg.Wait()
-		close(outChan)
 		close(errChan)
 	}()
 
-	return outChan, errChan
+	return errChan
 }
 
 

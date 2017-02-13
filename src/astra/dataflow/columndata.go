@@ -3,6 +3,7 @@ package dataflow
 import (
 	"strconv"
 	"strings"
+	"context"
 )
 
 type ColumnDataType struct {
@@ -11,7 +12,9 @@ type ColumnDataType struct {
 	dataCategory *DataCategoryType
 	LineNumber   uint64
 	LineOffset   uint64
-	RawData       []byte
+	RawData      []byte
+	RawDataLength int
+	HashValue    []byte
 }
 
 type RowDataType struct{
@@ -22,16 +25,15 @@ type RowDataType struct{
 	RawData      [][]byte
 }
 
-func(dc *ColumnDataType) AnalyzeDataCategory() {
-	byteLength := len(dc.RawData)
-	if byteLength == 0 {
+func(cd *ColumnDataType) StoreByDataCategory(ctx context.Context) {
+	if cd.RawDataLength == 0 {
 		return
 	}
-	stringValue := string(dc.RawData)
+	stringValue := string(cd.RawData)
 
 	floatValue, err := strconv.ParseFloat(stringValue, 64)
 	simple := &DataCategorySimpleType{
-		ByteLength: byteLength,
+		ByteLength: cd.RawDataLength,
 		IsNumeric : err == nil,
 		IsSubHash : false , //byteLength > da.SubHashByteLengthThreshold
 	}
@@ -56,34 +58,43 @@ func(dc *ColumnDataType) AnalyzeDataCategory() {
 		}
 
 		simple.IsNegative = floatValue<float64(0)
-		dc.Column.AnalyzeNumericValue(floatValue);
 
-
+		//TODO:REDESIGN THIS!
+		//cd.Column.AnalyzeNumericValue(floatValue);
 	}
+	//TODO:REDESIGN THIS!
+	//cd.Column.AnalyzeStringValue(floatValue);
+
 	simple.SubHash = uint(0)
 	if simple.IsSubHash {
-		for _, bChar := range dc.RawData {
+		for _, bChar := range cd.RawData {
 			if bChar > 0 {
 				simple.SubHash = uint((uint8(37*simple.SubHash) + uint8(bChar)) & 0xff)
 			}
 		}
 	}
-	dc.Column.AnalyzeStringValue(stringValue)
 
-	dc.dataCategory,dc.dataCategoryKey = dc.Column.CategoryByKey(simple)
+
+	dataCategory := cd.Column.CategoryByKey(ctx, simple)
+	select {
+		case dataCategory.stringAnalysisChan <- stringValue:
+		case <-ctx.Done():
+			return
+	}
+
 	if simple.IsNumeric{
-		dc.dataCategory.AnalyzeNumericValue(floatValue)
+		select {
+		case dataCategory.numericAnalysisChan <-floatValue:
+		case <-ctx.Done():
+			return
+		}
 	}
-	dc.dataCategory.AnalyzeStringValue(stringValue)
-}
-func (cd *ColumnDataType) StoreHash() {
 
-	tx,err := cd.Column.hashStorage.Begin(true)
-	if err != nil {
-
+	select {
+	case dataCategory.columnDataChan <- cd:
+	case <-ctx.Done():
+		return
 	}
-	bucket,err := tx.CreateBucketIfNotExists([]byte(cd.dataCategoryKey))
-	bucket.Put()
-	cd.Column.hashStorage.
+
 }
 

@@ -51,7 +51,6 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	result = &DataCategoryType{
 		IsNumeric:nullable.NewNullBool(simple.IsNumeric),
 		ByteLength:nullable.NewNullInt64(int64(simple.ByteLength)),
-
 	}
 	if simple.IsNumeric {
 		result.IsNegative = nullable.NewNullBool(simple.IsNegative)
@@ -64,11 +63,12 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	return
 }
 
+
 type boltStorageGroupType struct{
-	storagingLock sync.Mutex
-	storage *bolt.DB
-	currentTx bolt.Tx
-	rootBucket *bolt.Bucket
+	storageLock sync.Mutex
+	storage     *bolt.DB
+	currentTx   *bolt.Tx
+	rootBucket  *bolt.Bucket
 }
 
 
@@ -108,12 +108,12 @@ dataCategoryKey string,
 		tracelog.Errorf(err, packageName, funcName, "Opening database for "+storageName+" storage %v", pathToStorageFile)
 		return err
 	}
-	s.currentTx,err = s.storage.Begin()
+	s.currentTx,err = s.storage.Begin(true)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening transaction on "+storageName+" storage %v", pathToStorageFile)
 		return err
 	}
-	s.rootBucket,err = s.currentTx.CreateBucketIfNotExists("0");
+	s.rootBucket,err = s.currentTx.CreateBucketIfNotExists([]byte("0"));
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Creating root bucket on "+storageName+" storage %v", pathToStorageFile)
 		return err
@@ -150,54 +150,89 @@ type DataCategoryType struct {
 	MaxNumericValue     nullable.NullFloat64
 	NonNullCount        nullable.NullInt64
 	SubHash             nullable.NullInt64
-	stringAnalysisLock  sync.Mutex
-	numericAnalysisLock sync.Mutex
+
 	hashStorage *boltStorageGroupType
 	bitsetStorage *boltStorageGroupType
+	stringAnalysisChan chan string
+	numericAnalysisChan chan float64
+	columnDataChan chan *ColumnDataType
 }
 
-func (dc *DataCategoryType) AnalyzeStringValue(stringValue string) {
-	dc.stringAnalysisLock.Lock()
-	defer dc.stringAnalysisLock.Unlock()
-	if dc == nil {
-		panic ("!")
+func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
+	if dc.stringAnalysisChan == nil{
+		var wg sync.WaitGroup
+		dc.stringAnalysisChan = make(chan string)
+		go func () {
+			outer:
+			for {
+				select {
+				case <-ctx.Done():
+					break outer
+				case stringValue, opened := <-dc.stringAnalysisChan:
+					if !opened {
+						break outer
+					}
+					if dc.NonNullCount.Reference() == nil {
+						dc.NonNullCount = nullable.NewNullInt64(int64(0))
+					}
+
+					(*dc.NonNullCount.Reference())++
+
+					if !dc.MaxStringValue.Valid() || dc.MaxStringValue.Value() < stringValue {
+						dc.MaxStringValue = nullable.NewNullString(stringValue)
+					}
+					if !dc.MinStringValue.Valid() || dc.MinStringValue.Value() > stringValue {
+						dc.MinStringValue = nullable.NewNullString(stringValue)
+					}
+				}
+			}
+			wg.Done()
+		} ()
+		wg.Add(1)
+		go func() {
+			wg.Wait()
+			close(dc.stringAnalysisChan)
+		} ()
 	}
 
-	if dc.NonNullCount.Reference() == nil {
-		dc.NonNullCount = nullable.NewNullInt64(int64(0))
-	}
 
-	(*dc.NonNullCount.Reference())++
+	if dc.numericAnalysisChan == nil{
+		var wg sync.WaitGroup
+		dc.numericAnalysisChan = make(chan float64)
+		go func () {
+			outer:
+			for {
+				select {
+				case <-ctx.Done():
+					break outer
+				case floatValue, opened := <-dc.numericAnalysisChan:
+					if !opened {
+						break outer
+					}
+					if !dc.MaxNumericValue.Valid() {
+						dc.MaxNumericValue = nullable.NewNullFloat64(floatValue)
+					} else if dc.MaxNumericValue.Value() < floatValue {
+						(*dc.MaxNumericValue.Reference()) = floatValue
+					}
 
-	if !dc.MaxStringValue.Valid() || dc.MaxStringValue.Value() < stringValue {
-		dc.MaxStringValue = nullable.NewNullString(stringValue)
-	}
-	if !dc.MinStringValue.Valid() || dc.MinStringValue.Value() > stringValue {
-		dc.MinStringValue = nullable.NewNullString(stringValue)
+					if !dc.MinNumericValue.Valid() {
+						dc.MinNumericValue = nullable.NewNullFloat64(floatValue)
+					} else if dc.MinNumericValue.Value() > floatValue {
+						(*dc.MinNumericValue.Reference()) = floatValue
+					}
+
+				}
+			}
+			wg.Done()
+		} ()
+		wg.Add(1)
+		go func() {
+			wg.Wait()
+			close(dc.numericAnalysisChan)
+		} ()
 	}
 
 }
-
-func (dc *DataCategoryType) AnalyzeNumericValue(floatValue float64) {
-	dc.numericAnalysisLock.Lock()
-	defer dc.numericAnalysisLock.Unlock()
-
-	if !dc.MaxNumericValue.Valid() {
-		dc.MaxNumericValue = nullable.NewNullFloat64(floatValue)
-	} else if dc.MaxNumericValue.Value() < floatValue {
-		(*dc.MaxNumericValue.Reference()) = floatValue
-	}
-
-	if !dc.MinNumericValue.Valid() {
-		dc.MinNumericValue = nullable.NewNullFloat64(floatValue)
-	} else if dc.MinNumericValue.Value() > floatValue {
-		(*dc.MinNumericValue.Reference()) = floatValue
-	}
-
-}
-
-// Type,byteLength,
-//
 
 
 func (cdc DataCategoryType) Key() (result string) {

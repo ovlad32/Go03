@@ -101,12 +101,12 @@ func main() {
 	}
 	_ = tables2
 	var wg sync.WaitGroup
-	var RowData chan *dataflow.ColumnDataType
+	//var RowData chan *dataflow.ColumnDataType
 	for _, table := range tables {
 		wg.Add(1)
 		go func(inTable *metadata.TableInfoType) {
 			fmt.Print(inTable)
-			var drainChan chan *dataflow.ColumnDataType
+			//var drainChan chan *dataflow.ColumnDataType
 			var rowChan chan *dataflow.RowDataType
 			var colChan1 chan *dataflow.ColumnDataType
 
@@ -124,7 +124,7 @@ func main() {
 				ctx,
 				rowChan,
 			)
-			drainChan, ec3 := dr.GatherStatistics(
+			ec3 := dr.StoreByDataCategory(
 				ctx,
 				colChan1,
 				len(table.Columns),
@@ -133,11 +133,11 @@ func main() {
 		outer:
 			for {
 				select {
-				case value, opened := <-drainChan:
+				/*case value, opened := <-drainChan:
 					if !opened {
 						break outer
 					}
-					_ = value
+					_ = value*/
 
 				case err, opened := <-ec1:
 					if !opened {

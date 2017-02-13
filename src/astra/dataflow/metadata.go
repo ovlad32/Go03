@@ -10,7 +10,6 @@ import (
 	"golang.org/x/net/context"
 	"os"
 	"sync"
-	"github.com/boltdb/bolt"
 )
 
 type ColumnInfoType struct {
@@ -25,9 +24,8 @@ type ColumnInfoType struct {
 
 }
 
-func (ci *ColumnInfoType) CategoryByKey(simple *DataCategorySimpleType) (
+func (ci *ColumnInfoType) CategoryByKey(ctx context.Context, simple *DataCategorySimpleType) (
 	result *DataCategoryType,
-	key string,
 	) {
 	if ci.categories == nil {
 		ci.categoryLock.Lock()
@@ -37,13 +35,13 @@ func (ci *ColumnInfoType) CategoryByKey(simple *DataCategorySimpleType) (
 		}
 	}
 
-	key = simple.Key()
+	key := simple.Key()
 
 	ci.categoryLock.RLock()
 	if value, found := ci.categories[key]; !found {
 		ci.categoryLock.RUnlock()
 		result = simple.covert()
-
+		result.RunAnalyzer(ctx)
 		ci.categoryLock.Lock()
 		ci.categories[key] = result
 		ci.categoryLock.Unlock()
