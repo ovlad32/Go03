@@ -10,6 +10,11 @@ func UInt64ToB8(value uint64) []byte {
 	return buff[:]
 }
 
+func UInt64ToBuff(dst []byte, src uint64) {
+	binary.LittleEndian.PutUint64(dst[:], src)
+}
+
+
 func B8ToUInt64(buff []byte) (result uint64, valid bool) {
 	if buff != nil {
 		valid = true

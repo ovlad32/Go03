@@ -12,8 +12,9 @@ import (
 	"runtime"
 	"sync"
 	"time"
-_	"runtime/trace"
+	"flag"
 	"runtime/trace"
+	"runtime/pprof"
 )
 
 var packageName = "main"
@@ -52,9 +53,35 @@ func init() {
 	*/
 	tracelog.Completed(packageName, funcName)
 }
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 func main() {
 	funcName := "main"
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+		f.Close()
+	}
+
 	var trfile *os.File
 	if !isTrace {
 		trfile, _ = os.Create("./trace.out")
@@ -80,6 +107,7 @@ func main() {
 			GZipped:         true,
 			FieldSeparator:  31,
 			LineSeparator:   10,
+			HashValueLength: 8,
 		},
 	}
 
@@ -109,13 +137,15 @@ func main() {
 	}
 	_ = tables2
 	var wg sync.WaitGroup
-	//var RowData chan *dataflow.ColumnDataType
+
 	for _, table := range tables {
 		wg.Add(1)
 		func(inTable *dataflow.TableInfoType) {
 			fmt.Print(inTable)
+			colDataPool := make(chan *dataflow.ColumnDataType,len(inTable.Columns)*100)
+
 			//var drainChan chan *dataflow.ColumnDataType
-			var rowChan chan *dataflow.RowDataType
+			var colChan1 chan *dataflow.ColumnDataType
 			//var colChan1 chan *dataflow.ColumnDataType
 			//var colChan2 chan *dataflow.ColumnDataType
 
@@ -123,19 +153,18 @@ func main() {
 			ctx, ctxf := context.WithCancel(context.Background())
 			defer ctxf()
 
-			rowChan, ec1 := dr.ReadSource(
-			ctx,
-				inTable,
-			)
-			colChan1, ec2 := dr.SplitToColumns(
+			colChan1, ec1 := dr.ReadSource(
 				ctx,
-				rowChan,
+				inTable,
+				colDataPool,
 			)
+
 			colChan2, ec3 := dr.StoreByDataCategory(
 				ctx,
 				colChan1,
-				len(table.Columns),
+				len(inTable.Columns),
 			)
+
 
 
 		outer:
@@ -145,13 +174,19 @@ func main() {
 					if !closed {
 						break outer
 					}
-					_ = value
+					if cap(value.RawData)<1024 {
+						select {
+						case colDataPool <- value:
+						default:
+						}
+
+					} else {
+						fmt.Println("!")
+					}
+
+					_=value
 
 				case err := <-ec1:
-					if err != nil {
-						fmt.Println(err.Error())
-					}
-				case err:= <-ec2:
 					if err != nil {
 						fmt.Println(err.Error())
 					}
@@ -173,7 +208,8 @@ func main() {
 			fmt.Println(". Done")
 
 		}(dataflow.ExpandFromMetadataTable(table))
-		//break;
+
+	//	break;
 	}
 	wg.Wait()
 

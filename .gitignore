@@ -8,3 +8,4 @@ HashStorage.*
 .idea/
 *.iml
 gopath.cmd
+*.out

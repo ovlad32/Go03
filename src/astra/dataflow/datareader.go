@@ -12,8 +12,8 @@ import (
 	"os"
 	"sync"
 
-	"hash/fnv"
 	"astra/B8"
+	"hash/fnv"
 )
 
 type DumpConfigType struct {
@@ -30,18 +30,18 @@ type DataReaderType struct {
 	Config *DumpConfigType
 }
 
-func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
-	rowDataChan chan *RowDataType,
+func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, colDataPool chan *ColumnDataType) (
+	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
 	funcName := "DataReaderType.ReadSource"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
 	var x0D = []byte{0x0D}
+	var wg sync.WaitGroup
 
-	rowDataChan = make(chan *RowDataType)
+	outChan = make(chan *ColumnDataType)
 	errChan = make(chan error, 1)
-
 
 	writeToTank := func(rowData [][]byte) (result int) {
 		columnCount := len(rowData)
@@ -55,6 +55,60 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 			result = result + colDataLength
 		}
 		return
+	}
+
+	splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes []byte) {
+		var hashMethod = fnv.New64()
+		defer wg.Done()
+
+		byteLength := len(columnBytes)
+		if byteLength == 0 {
+			return
+		}
+		var columnData *ColumnDataType
+
+		select {
+		case <-ctx.Done():
+			return
+		case columnData = <-colDataPool:
+		default:
+			columnData = new(ColumnDataType)
+		}
+
+		if columnData.RawData == nil || cap(columnData.RawData) < byteLength {
+			columnData.RawData = make([]byte, 0, byteLength)
+		} else {
+			columnData.RawData = columnData.RawData[0:0]
+		}
+
+		if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
+			columnData.HashValue = make([]byte, 8, 8)
+		} else {
+			columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
+		}
+		columnData.RawDataLength = byteLength
+		columnData.LineNumber = LineNumber
+		columnData.LineOffset = LineOffset
+		columnData.Column = column
+
+		columnData.RawData = append(columnData.RawData, (columnBytes)...)
+
+		if columnData.RawDataLength > dr.Config.HashValueLength {
+			hashMethod.Reset()
+			hashMethod.Write(columnData.RawData)
+			hashUIntValue := hashMethod.Sum64()
+			B8.UInt64ToBuff(columnData.HashValue, hashUIntValue)
+		} else {
+			columnData.HashValue = append(columnData.HashValue, (columnBytes)...)
+		}
+		if false || "!CREDIT_BLOCKED" == column.ColumnName.String() {
+			fmt.Printf("%v %v %v\n",column.ColumnName.String(),string(columnBytes),columnData.HashValue);
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case outChan <- columnData:
+		}
 	}
 
 	readFromDump := func() (err error) {
@@ -80,16 +134,16 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 		lineNumber := uint64(0)
 		lineOffset := uint64(0)
 		for {
-			lineImage, err := bufferedFile.ReadSlice(dr.Config.LineSeparator)
+			line, err := bufferedFile.ReadSlice(dr.Config.LineSeparator)
 			if err == io.EOF {
 				return nil
 			} else if err != nil {
 				return err
 			}
-			lineImageLen := len(lineImage)
+			//lineImageLen := len(lineImage)
 
-			line:= make([]byte, lineImageLen, lineImageLen)
-			copy(line, lineImage)
+			//line:= make([]byte, lineImageLen, lineImageLen)
+			//copy(line, lineImage)
 
 			line = bytes.TrimSuffix(line, []byte{dr.Config.LineSeparator})
 			line = bytes.TrimSuffix(line, x0D)
@@ -118,19 +172,25 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 				defer tankCancelFunc()
 			}
 
-			result := &RowDataType{
+			/*result := &RowDataType{
 				RawData:    lineColumns,
 				LineNumber: lineNumber,
 				LineOffset: lineOffset,
 				Table:      table,
-			}
+			}*/
 
-			select {
+			for columnNumber, columnDataBytes := range lineColumns {
+				wg.Add(1)
+				go splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], columnDataBytes)
+			}
+			wg.Wait()
+
+			/*select {
 			case rowDataChan <- result:
 			case <-ctx.Done():
 				return ctx.Err()
-			}
-			lineOffset = lineOffset + uint64(writeToTank(result.RawData))
+			}*/
+			lineOffset = lineOffset + uint64(writeToTank(lineColumns))
 
 		}
 		return nil
@@ -141,70 +201,106 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 		if err != nil {
 			errChan <- err
 		}
-		close(rowDataChan)
+
+		close(outChan)
 		close(errChan)
 	}()
 
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
-	return rowDataChan, errChan
+	return outChan, errChan
 }
 
-func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType) (
+func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType, colDataPool chan *ColumnDataType) (
 	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
 	outChan = make(chan *ColumnDataType)
 	errChan = make(chan error, 1)
 	var wg sync.WaitGroup
+
 	processRowData := func() {
-		outer:
+	outer:
 		for {
 			select {
 			case <-ctx.Done():
 				break outer
-			case rd,opened := <-rowDataChan:
-			if !opened {
-				break outer
-			}
-			wg.Add(1)
-			go func(ird *RowDataType) {
-				var hashMethod = fnv.New64()
+			case rd, opened := <-rowDataChan:
+				if !opened {
+					break outer
+				}
+				wg.Add(1)
+				go func(ird *RowDataType) {
+					var hashMethod = fnv.New64()
 
 				outer:
-				for columnNumber, columnDataBytes := range ird.RawData {
-					byteLength := len(columnDataBytes)
-					if byteLength == 0 {
-						continue
-					}
+					for columnNumber, columnDataBytes := range ird.RawData {
+						byteLength := len(columnDataBytes)
+						if byteLength == 0 {
+							continue
+						}
+						var columnData *ColumnDataType
 
-					columnData := &ColumnDataType{
-						LineNumber: ird.LineNumber,
-						LineOffset: ird.LineOffset,
-						Column:     ird.Table.Columns[columnNumber],
-						RawDataLength:byteLength,
+						select {
+						case <-ctx.Done():
+						case columnData = <-colDataPool:
+						default:
+							columnData = new(ColumnDataType)
+						}
+
+						if columnData.RawData == nil || cap(columnData.RawData) < byteLength {
+							columnData.RawData = make([]byte, 0, byteLength)
+						} else {
+							columnData.RawData = columnData.RawData[0:0]
+						}
+
+						if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
+							columnData.HashValue = make([]byte, 8, 8)
+						} else {
+							columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
+						}
+						columnData.RawDataLength = byteLength
+						columnData.LineNumber = ird.LineNumber
+						columnData.LineOffset = ird.LineOffset
+						columnData.Column = ird.Table.Columns[columnNumber]
+
+						columnData.RawData = append(columnData.RawData, columnDataBytes...)
+						if columnData.RawDataLength > dr.Config.HashValueLength {
+							hashMethod.Reset()
+							hashMethod.Write(columnData.RawData)
+							hashUIntValue := hashMethod.Sum64()
+							B8.UInt64ToBuff(columnData.HashValue, hashUIntValue)
+						} else {
+							columnData.HashValue = append(columnData.HashValue, columnDataBytes...)
+						}
+
+						/*columnData := &ColumnDataType{
+							LineNumber: ird.LineNumber,
+							LineOffset: ird.LineOffset,
+							Column:     ird.Table.Columns[columnNumber],
+							RawDataLength:byteLength,
+						}
+						if columnData.RawDataLength>dr.Config.HashValueLength{
+							columnData.RawData = columnDataBytes
+							hashMethod.Reset()
+							hashMethod.Write(columnData.RawData)
+							hashUIntValue := hashMethod.Sum64()
+							columnData.HashValue = B8.UInt64ToB8(hashUIntValue)
+						} else if columnData.RawDataLength == dr.Config.HashValueLength {
+							columnData.RawData = columnDataBytes
+							columnData.HashValue = columnDataBytes
+						} else {
+							columnData.HashValue = make([]byte, dr.Config.HashValueLength)
+							copy(columnData.HashValue, columnDataBytes)
+							columnData.RawData = columnData.HashValue[:columnData.RawDataLength]
+						}*/
+						select {
+						case <-ctx.Done():
+							break outer
+						case outChan <- columnData:
+						}
 					}
-					if columnData.RawDataLength>dr.Config.HashValueLength{
-						columnData.RawData = columnDataBytes
-						hashMethod.Reset()
-						hashMethod.Write(columnData.RawData)
-						hashUIntValue := hashMethod.Sum64()
-						columnData.HashValue = B8.UInt64ToB8(hashUIntValue)
-					} else if columnData.RawDataLength == dr.Config.HashValueLength {
-						columnData.RawData = columnDataBytes
-						columnData.HashValue = columnDataBytes
-					} else {
-						columnData.HashValue = make([]byte, dr.Config.HashValueLength)
-						copy(columnData.HashValue, columnDataBytes)
-						columnData.RawData = columnData.HashValue[:columnData.RawDataLength]
-					}
-					select {
-					case <-ctx.Done():
-						break outer
-					case outChan <- columnData:
-					}
-				}
-				wg.Done()
-			}(rd)
+					wg.Done()
+				}(rd)
 
 			}
 		}
@@ -227,18 +323,18 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
 	outChan chan *ColumnDataType,
 	errChan chan error,
-){
+) {
 	errChan = make(chan error, 1)
 	outChan = make(chan *ColumnDataType)
 	var wg sync.WaitGroup
 
 	processColumnData := func() {
-		outer:
+	outer:
 		for {
 			select {
 			case <-ctx.Done():
 				break outer
-			case columnData,opened := <-columnDataChan:
+			case columnData, opened := <-columnDataChan:
 				if !opened {
 					break outer
 				}
@@ -246,23 +342,22 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				columnData.StoreByDataCategory(ctx)
 
 				select {
-					case <-ctx.Done():
-						break outer
-					case outChan<-columnData:
+				case <-ctx.Done():
+					break outer
+				case outChan <- columnData:
 				}
 			}
 		}
 		wg.Done()
 		return
 	}
-	/*wg.Add(degree)
 
-	for ;degree>0;degree-- {
+	//degree = 1
+	wg.Add(degree)
+
+	for ; degree > 0; degree-- {
 		go processColumnData()
-	}*/
-	wg.Add(1)
-	go processColumnData()
-
+	}
 
 	go func() {
 		wg.Wait()
@@ -273,12 +368,6 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 
 	return outChan, errChan
 }
-
-
-
-
-
-
 
 /*
 func(da *DataReaderType) WriteToTank( ctx context.Context, InRowDataChan  chan *RowDataType) (
@@ -696,11 +785,6 @@ func (da *DataReaderType) storeData(val *ColumnDataType) {
 
 }
 */
-
-
-
-
-
 
 /*
 func (dr DataReaderType) ReadSource(ctx context.Context, inPool chan*RowDataType, table *TableInfoType, ) (
