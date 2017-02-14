@@ -140,7 +140,7 @@ func main() {
 
 	for _, table := range tables {
 		wg.Add(1)
-		func(inTable *dataflow.TableInfoType) {
+		go func(inTable *dataflow.TableInfoType) {
 			fmt.Print(inTable)
 			colDataPool := make(chan *dataflow.ColumnDataType,len(inTable.Columns)*100)
 
