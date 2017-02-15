@@ -152,7 +152,6 @@ func main() {
 
 			var ctxf context.CancelFunc
 			ctx, ctxf := context.WithCancel(context.Background())
-			defer ctxf()
 
 			colChan1, ec1 := dr.ReadSource(
 				ctx,
@@ -190,10 +189,12 @@ func main() {
 				case err := <-ec1:
 					if err != nil {
 						fmt.Println(err.Error())
+						ctxf()
 					}
 				case err := <-ec3:
 					if err != nil {
 						fmt.Println(err.Error())
+						ctxf()
 					}
 				}
 			}

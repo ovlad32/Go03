@@ -14,6 +14,8 @@ import (
 
 	"astra/B8"
 	"hash/fnv"
+	"strconv"
+	"strings"
 )
 
 type DumpConfigType struct {
@@ -103,7 +105,7 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 			columnData.HashValue = append(columnData.HashValue, (columnBytes)...)
 		}
 		if false || "!CREDIT_BLOCKED" == column.ColumnName.String() {
-			fmt.Printf("%v %v %v\n",column.ColumnName.String(),string(columnBytes),columnData.HashValue);
+			fmt.Printf("%v %v %v\n", column.ColumnName.String(), string(columnBytes), columnData.HashValue)
 		}
 		select {
 		case <-ctx.Done():
@@ -336,7 +338,87 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				if !opened {
 					break outer
 				}
-				columnData.StoreByDataCategory(ctx,dr.Config.StoragePath)
+
+				if columnData.RawDataLength == 0 {
+					return
+				}
+				stringValue := string(columnData.RawData)
+
+				floatValue, parseError := strconv.ParseFloat(stringValue, 64)
+				simple := &DataCategorySimpleType{
+					ByteLength: columnData.RawDataLength,
+					IsNumeric:  parseError == nil,
+					IsSubHash:  false, //byteLength > da.SubHashByteLengthThreshold
+				}
+
+				if simple.IsNumeric {
+					//var lengthChanged bool
+					if strings.Count(stringValue, ".") == 1 {
+						//trimmedValue := strings.TrimLeft(stringValue, "0")
+						//lengthChanged = false && (len(stringValue) != len(trimmedValue)) // Stop using it now
+						//if lengthChanged {
+						//	stringValue = trimmedValue
+						//}
+						simple.FloatingPointScale = len(stringValue) - (strings.Index(stringValue, ".") + 1)
+						//if fpScale != -1 && lengthChanged {
+						//	stringValue = strings.TrimRight(fmt.Sprintf("%f", floatValue), "0")
+						//	columnData.RawData = []byte(stringValue)
+						//	byteLength = len(columnData.RawData)
+						//}
+					} else {
+						simple.FloatingPointScale = 0
+					}
+
+					simple.IsNegative = floatValue < float64(0)
+
+					//TODO:REDESIGN THIS!
+					//cd.Column.AnalyzeNumericValue(floatValue);
+				}
+				//TODO:REDESIGN THIS!
+				//cd.Column.AnalyzeStringValue(floatValue);
+
+				simple.SubHash = uint(0)
+				if simple.IsSubHash {
+					for _, bChar := range columnData.RawData {
+						if bChar > 0 {
+							simple.SubHash = uint((uint8(37*simple.SubHash) + uint8(bChar)) & 0xff)
+						}
+					}
+				}
+
+				dataCategory, newOne := columnData.Column.CategoryByKey(ctx, simple)
+				if newOne {
+					err := dataCategory.RunAnalyzer(ctx)
+					if err != nil {
+						errChan<-err;
+						break outer
+					}
+					err = dataCategory.RunStorage(ctx, dr.Config.StoragePath, columnData.Column.Id.Value())
+					if err != nil {
+						errChan<-err;
+						break outer
+					}
+				}
+
+				select {
+				case <-ctx.Done():
+					return
+				case dataCategory.stringAnalysisChan <- stringValue:
+				}
+
+				if simple.IsNumeric {
+					select {
+					case <-ctx.Done():
+						return
+					case dataCategory.numericAnalysisChan <- floatValue:
+					}
+				}
+
+				/*select {
+				case dataCategory.columnDataChan <- cd:
+				case <-ctx.Done():
+					return
+				}*/
 
 				select {
 				case <-ctx.Done():
