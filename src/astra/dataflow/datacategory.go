@@ -2,22 +2,23 @@ package dataflow
 
 import (
 	"astra/nullable"
-	"fmt"
-	"sync"
-	"os"
-	"github.com/goinggo/tracelog"
-	"errors"
 	"context"
+	"errors"
+	"fmt"
 	"github.com/boltdb/bolt"
+	"github.com/goinggo/tracelog"
+	"os"
+	"sync"
+	"astra/B8"
 )
 
-type DataCategorySimpleType struct{
-	ByteLength int
-	IsNumeric bool
-	IsNegative bool
+type DataCategorySimpleType struct {
+	ByteLength         int
+	IsNumeric          bool
+	IsNegative         bool
 	FloatingPointScale int
-	IsSubHash bool
-	SubHash uint
+	IsSubHash          bool
+	SubHash            uint
 }
 
 func (simple *DataCategorySimpleType) Key() (result string) {
@@ -46,11 +47,10 @@ func (simple *DataCategorySimpleType) Key() (result string) {
 	return
 }
 
-
 func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	result = &DataCategoryType{
-		IsNumeric:nullable.NewNullBool(simple.IsNumeric),
-		ByteLength:nullable.NewNullInt64(int64(simple.ByteLength)),
+		IsNumeric:  nullable.NewNullBool(simple.IsNumeric),
+		ByteLength: nullable.NewNullInt64(int64(simple.ByteLength)),
 	}
 	if simple.IsNumeric {
 		result.IsNegative = nullable.NewNullBool(simple.IsNegative)
@@ -63,27 +63,25 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	return
 }
 
-
-type boltStorageGroupType struct{
+type boltStorageGroupType struct {
 	storageLock sync.Mutex
 	storage     *bolt.DB
 	currentTx   *bolt.Tx
 	rootBucket  *bolt.Bucket
 }
 
-
-func(s *boltStorageGroupType) Open(
-ctx context.Context,
-storageName string,
-pathToStorageDir string,
-columnID int64,
-dataCategoryKey string,
+func (s *boltStorageGroupType) Open(
+	ctx context.Context,
+	storageName string,
+	pathToStorageDir string,
+	columnID int64,
+	dataCategoryKey string,
 ) (err error) {
-	funcName := "boltStorageGroupType.OpenStorage."+storageName
+	funcName := "boltStorageGroupType.OpenStorage." + storageName
 	tracelog.Started(packageName, funcName)
 
 	if pathToStorageDir == "" {
-		err = errors.New("Given path to "+storageName+" storage directory is empty")
+		err = errors.New("Given path to " + storageName + " storage directory is empty")
 		tracelog.Error(err, packageName, funcName)
 		return err
 	}
@@ -102,32 +100,31 @@ dataCategoryKey string,
 		dataCategoryKey,
 		storageName,
 	)
-
-	s.storage, err =  bolt.Open(pathToStorageFile,700,nil);
+	s.storage, err = bolt.Open(pathToStorageFile, 700, nil)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening database for "+storageName+" storage %v", pathToStorageFile)
 		return err
 	}
-	s.currentTx,err = s.storage.Begin(true)
+	s.currentTx, err = s.storage.Begin(true)
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Opening transaction on "+storageName+" storage %v", pathToStorageFile)
+		tracelog.Errorf(err, packageName, funcName, "Opening transaction on %v storage %v", storageName, pathToStorageFile)
 		return err
 	}
-	s.rootBucket,err = s.currentTx.CreateBucketIfNotExists([]byte("0"));
+	s.rootBucket, err = s.currentTx.CreateBucketIfNotExists([]byte("0"))
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Creating root bucket on "+storageName+" storage %v", pathToStorageFile)
+		tracelog.Errorf(err, packageName, funcName, "Creating root bucket on%v  storage %v", storageName, pathToStorageFile)
 		return err
 	}
 	go func() {
-		funcName := "boltStorageGroupType.OpenStorage."+dataCategoryKey+".delayedClose"
+		funcName := "boltStorageGroupType.OpenStorage." + dataCategoryKey + ".delayedClose"
 		tracelog.Started(packageName, funcName)
 		if s.storage != nil {
 			select {
 			case <-ctx.Done():
 				err = s.currentTx.Commit()
-				tracelog.Errorf(err, packageName, funcName, "Closing transaction on "+storageName+" storage %v", pathToStorageFile)
+				tracelog.Errorf(err, packageName, funcName, "Closing transaction on %v storage %v", storageName, pathToStorageFile)
 				err = s.storage.Close()
-				tracelog.Errorf(err, packageName, funcName, "Closing database for "+storageName+" storage %v", pathToStorageFile)
+				tracelog.Errorf(err, packageName, funcName, "Closing database for %v storage %v",storageName, pathToStorageFile)
 			}
 		}
 		tracelog.Completed(packageName, funcName)
@@ -135,36 +132,35 @@ dataCategoryKey string,
 	return
 }
 
-
 type DataCategoryType struct {
 	//column *metadata.ColumnInfoType
-	ByteLength          nullable.NullInt64
-	IsNumeric           nullable.NullBool // if array of bytes represents a numeric value
-	IsNegative          nullable.NullBool
-	FloatingPointScale  nullable.NullInt64
-	DataCount           nullable.NullInt64
-	HashUniqueCount     nullable.NullInt64
-	MinStringValue      nullable.NullString
-	MaxStringValue      nullable.NullString
-	MinNumericValue     nullable.NullFloat64
-	MaxNumericValue     nullable.NullFloat64
-	NonNullCount        nullable.NullInt64
-	SubHash             nullable.NullInt64
+	ByteLength         nullable.NullInt64
+	IsNumeric          nullable.NullBool // if array of bytes represents a numeric value
+	IsNegative         nullable.NullBool
+	FloatingPointScale nullable.NullInt64
+	DataCount          nullable.NullInt64
+	HashUniqueCount    nullable.NullInt64
+	MinStringValue     nullable.NullString
+	MaxStringValue     nullable.NullString
+	MinNumericValue    nullable.NullFloat64
+	MaxNumericValue    nullable.NullFloat64
+	NonNullCount       nullable.NullInt64
+	SubHash            nullable.NullInt64
 
-	hashStorage *boltStorageGroupType
-	bitsetStorage *boltStorageGroupType
-	stringAnalysisChan chan string
+	hashStorage         *boltStorageGroupType
+	bitsetStorage       *boltStorageGroupType
+	stringAnalysisChan  chan string
 	numericAnalysisChan chan float64
-	columnDataChan chan *ColumnDataType
+	columnDataChan      chan *ColumnDataType
 }
 
-func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
-	if dc.stringAnalysisChan == nil{
+func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error){
+	if dc.stringAnalysisChan == nil {
 		var wg sync.WaitGroup
 		dc.stringAnalysisChan = make(chan string)
 		wg.Add(1)
-		go func () {
-			outer:
+		go func() {
+		outer:
 			for {
 				select {
 				case <-ctx.Done():
@@ -188,20 +184,19 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
 				}
 			}
 			wg.Done()
-		} ()
+		}()
 		go func() {
 			wg.Wait()
 			close(dc.stringAnalysisChan)
-		} ()
+		}()
 	}
 
-
-	if dc.numericAnalysisChan == nil{
+	if dc.numericAnalysisChan == nil {
 		var wg sync.WaitGroup
 		dc.numericAnalysisChan = make(chan float64)
 		wg.Add(1)
-		go func () {
-			outer:
+		go func() {
+		outer:
 			for {
 				select {
 				case <-ctx.Done():
@@ -225,25 +220,89 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) {
 				}
 			}
 			wg.Done()
-		} ()
+		}()
 
 		go func() {
 			wg.Wait()
 			close(dc.numericAnalysisChan)
-		} ()
+		}()
 	}
-
+	return
 }
 
 
+
+func (dc *DataCategoryType) RunStorage(
+	ctx context.Context,
+	storagePath string,
+	columnId int64,
+	) (err error){
+
+	//TODO: check emptyness
+	if dc.columnDataChan == nil {
+		var wg sync.WaitGroup
+		offsetBytes := make([]byte,0,8)
+		dc.columnDataChan = make(chan *ColumnDataType)
+		dc.hashStorage = new(boltStorageGroupType)
+		dc.bitsetStorage = new(boltStorageGroupType)
+		err = dc.hashStorage.Open(ctx,"hashmap",storagePath,columnId,dc.Key())
+		if err != nil {
+			return
+		}
+		err = dc.bitsetStorage.Open(ctx,"bitset",storagePath,columnId,dc.Key())
+		if err != nil {
+			return
+		}
+		wg.Add(1)
+		go func() {
+			writtenTx :=  uint64(0);
+			outer:
+			for {
+				select {
+				case <-ctx.Done():
+					break outer
+				case columnData, opened := <-dc.columnDataChan:
+					if !opened {
+						break outer
+					}
+					offsetBytes = B8.Clear(offsetBytes)
+					B8.UInt64ToBuff(offsetBytes,columnData.LineOffset)
+					dc.hashStorage.rootBucket.Put(columnData.HashValue,offsetBytes)
+					writtenTx++
+					if writtenTx >= 1000 {
+						writtenTx = 0
+						err = dc.hashStorage.currentTx.Commit();
+						if err != nil {
+							// TODO: change to channel
+							//return err
+						}
+						dc.hashStorage.currentTx,err = dc.hashStorage.storage.Begin(true)
+						if err != nil {
+							// TODO: change to channel
+							//return err
+						}
+					}
+				}
+			}
+			wg.Done()
+		}()
+		go func() {
+			wg.Wait()
+			close(dc.columnDataChan)
+		}()
+	}
+
+	return
+}
+
 func (cdc DataCategoryType) Key() (result string) {
 	simple := DataCategorySimpleType{
-		ByteLength:int(cdc.ByteLength.Value()),
-		IsNumeric:cdc.IsNumeric.Value(),
-		IsNegative:cdc.IsNegative.Value(),
-		FloatingPointScale:int(cdc.FloatingPointScale.Value()),
-		IsSubHash:cdc.SubHash.Valid(),
-		SubHash:uint(cdc.SubHash.Value()),
+		ByteLength:         int(cdc.ByteLength.Value()),
+		IsNumeric:          cdc.IsNumeric.Value(),
+		IsNegative:         cdc.IsNegative.Value(),
+		FloatingPointScale: int(cdc.FloatingPointScale.Value()),
+		IsSubHash:          cdc.SubHash.Valid(),
+		SubHash:            uint(cdc.SubHash.Value()),
 	}
 	return simple.Key()
 }
@@ -281,6 +340,6 @@ func (dc *DataCategoryType) OpenHashStorage(
 	columnID int64,
 ) (err error) {
 	dc.hashStorage = &boltStorageGroupType{}
-	err = dc.hashStorage.Open(ctx,"hash",pathToStorageDir,columnID,dc.Key())
+	err = dc.hashStorage.Open(ctx, "hash", pathToStorageDir, columnID, dc.Key())
 	return
 }

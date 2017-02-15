@@ -24,6 +24,7 @@ type ColumnInfoType struct {
 
 func (ci *ColumnInfoType) CategoryByKey(ctx context.Context, simple *DataCategorySimpleType) (
 	result *DataCategoryType,
+	added bool,
 ) {
 	if ci.Categories == nil {
 		ci.categoryLock.Lock()
@@ -38,14 +39,14 @@ func (ci *ColumnInfoType) CategoryByKey(ctx context.Context, simple *DataCategor
 	ci.categoryLock.Lock()
 	if value, found := ci.Categories[key]; !found {
 		result = simple.covert()
-		result.RunAnalyzer(ctx)
 		ci.Categories[key] = result
+		added = true
 	} else {
 		result = value
 	}
 	ci.categoryLock.Unlock()
 
-	return result
+	return result,added
 }
 
 func (ci *ColumnInfoType) AnalyzeStringValue(stringValue string) {

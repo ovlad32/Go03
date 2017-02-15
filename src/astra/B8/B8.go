@@ -13,7 +13,14 @@ func UInt64ToB8(value uint64) []byte {
 func UInt64ToBuff(dst []byte, src uint64) {
 	binary.LittleEndian.PutUint64(dst[:], src)
 }
-
+func Clear(dst []byte) []byte {
+	if dst == nil || cap(dst) < 8 {
+		dst = make([]byte, 8)
+	} else {
+		dst = append(dst[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
+	}
+	return dst
+}
 
 func B8ToUInt64(buff []byte) (result uint64, valid bool) {
 	if buff != nil {

@@ -103,6 +103,7 @@ func main() {
 		Config: &dataflow.DumpConfigType{
 			BasePath:        "C:/home/data.151/",
 			TankPath:        "./BINDATA/",
+			StoragePath:     "./BINDATA/",
 			InputBufferSize: 5 * 1024,
 			GZipped:         true,
 			FieldSeparator:  31,

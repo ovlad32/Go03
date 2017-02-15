@@ -25,7 +25,7 @@ type RowDataType struct{
 	RawData      [][]byte
 }
 
-func(cd *ColumnDataType) StoreByDataCategory(ctx context.Context) {
+func(cd *ColumnDataType) StoreByDataCategory(ctx context.Context,storagePath string) {
 	if cd.RawDataLength == 0 {
 		return
 	}
@@ -75,7 +75,11 @@ func(cd *ColumnDataType) StoreByDataCategory(ctx context.Context) {
 	}
 
 
-	dataCategory := cd.Column.CategoryByKey(ctx, simple)
+	dataCategory,newOne := cd.Column.CategoryByKey(ctx, simple)
+	if newOne {
+		dataCategory.RunAnalyzer(ctx)
+		dataCategory.RunStorage(ctx, storagePath, cd.Column.Id.Value())
+	}
 	_=dataCategory
 	select {
 	case <-ctx.Done():

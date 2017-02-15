@@ -19,6 +19,7 @@ import (
 type DumpConfigType struct {
 	BasePath        string
 	TankPath        string
+	StoragePath     string
 	GZipped         bool
 	FieldSeparator  byte
 	LineSeparator   byte
@@ -253,11 +254,8 @@ func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *
 							columnData.RawData = columnData.RawData[0:0]
 						}
 
-						if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
-							columnData.HashValue = make([]byte, 8, 8)
-						} else {
-							columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
-						}
+						columnData.HashValue = B8.Clear(columnData.HashValue)
+
 						columnData.RawDataLength = byteLength
 						columnData.LineNumber = ird.LineNumber
 						columnData.LineOffset = ird.LineOffset
@@ -338,8 +336,7 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				if !opened {
 					break outer
 				}
-
-				columnData.StoreByDataCategory(ctx)
+				columnData.StoreByDataCategory(ctx,dr.Config.StoragePath)
 
 				select {
 				case <-ctx.Done():
