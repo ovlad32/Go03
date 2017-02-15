@@ -414,11 +414,11 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 					}
 				}
 
-				/*select {
-				case dataCategory.columnDataChan <- cd:
+				select {
+				case dataCategory.columnDataChan <- columnData:
 				case <-ctx.Done():
 					return
-				}*/
+				}
 
 				select {
 				case <-ctx.Done():

@@ -1,10 +1,5 @@
 package dataflow
 
-import (
-	"strconv"
-	"strings"
-	"context"
-)
 
 type ColumnDataType struct {
 	Column       *ColumnInfoType
@@ -25,7 +20,4 @@ type RowDataType struct{
 	RawData      [][]byte
 }
 
-func(cd *ColumnDataType) StoreByDataCategory(ctx context.Context,storagePath string) {
-
-}
 
