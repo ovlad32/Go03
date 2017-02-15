@@ -43,7 +43,7 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 	var x0D = []byte{0x0D}
 	var wg sync.WaitGroup
 
-	outChan = make(chan *ColumnDataType)
+	outChan = make(chan *ColumnDataType,1000)
 	errChan = make(chan error, 1)
 
 	writeToTank := func(rowData [][]byte) (result int) {
@@ -327,8 +327,10 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 	errChan = make(chan error, 1)
 	outChan = make(chan *ColumnDataType)
 	var wg sync.WaitGroup
+	StorageContext,StorageCancelFunc := context.WithCancel(context.Background());
 
 	processColumnData := func() {
+		var err error
 	outer:
 		for {
 			select {
@@ -386,18 +388,49 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 					}
 				}
 
-				dataCategory, newOne := columnData.Column.CategoryByKey(ctx, simple)
-				if newOne {
+				dataCategory, added := columnData.Column.CategoryByKey(ctx, simple)
+				if added >0 {
+					if added == 1 {
+						columnData.Column.hashStorage = new(boltStorageGroupType)
+						columnData.Column.bitsetStorage = new(boltStorageGroupType)
+						err = columnData.Column.hashStorage.Open(
+							"hashmap",
+							dr.Config.StoragePath,
+							columnData.Column.Id.Value(),
+							dataCategory.Key(),
+						)
+
+						if err != nil {
+							return
+						}
+						go columnData.Column.hashStorage.Close(StorageContext)
+
+						err = columnData.Column.bitsetStorage.Open(
+							"bitset",
+							dr.Config.StoragePath,
+							columnData.Column.Id.Value(),
+							dataCategory.Key(),
+						)
+						if err != nil {
+							return
+						}
+
+						go columnData.Column.bitsetStorage.Close(StorageContext)
+
+						err = dataCategory.RunStorage(ctx, dr.Config.StoragePath, columnData.Column.Id.Value())
+						if err != nil {
+							errChan<-err;
+							break outer
+						}
+					}
 					err := dataCategory.RunAnalyzer(ctx)
 					if err != nil {
 						errChan<-err;
 						break outer
 					}
-					err = dataCategory.RunStorage(ctx, dr.Config.StoragePath, columnData.Column.Id.Value())
-					if err != nil {
-						errChan<-err;
-						break outer
-					}
+
+
+
 				}
 
 				select {
@@ -440,7 +473,6 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 
 	go func() {
 		wg.Wait()
-
 		close(outChan)
 		close(errChan)
 	}()

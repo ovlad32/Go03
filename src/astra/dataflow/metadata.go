@@ -10,7 +10,108 @@ import (
 	"golang.org/x/net/context"
 	"os"
 	"sync"
+	"github.com/boltdb/bolt"
 )
+
+
+type boltStorageGroupType struct {
+	storageLock sync.Mutex
+	storage     *bolt.DB
+	currentTx   *bolt.Tx
+	rootBucket  *bolt.Bucket
+	pathToStorageFile string
+	dataCategoryKey  string
+	storageName string
+	columnId int64
+}
+
+func (s boltStorageGroupType) String()  {
+	return fmt.Sprintf("Storage for %v, column %v, datacategory %v, on %v",
+			s.storageName,
+	s.columnId,
+	s.dataCategoryKey,
+	s.pathToStorageFile,
+	)
+}
+
+func (s *boltStorageGroupType) Open(
+storageName string,
+pathToStorageDir string,
+columnID int64,
+dataCategoryKey string,
+) (err error) {
+	funcName := "boltStorageGroupType.Open." + storageName
+	tracelog.Started(packageName, funcName)
+
+	s.storageName = storageName
+	s.columnId = columnID
+	s.dataCategoryKey = dataCategoryKey
+
+	if pathToStorageDir == "" {
+		err = fmt.Errorf("Given path to %v storage directory is empty ",storageName)
+		tracelog.Error(err, packageName, funcName)
+		return err
+	}
+
+	err = os.MkdirAll(pathToStorageDir, 700)
+
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Making directories for path %v", pathToStorageDir)
+		return err
+	}
+
+	pathToStorageFile := fmt.Sprintf("%v%v%v.%v.bolt.db",
+		pathToStorageDir,
+		os.PathSeparator,
+		columnID,
+		storageName,
+	)
+	s.storage, err = bolt.Open(pathToStorageFile, 700, &bolt.Options{InitialMmapSize:16})
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Opening database for %v storage %v", storageName, pathToStorageFile)
+		return err
+	}
+	s.currentTx, err = s.storage.Begin(true)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Opening transaction on %v storage %v", storageName, pathToStorageFile)
+		return err
+	}
+	var bucketName []byte
+	if storageName == "hash" {
+		bucketName = []byte("0")
+	} else {
+		bucketName = []byte(dataCategoryKey)
+	}
+	s.rootBucket, err = s.currentTx.CreateBucketIfNotExists(bucketName)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Creating root bucket on%v  storage %v", storageName, pathToStorageFile)
+		return err
+	}
+	return
+}
+func (s *boltStorageGroupType) Close(ctx context.Context) (err error) {
+	funcName := fmt.Sprintf("boltStorageGroupType.Close.%v.delayedClose", s.dataCategoryKey)
+	tracelog.Started(packageName, funcName)
+	select {
+	case <-ctx.Done():
+		if s.storage != nil {
+			err = s.currentTx.Commit()
+			if err != nil {
+				tracelog.Errorf(err, packageName, funcName, "Closing transaction on storage %v", s.dataCategoryKey, s.pathToStorageFile)
+				return
+			}
+
+			err = s.storage.Close()
+			if err != nil {
+				tracelog.Errorf(err, packageName, funcName, "Closing database for %v storage %v", s.storageName, s.pathToStorageFile)
+				return
+			}
+		}
+	}
+	tracelog.Completed(packageName, funcName)
+	return
+}
+
 
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
@@ -20,11 +121,15 @@ type ColumnInfoType struct {
 
 	categoryLock        sync.RWMutex
 	Categories          map[string]*DataCategoryType
+
+	hashStorage         *boltStorageGroupType
+	bitsetStorage       *boltStorageGroupType
+	columnDataChan      chan *ColumnDataType
 }
 
 func (ci *ColumnInfoType) CategoryByKey(ctx context.Context, simple *DataCategorySimpleType) (
 	result *DataCategoryType,
-	added bool,
+	added int,
 ) {
 	if ci.Categories == nil {
 		ci.categoryLock.Lock()
@@ -40,9 +145,10 @@ func (ci *ColumnInfoType) CategoryByKey(ctx context.Context, simple *DataCategor
 	if value, found := ci.Categories[key]; !found {
 		result = simple.covert()
 		ci.Categories[key] = result
-		added = true
+		added = len(ci.Categories)
 	} else {
 		result = value
+		added = 0
 	}
 	ci.categoryLock.Unlock()
 

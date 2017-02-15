@@ -3,11 +3,7 @@ package dataflow
 import (
 	"astra/nullable"
 	"context"
-	"errors"
 	"fmt"
-	"github.com/boltdb/bolt"
-	"github.com/goinggo/tracelog"
-	"os"
 	"sync"
 	"astra/B8"
 )
@@ -63,74 +59,6 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	return
 }
 
-type boltStorageGroupType struct {
-	storageLock sync.Mutex
-	storage     *bolt.DB
-	currentTx   *bolt.Tx
-	rootBucket  *bolt.Bucket
-}
-
-func (s *boltStorageGroupType) Open(
-	ctx context.Context,
-	storageName string,
-	pathToStorageDir string,
-	columnID int64,
-	dataCategoryKey string,
-) (err error) {
-	funcName := "boltStorageGroupType.OpenStorage." + storageName
-	tracelog.Started(packageName, funcName)
-
-	if pathToStorageDir == "" {
-		err = errors.New("Given path to " + storageName + " storage directory is empty")
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	err = os.MkdirAll(pathToStorageDir, 700)
-
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Making directories for path %v", pathToStorageDir)
-		return err
-	}
-
-	pathToStorageFile := fmt.Sprintf("%v%v%v.%v.%v.bolt.db",
-		pathToStorageDir,
-		os.PathSeparator,
-		columnID,
-		dataCategoryKey,
-		storageName,
-	)
-	s.storage, err = bolt.Open(pathToStorageFile, 700, nil)
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Opening database for "+storageName+" storage %v", pathToStorageFile)
-		return err
-	}
-	s.currentTx, err = s.storage.Begin(true)
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Opening transaction on %v storage %v", storageName, pathToStorageFile)
-		return err
-	}
-	s.rootBucket, err = s.currentTx.CreateBucketIfNotExists([]byte("0"))
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Creating root bucket on%v  storage %v", storageName, pathToStorageFile)
-		return err
-	}
-	go func() {
-		funcName := "boltStorageGroupType.OpenStorage." + dataCategoryKey + ".delayedClose"
-		tracelog.Started(packageName, funcName)
-		if s.storage != nil {
-			select {
-			case <-ctx.Done():
-				err = s.currentTx.Commit()
-				tracelog.Errorf(err, packageName, funcName, "Closing transaction on %v storage %v", storageName, pathToStorageFile)
-				err = s.storage.Close()
-				tracelog.Errorf(err, packageName, funcName, "Closing database for %v storage %v",storageName, pathToStorageFile)
-			}
-		}
-		tracelog.Completed(packageName, funcName)
-	}()
-	return
-}
 
 type DataCategoryType struct {
 	//column *metadata.ColumnInfoType
@@ -147,17 +75,15 @@ type DataCategoryType struct {
 	NonNullCount       nullable.NullInt64
 	SubHash            nullable.NullInt64
 
-	hashStorage         *boltStorageGroupType
-	bitsetStorage       *boltStorageGroupType
 	stringAnalysisChan  chan string
 	numericAnalysisChan chan float64
-	columnDataChan      chan *ColumnDataType
+
 }
 
 func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error){
 	if dc.stringAnalysisChan == nil {
 		var wg sync.WaitGroup
-		dc.stringAnalysisChan = make(chan string)
+		dc.stringAnalysisChan = make(chan string,1000)
 		wg.Add(1)
 		go func() {
 		outer:
@@ -193,7 +119,7 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error){
 
 	if dc.numericAnalysisChan == nil {
 		var wg sync.WaitGroup
-		dc.numericAnalysisChan = make(chan float64)
+		dc.numericAnalysisChan = make(chan float64,100)
 		wg.Add(1)
 		go func() {
 		outer:
@@ -237,22 +163,12 @@ func (dc *DataCategoryType) RunStorage(
 	storagePath string,
 	columnId int64,
 	) (err error){
-
 	//TODO: check emptyness
 	if dc.columnDataChan == nil {
 		var wg sync.WaitGroup
 		offsetBytes := make([]byte,0,8)
-		dc.columnDataChan = make(chan *ColumnDataType)
-		dc.hashStorage = new(boltStorageGroupType)
-		dc.bitsetStorage = new(boltStorageGroupType)
-		err = dc.hashStorage.Open(ctx,"hashmap",storagePath,columnId,dc.Key())
-		if err != nil {
-			return
-		}
-		err = dc.bitsetStorage.Open(ctx,"bitset",storagePath,columnId,dc.Key())
-		if err != nil {
-			return
-		}
+		dc.columnDataChan = make(chan *ColumnDataType,1000)
+
 		wg.Add(1)
 		go func() {
 			writtenTx :=  uint64(0);
