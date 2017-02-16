@@ -1,44 +1,42 @@
 package dataflow
 
 import (
+	"astra/B8"
 	"astra/metadata"
 	"astra/nullable"
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"golang.org/x/net/context"
 	"os"
-	"sync"
-	"github.com/boltdb/bolt"
-	"astra/B8"
 	"sparsebitset"
+	"sync"
 )
 
-
 type boltStorageGroupType struct {
-	storageLock sync.Mutex
-	storage     *bolt.DB
-	currentTx   *bolt.Tx
-	rootBucket  *bolt.Bucket
+	storageLock       sync.Mutex
+	storage           *bolt.DB
+	currentTx         *bolt.Tx
+	rootBucket        *bolt.Bucket
 	pathToStorageFile string
-	storageName string
-	columnId int64
+	storageName       string
+	columnId          int64
 }
 
-func (s boltStorageGroupType) String()  {
+/*func (s boltStorageGroupType) String() {
 	return fmt.Sprintf("Storage for %v, column %v, datacategory %v, on %v",
-			s.storageName,
-	s.columnId,
-	s.pathToStorageFile,
+		s.storageName,
+		s.columnId,
+		s.pathToStorageFile,
 	)
 }
-
+*/
 func (s *boltStorageGroupType) Open(
-storageName string,
-pathToStorageDir string,
-columnID int64,
-dataCategoryKey string,
+	storageName string,
+	pathToStorageDir string,
+	columnID int64,
 ) (err error) {
 	funcName := "boltStorageGroupType.Open." + storageName
 	tracelog.Started(packageName, funcName)
@@ -47,7 +45,7 @@ dataCategoryKey string,
 	s.columnId = columnID
 
 	if pathToStorageDir == "" {
-		err = fmt.Errorf("Given path to %v storage directory is empty ",storageName)
+		err = fmt.Errorf("Given path to %v storage directory is empty ", storageName)
 		tracelog.Error(err, packageName, funcName)
 		return err
 	}
@@ -65,31 +63,42 @@ dataCategoryKey string,
 		columnID,
 		storageName,
 	)
-	s.storage, err = bolt.Open(pathToStorageFile, 700, &bolt.Options{InitialMmapSize:16})
+	s.storage, err = bolt.Open(pathToStorageFile, 700, &bolt.Options{InitialMmapSize: 16})
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening database for %v storage %v", storageName, pathToStorageFile)
 		return err
 	}
 	s.currentTx, err = s.storage.Begin(true)
+	fmt.Println("begin transaction " +storageName)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening transaction on %v storage %v", storageName, pathToStorageFile)
 		return err
 	}
-	if storageName == "hash" {
-		s.rootBucket, err = s.currentTx.CreateBucketIfNotExists([]byte("0"))
-		if err != nil {
-			tracelog.Errorf(err, packageName, funcName, "Creating root bucket on%v  storage %v", storageName, pathToStorageFile)
-			return err
-		}
-	}
+	err = s.OpenDefaultBucket()
+
 
 	return
 }
-func (s *boltStorageGroupType) Close(ctx context.Context) (err error) {
+func(s *boltStorageGroupType) OpenDefaultBucket() (err error){
+	funcName := "boltStorageGroupType.Open." + s.storageName
+	tracelog.Started(packageName, funcName)
+	if s.storageName == "hash" {
+		s.rootBucket, err = s.currentTx.CreateBucketIfNotExists([]byte("0"))
+		if err != nil {
+			tracelog.Errorf(err, packageName, funcName, "Creating root bucket on %v  storage %v", s.storageName, s.pathToStorageFile)
+			return err
+		}
+	}
+	tracelog.Completed(packageName,funcName)
+	return
+}
+
+func (s *boltStorageGroupType) Close() (err error) {
 	funcName := "boltStorageGroupType.Close.delayedClose"
 	tracelog.Started(packageName, funcName)
 	if s.storage != nil {
 		err = s.currentTx.Commit()
+		fmt.Println("close transaction " +s.storageName)
 		if err != nil {
 			tracelog.Errorf(err, packageName, funcName, "Closing transaction on storage %v", s.pathToStorageFile)
 			return
@@ -106,25 +115,22 @@ func (s *boltStorageGroupType) Close(ctx context.Context) (err error) {
 	return
 }
 
-
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
 
 	stringAnalysisLock  sync.Mutex
 	numericAnalysisLock sync.Mutex
 
-	categoryLock        sync.RWMutex
-	Categories          map[string]*DataCategoryType
+	categoryLock sync.RWMutex
+	Categories   map[string]*DataCategoryType
 
-	hashStorage         *boltStorageGroupType
-	bitsetStorage       *boltStorageGroupType
-	columnDataChan      chan *ColumnDataType
+	hashStorage    *boltStorageGroupType
+	bitsetStorage  *boltStorageGroupType
+	columnDataChan chan *ColumnDataType
 }
 
-func (ci *ColumnInfoType) CategoryByKey(
-	simple *DataCategorySimpleType,
-	callBack func(),
-	) (	result *DataCategoryType, err error) {
+func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *DataCategoryType, err error),
+) (result *DataCategoryType, err error) {
 	if ci.Categories == nil {
 		ci.categoryLock.Lock()
 		if ci.Categories == nil {
@@ -133,15 +139,15 @@ func (ci *ColumnInfoType) CategoryByKey(
 		}
 	}
 
-	key := simple.Key()
-
 	ci.categoryLock.Lock()
 	if value, found := ci.Categories[key]; !found {
-		result = simple.covert()
-		ci.Categories[key] = result
-		if callBack!=nil {
-			err = callBack()
+		if callBack != nil {
+			result,err = callBack()
+			if err != nil {
+				return nil,err
+			}
 		}
+		ci.Categories[key] = result
 	} else {
 		result = value
 	}
@@ -149,8 +155,8 @@ func (ci *ColumnInfoType) CategoryByKey(
 
 	return result, err
 }
-func(ci *ColumnInfoType) CloseStorage() (err error) {
-	if ci.columnDataChan == nil {
+func (ci *ColumnInfoType) CloseStorage() (err error) {
+	if ci.columnDataChan != nil {
 		err = ci.bitsetStorage.Close()
 		err = ci.hashStorage.Close()
 		close(ci.columnDataChan)
@@ -158,21 +164,17 @@ func(ci *ColumnInfoType) CloseStorage() (err error) {
 	return err
 }
 
-
-func (ci *ColumnInfoType) RunStorage(
-	ctx context.Context,
-	storagePath string,
-	columnId int64,
-) (errChan chan error) {
+func (ci *ColumnInfoType) RunStorage(ctx context.Context) (errChan chan error) {
 	errChan = make(chan error, 1)
 
 	//TODO: check emptyness
 	if ci.columnDataChan == nil {
 		ci.columnDataChan = make(chan *ColumnDataType, 1000)
 		go func() {
-			writtenHashValues := uint64(0);
+			writtenHashValues := uint64(0)
+			writtenBitsetValues := uint64(0)
 			offsetBytes := make([]byte, 0, 8)
-			outer:
+		outer:
 			for {
 				select {
 				case <-ctx.Done():
@@ -188,22 +190,26 @@ func (ci *ColumnInfoType) RunStorage(
 						writtenHashValues++
 						if writtenHashValues >= 1000 {
 							writtenHashValues = 0
-							err := ci.hashStorage.currentTx.Commit();
+							err := ci.hashStorage.currentTx.Commit()
 							if err != nil {
-								errChan <-err
-								return;
+								errChan <- err
+								return
 							}
+
 							ci.hashStorage.currentTx, err = ci.hashStorage.storage.Begin(true)
 							if err != nil {
-								errChan <-err
-								return;
+								errChan <- err
+								return
 							}
+							ci.hashStorage.OpenDefaultBucket()
 						}
 					}()
 					go func() {
+						funcName := "RunStorage.bitset"
 						key := columnData.dataCategoryKey
 						bucket, err := ci.bitsetStorage.currentTx.CreateBucketIfNotExists([]byte(key))
 						if err != nil {
+							tracelog.Errorf(err,packageName,funcName,"create bucket category %v",key)
 							errChan <- err
 							return
 						}
@@ -213,11 +219,27 @@ func (ci *ColumnInfoType) RunStorage(
 						bits, _ := B8.B8ToUInt64(bucket.Get(baseB8Value))
 						bits = bits | (1 << offsetUIntValue)
 						bucket.Put(baseB8Value, B8.UInt64ToB8(bits))
+						if writtenBitsetValues >= 1000 {
+							writtenBitsetValues = 0
+							err := ci.bitsetStorage.currentTx.Commit()
+							if err != nil {
+								errChan <- err
+								return
+							}
+
+							ci.bitsetStorage.currentTx, err = ci.bitsetStorage.storage.Begin(true)
+							if err != nil {
+								errChan <- err
+								return
+							}
+						}
 					}()
 				}
 			}
 			close(errChan)
 		}()
+	} else {
+		close(errChan)
 	}
 	return errChan
 }

@@ -1011,7 +1011,7 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 				if result != prev {
 					select {
 					case out <- result:
-					case ctx.Done():
+					case <-ctx.Done():
 						break outer;
 					}
 					prev = result

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"astra/B8"
 )
 
 type DataCategorySimpleType struct {
@@ -158,58 +157,6 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error){
 
 
 
-func (dc *DataCategoryType) RunStorage(
-	ctx context.Context,
-	storagePath string,
-	columnId int64,
-	) (err error){
-	//TODO: check emptyness
-	if dc.columnDataChan == nil {
-		var wg sync.WaitGroup
-		offsetBytes := make([]byte,0,8)
-		dc.columnDataChan = make(chan *ColumnDataType,1000)
-
-		wg.Add(1)
-		go func() {
-			writtenTx :=  uint64(0);
-			outer:
-			for {
-				select {
-				case <-ctx.Done():
-					break outer
-				case columnData, opened := <-dc.columnDataChan:
-					if !opened {
-						break outer
-					}
-					offsetBytes = B8.Clear(offsetBytes)
-					B8.UInt64ToBuff(offsetBytes,columnData.LineOffset)
-					dc.hashStorage.rootBucket.Put(columnData.HashValue,offsetBytes)
-					writtenTx++
-					if writtenTx >= 1000 {
-						writtenTx = 0
-						err = dc.hashStorage.currentTx.Commit();
-						if err != nil {
-							// TODO: change to channel
-							//return err
-						}
-						dc.hashStorage.currentTx,err = dc.hashStorage.storage.Begin(true)
-						if err != nil {
-							// TODO: change to channel
-							//return err
-						}
-					}
-				}
-			}
-			wg.Done()
-		}()
-		go func() {
-			wg.Wait()
-			close(dc.columnDataChan)
-		}()
-	}
-
-	return
-}
 
 func (cdc DataCategoryType) Key() (result string) {
 	simple := DataCategorySimpleType{
@@ -248,14 +195,5 @@ func (cdc DataCategoryType) String() (result string) {
 	if cdc.SubHash.Valid() {
 		result = fmt.Sprintf("%v(%v)", result, cdc.SubHash.Value())
 	}
-	return
-}
-func (dc *DataCategoryType) OpenHashStorage(
-	ctx context.Context,
-	pathToStorageDir string,
-	columnID int64,
-) (err error) {
-	dc.hashStorage = &boltStorageGroupType{}
-	err = dc.hashStorage.Open(ctx, "hash", pathToStorageDir, columnID, dc.Key())
 	return
 }

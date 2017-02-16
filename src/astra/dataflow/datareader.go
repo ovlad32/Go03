@@ -330,7 +330,6 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 	var wg sync.WaitGroup
 
 	processColumnData := func() {
-		var err error
 	outer:
 		for {
 			select {
@@ -380,46 +379,49 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				//cd.Column.AnalyzeStringValue(floatValue);
 
 
+				columnData.dataCategoryKey = simple.Key()
 
+				dataCategory,err := columnData.Column.CategoryByKey(
+					columnData.dataCategoryKey ,
+					func() (result *DataCategoryType, err error) {
+						result = simple.covert()
+						count := len(columnData.Column.Categories)
+						if count == 0 {
+							columnData.Column.hashStorage = new(boltStorageGroupType)
+							columnData.Column.bitsetStorage = new(boltStorageGroupType)
+							err = columnData.Column.hashStorage.Open(
+								"hash",
+								dr.Config.StoragePath,
+								columnData.Column.Id.Value(),
+							)
 
-				dataCategory,err := columnData.Column.CategoryByKey(simple, func() (error) {
-							count := len(columnData.Column.Categories)
-							if count> 0 {
-								if count == 1 {
-									columnData.Column.hashStorage = new(boltStorageGroupType)
-									columnData.Column.bitsetStorage = new(boltStorageGroupType)
-									err = columnData.Column.hashStorage.Open(
-										"hashmap",
-										dr.Config.StoragePath,
-										columnData.Column.Id.Value(),
-										simple.Key(),
-									)
-
-									if err != nil {
-										return
-									}
-									err = columnData.Column.bitsetStorage.Open(
-										"bitset",
-										dr.Config.StoragePath,
-										columnData.Column.Id.Value(),
-										simple.Key(),
-									)
-									if err != nil {
-										return
-									}
-
-									key := simple.Key()
-									dataCategory := columnData.Column.Categories[key]
-									err := dataCategory.RunAnalyzer(ctx)
-									if err != nil {
-										return err
-									}
-									//TODO: e3 is a channel
-									e3 := dataCategory.RunStorage(ctx, dr.Config.StoragePath, columnData.Column.Id.Value())
-									_ = e3
-								}
+							if err != nil {
+								return
 							}
-							return
+							err = columnData.Column.bitsetStorage.Open(
+								"bitset",
+								dr.Config.StoragePath,
+								columnData.Column.Id.Value(),
+							)
+							if err != nil {
+								return
+							}
+
+							err = result.RunAnalyzer(ctx)
+							if err != nil {
+								return
+							}
+							//TODO: e3 is a channel
+							e3 := columnData.Column.RunStorage(ctx)
+							go func() {
+							select {
+							case <-ctx.Done():
+							case err := <- e3:
+								errChan<-err
+								return
+							}} ()
+						}
+						return
 						},
 				)
 				if err != nil {
