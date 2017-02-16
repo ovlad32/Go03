@@ -99,10 +99,11 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 		if columnData.RawDataLength > dr.Config.HashValueLength {
 			hashMethod.Reset()
 			hashMethod.Write(columnData.RawData)
-			hashUIntValue := hashMethod.Sum64()
-			B8.UInt64ToBuff(columnData.HashValue, hashUIntValue)
+			columnData.HashInt = hashMethod.Sum64()
+			B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
 		} else {
 			columnData.HashValue = append(columnData.HashValue, (columnBytes)...)
+			columnData.HashInt,_ = B8.B8ToUInt64(columnData.HashValue)
 		}
 		if false || "!CREDIT_BLOCKED" == column.ColumnName.String() {
 			fmt.Printf("%v %v %v\n", column.ColumnName.String(), string(columnBytes), columnData.HashValue)
@@ -327,7 +328,6 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 	errChan = make(chan error, 1)
 	outChan = make(chan *ColumnDataType)
 	var wg sync.WaitGroup
-	StorageContext,StorageCancelFunc := context.WithCancel(context.Background());
 
 	processColumnData := func() {
 		var err error
@@ -379,58 +379,52 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				//TODO:REDESIGN THIS!
 				//cd.Column.AnalyzeStringValue(floatValue);
 
-				simple.SubHash = uint(0)
-				if simple.IsSubHash {
-					for _, bChar := range columnData.RawData {
-						if bChar > 0 {
-							simple.SubHash = uint((uint8(37*simple.SubHash) + uint8(bChar)) & 0xff)
-						}
-					}
-				}
 
-				dataCategory, added := columnData.Column.CategoryByKey(ctx, simple)
-				if added >0 {
-					if added == 1 {
-						columnData.Column.hashStorage = new(boltStorageGroupType)
-						columnData.Column.bitsetStorage = new(boltStorageGroupType)
-						err = columnData.Column.hashStorage.Open(
-							"hashmap",
-							dr.Config.StoragePath,
-							columnData.Column.Id.Value(),
-							dataCategory.Key(),
-						)
 
-						if err != nil {
+
+				dataCategory,err := columnData.Column.CategoryByKey(simple, func() (error) {
+							count := len(columnData.Column.Categories)
+							if count> 0 {
+								if count == 1 {
+									columnData.Column.hashStorage = new(boltStorageGroupType)
+									columnData.Column.bitsetStorage = new(boltStorageGroupType)
+									err = columnData.Column.hashStorage.Open(
+										"hashmap",
+										dr.Config.StoragePath,
+										columnData.Column.Id.Value(),
+										simple.Key(),
+									)
+
+									if err != nil {
+										return
+									}
+									err = columnData.Column.bitsetStorage.Open(
+										"bitset",
+										dr.Config.StoragePath,
+										columnData.Column.Id.Value(),
+										simple.Key(),
+									)
+									if err != nil {
+										return
+									}
+
+									key := simple.Key()
+									dataCategory := columnData.Column.Categories[key]
+									err := dataCategory.RunAnalyzer(ctx)
+									if err != nil {
+										return err
+									}
+									//TODO: e3 is a channel
+									e3 := dataCategory.RunStorage(ctx, dr.Config.StoragePath, columnData.Column.Id.Value())
+									_ = e3
+								}
+							}
 							return
-						}
-						go columnData.Column.hashStorage.Close(StorageContext)
-
-						err = columnData.Column.bitsetStorage.Open(
-							"bitset",
-							dr.Config.StoragePath,
-							columnData.Column.Id.Value(),
-							dataCategory.Key(),
-						)
-						if err != nil {
-							return
-						}
-
-						go columnData.Column.bitsetStorage.Close(StorageContext)
-
-						err = dataCategory.RunStorage(ctx, dr.Config.StoragePath, columnData.Column.Id.Value())
-						if err != nil {
-							errChan<-err;
-							break outer
-						}
-					}
-					err := dataCategory.RunAnalyzer(ctx)
-					if err != nil {
-						errChan<-err;
-						break outer
-					}
-
-
-
+						},
+				)
+				if err != nil {
+					errChan<-err;
+					break outer
 				}
 
 				select {
@@ -448,7 +442,7 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				}
 
 				select {
-				case dataCategory.columnDataChan <- columnData:
+				case columnData.Column.columnDataChan <- columnData:
 				case <-ctx.Done():
 					return
 				}

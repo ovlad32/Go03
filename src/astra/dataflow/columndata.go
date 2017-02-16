@@ -10,6 +10,7 @@ type ColumnDataType struct {
 	RawData      []byte
 	RawDataLength int
 	HashValue    []byte
+	HashInt      uint64
 }
 
 type RowDataType struct{

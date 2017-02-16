@@ -199,6 +199,7 @@ func main() {
 				}
 			}
 			for _,col := range inTable.Columns{
+				err = col.CloseStorage()
 				fmt.Println(col.ColumnName.String())
 				fmt.Println("----------------")
 				for k,_ := range(col.Categories) {

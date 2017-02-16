@@ -4,7 +4,7 @@ package metadata
 import (
 	jsnull "../src/util/jsnull"
 	utils "./../utils"
-	sparsebitset "./../sparsebitset"
+	sparsebitset "../src/sparsebitset"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"encoding/binary"
