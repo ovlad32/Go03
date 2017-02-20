@@ -4,7 +4,6 @@ import (
 	"astra/nullable"
 	"context"
 	"fmt"
-	"sync"
 )
 
 type DataCategorySimpleType struct {
@@ -81,9 +80,7 @@ type DataCategoryType struct {
 
 func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error){
 	if dc.stringAnalysisChan == nil {
-		var wg sync.WaitGroup
 		dc.stringAnalysisChan = make(chan string,1000)
-		wg.Add(1)
 		go func() {
 		outer:
 			for {
@@ -108,19 +105,13 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error){
 					}
 				}
 			}
-			wg.Done()
-		}()
-		go func() {
-			wg.Wait()
-			close(dc.stringAnalysisChan)
 		}()
 	}
 
 	if dc.numericAnalysisChan == nil {
-		var wg sync.WaitGroup
-		dc.numericAnalysisChan = make(chan float64,100)
-		wg.Add(1)
+		dc.numericAnalysisChan = make(chan float64,1000)
 		go func() {
+
 		outer:
 			for {
 				select {
@@ -144,18 +135,19 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error){
 
 				}
 			}
-			wg.Done()
-		}()
-
-		go func() {
-			wg.Wait()
-			close(dc.numericAnalysisChan)
 		}()
 	}
 	return
 }
 
-
+func (dc *DataCategoryType) CloseAnalyzerChannels() {
+	if dc.numericAnalysisChan != nil {
+		close(dc.numericAnalysisChan)
+	}
+	if dc.stringAnalysisChan != nil {
+		close(dc.stringAnalysisChan)
+	}
+}
 
 
 func (cdc DataCategoryType) Key() (result string) {

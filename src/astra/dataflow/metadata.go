@@ -16,10 +16,11 @@ import (
 )
 
 type boltStorageGroupType struct {
-	storageLock       sync.Mutex
 	storage           *bolt.DB
 	currentTx         *bolt.Tx
-	rootBucket        *bolt.Bucket
+	currentTxLock sync.Mutex
+	currentBucket     *bolt.Bucket
+	currentBucketLock sync.Mutex
 	pathToStorageFile string
 	storageName       string
 	columnId          int64
@@ -64,12 +65,13 @@ func (s *boltStorageGroupType) Open(
 		storageName,
 	)
 	s.storage, err = bolt.Open(pathToStorageFile, 700, &bolt.Options{InitialMmapSize: 16})
+	s.storage.MaxBatchSize = 100000
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening database for %v storage %v", storageName, pathToStorageFile)
 		return err
 	}
 	s.currentTx, err = s.storage.Begin(true)
-	fmt.Println("begin transaction " +storageName)
+	//fmt.Println("begin transaction " +storageName)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening transaction on %v storage %v", storageName, pathToStorageFile)
 		return err
@@ -82,11 +84,17 @@ func (s *boltStorageGroupType) Open(
 func(s *boltStorageGroupType) OpenDefaultBucket() (err error){
 	funcName := "boltStorageGroupType.Open." + s.storageName
 	tracelog.Started(packageName, funcName)
-	if s.storageName == "hash" {
-		s.rootBucket, err = s.currentTx.CreateBucketIfNotExists([]byte("0"))
-		if err != nil {
-			tracelog.Errorf(err, packageName, funcName, "Creating root bucket on %v  storage %v", s.storageName, s.pathToStorageFile)
-			return err
+	if s.storageName == "hash" && s.currentBucket == nil{
+		bucketName := []byte("0")
+		s.currentBucketLock.Lock()
+		s.currentBucket = s.currentTx.Bucket(bucketName)
+		if s.currentBucket == nil {
+			s.currentBucket,err = s.currentTx.CreateBucket(bucketName)
+			s.currentBucketLock.Unlock()
+			if err != nil {
+				tracelog.Errorf(err, packageName, funcName, "Creating default bucket on %v  storage %v", s.storageName, s.pathToStorageFile)
+				return err
+			}
 		}
 	}
 	tracelog.Completed(packageName,funcName)
@@ -94,22 +102,28 @@ func(s *boltStorageGroupType) OpenDefaultBucket() (err error){
 }
 
 func (s *boltStorageGroupType) Close() (err error) {
-	funcName := "boltStorageGroupType.Close.delayedClose"
+	funcName := "boltStorageGroupType.Close"
 	tracelog.Started(packageName, funcName)
-	if s.storage != nil {
+	if s.currentTx != nil {
+		s.currentTxLock.Lock()
 		err = s.currentTx.Commit()
-		fmt.Println("close transaction " +s.storageName)
+		s.currentTxLock.Unlock()
+		s.currentTx = nil
+		fmt.Println("close transaction " + s.storageName)
 		if err != nil {
 			tracelog.Errorf(err, packageName, funcName, "Closing transaction on storage %v", s.pathToStorageFile)
 			return
 		}
 
+	}
+
+	if s.storage != nil {
 		err = s.storage.Close()
+		s.storage = nil
 		if err != nil {
 			tracelog.Errorf(err, packageName, funcName, "Closing database for %v storage %v", s.storageName, s.pathToStorageFile)
 			return
 		}
-		s.storage = nil
 	}
 	tracelog.Completed(packageName, funcName)
 	return
@@ -131,6 +145,8 @@ type ColumnInfoType struct {
 
 func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *DataCategoryType, err error),
 ) (result *DataCategoryType, err error) {
+	funcName := "ColumnInfoType.CategoryByKey"
+	tracelog.Started(packageName,funcName)
 	if ci.Categories == nil {
 		ci.categoryLock.Lock()
 		if ci.Categories == nil {
@@ -144,36 +160,47 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 		if callBack != nil {
 			result,err = callBack()
 			if err != nil {
+				ci.categoryLock.Unlock()
+				tracelog.Error(err,packageName,funcName)
 				return nil,err
 			}
 		}
 		ci.Categories[key] = result
+		ci.categoryLock.Unlock()
 	} else {
+		ci.categoryLock.Unlock()
 		result = value
 	}
-	ci.categoryLock.Unlock()
 
+	tracelog.Completed(packageName,funcName)
 	return result, err
 }
 func (ci *ColumnInfoType) CloseStorage() (err error) {
 	if ci.columnDataChan != nil {
+		close(ci.columnDataChan)
+		if ci.Categories != nil {
+			for _,category := range ci.Categories{
+				category.CloseAnalyzerChannels()
+			}
+		}
 		err = ci.bitsetStorage.Close()
 		err = ci.hashStorage.Close()
-		close(ci.columnDataChan)
+
 	}
 	return err
 }
 
+
 func (ci *ColumnInfoType) RunStorage(ctx context.Context) (errChan chan error) {
 	errChan = make(chan error, 1)
-
 	//TODO: check emptyness
 	if ci.columnDataChan == nil {
-		ci.columnDataChan = make(chan *ColumnDataType, 1000)
+		ci.columnDataChan = make(chan *ColumnDataType,1000)
 		go func() {
+			funcName:= "ColumnInfoType.RunStorage.gofunc1"
+//			var wg sync.WaitGroup
 			writtenHashValues := uint64(0)
 			writtenBitsetValues := uint64(0)
-			offsetBytes := make([]byte, 0, 8)
 		outer:
 			for {
 				select {
@@ -183,57 +210,84 @@ func (ci *ColumnInfoType) RunStorage(ctx context.Context) (errChan chan error) {
 					if !opened {
 						break outer
 					}
-					go func() {
-						offsetBytes = B8.Clear(offsetBytes)
-						B8.UInt64ToBuff(offsetBytes, columnData.LineOffset)
-						ci.hashStorage.rootBucket.Put(columnData.HashValue, offsetBytes)
+					//wg.Add(2)
+					func(val *ColumnDataType) {
+					//	defer wg.Done()
+						offsetBytes := B8.UInt64ToB8(val.LineOffset)
+						var key B8.B8Type
+						copy(key[:],val.HashValue)
+						ci.hashStorage.currentBucket.Put(key[:], offsetBytes)
 						writtenHashValues++
-						if writtenHashValues >= 1000 {
+						if writtenHashValues >= 100000 {
 							writtenHashValues = 0
+							ci.hashStorage.currentTxLock.Lock()
 							err := ci.hashStorage.currentTx.Commit()
 							if err != nil {
+								tracelog.Errorf(err,packageName,funcName,"Commit 1000 hash values")
 								errChan <- err
 								return
 							}
 
 							ci.hashStorage.currentTx, err = ci.hashStorage.storage.Begin(true)
 							if err != nil {
+								tracelog.Errorf(err,packageName,funcName,"a new Tx for 1000 hash values")
 								errChan <- err
 								return
 							}
+							ci.hashStorage.currentTxLock.Unlock()
 							ci.hashStorage.OpenDefaultBucket()
 						}
-					}()
-					go func() {
+					}(columnData)
+					func(val *ColumnDataType) {
+						var err error
+						//defer wg.Done()
 						funcName := "RunStorage.bitset"
-						key := columnData.dataCategoryKey
-						bucket, err := ci.bitsetStorage.currentTx.CreateBucketIfNotExists([]byte(key))
-						if err != nil {
-							tracelog.Errorf(err,packageName,funcName,"create bucket category %v",key)
-							errChan <- err
-							return
+						key := val.dataCategoryKey
+						bucket := ci.bitsetStorage.currentTx.Bucket([]byte(key))
+						if bucket == nil {
+							ci.bitsetStorage.currentBucketLock.Lock()
+							bucket = ci.bitsetStorage.currentTx.Bucket([]byte(key))
+							if bucket == nil {
+								bucket, err = ci.bitsetStorage.currentTx.CreateBucket([]byte(key))
+								ci.bitsetStorage.currentBucketLock.Unlock()
+								if err != nil {
+									tracelog.Errorf(err,packageName,funcName,"create bucket category %v",key)
+									errChan <- err
+									return
+								}
+							}
 						}
-
-						baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(columnData.HashInt)
+						baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(val.HashInt)
 						baseB8Value := B8.UInt64ToB8(baseUIntValue)
-						bits, _ := B8.B8ToUInt64(bucket.Get(baseB8Value))
+						bitsBytes := bucket.Get(baseB8Value)
+						bits, _ := B8.B8ToUInt64(bitsBytes)
 						bits = bits | (1 << offsetUIntValue)
-						bucket.Put(baseB8Value, B8.UInt64ToB8(bits))
-						if writtenBitsetValues >= 1000 {
+						bitsBytes = B8.UInt64ToB8(bits)
+						bucket.Put(baseB8Value, bitsBytes)
+
+						writtenBitsetValues++
+						if writtenBitsetValues >= 100000 {
+							//fmt.Println("bitset1000")
 							writtenBitsetValues = 0
-							err := ci.bitsetStorage.currentTx.Commit()
+							ci.bitsetStorage.currentTxLock.Lock()
+							err = ci.bitsetStorage.currentTx.Commit()
 							if err != nil {
+								tracelog.Errorf(err,packageName,funcName,"Commit 1000 bitset values")
 								errChan <- err
 								return
 							}
+
 
 							ci.bitsetStorage.currentTx, err = ci.bitsetStorage.storage.Begin(true)
 							if err != nil {
+								tracelog.Errorf(err,packageName,funcName,"a new Tx for 1000 bitset values")
 								errChan <- err
 								return
 							}
+							ci.bitsetStorage.currentTxLock.Unlock()
 						}
-					}()
+					}(columnData)
+					//wg.Wait()
 				}
 			}
 			close(errChan)

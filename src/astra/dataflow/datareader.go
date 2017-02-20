@@ -43,7 +43,7 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 	var x0D = []byte{0x0D}
 	var wg sync.WaitGroup
 
-	outChan = make(chan *ColumnDataType,1000)
+	outChan = make(chan *ColumnDataType, 1000)
 	errChan = make(chan error, 1)
 
 	writeToTank := func(rowData [][]byte) (result int) {
@@ -102,8 +102,8 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 			columnData.HashInt = hashMethod.Sum64()
 			B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
 		} else {
-			columnData.HashValue = append(columnData.HashValue, (columnBytes)...)
-			columnData.HashInt,_ = B8.B8ToUInt64(columnData.HashValue)
+			copy(columnData.HashValue[dr.Config.HashValueLength-byteLength:], columnBytes)
+			columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
 		}
 		if false || "!CREDIT_BLOCKED" == column.ColumnName.String() {
 			fmt.Printf("%v %v %v\n", column.ColumnName.String(), string(columnBytes), columnData.HashValue)
@@ -326,7 +326,7 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 	errChan chan error,
 ) {
 	errChan = make(chan error, 1)
-	outChan = make(chan *ColumnDataType)
+	outChan = make(chan *ColumnDataType,1000)
 	var wg sync.WaitGroup
 
 	processColumnData := func() {
@@ -339,9 +339,8 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				if !opened {
 					break outer
 				}
-
 				if columnData.RawDataLength == 0 {
-					return
+					continue
 				}
 				stringValue := string(columnData.RawData)
 
@@ -378,11 +377,10 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				//TODO:REDESIGN THIS!
 				//cd.Column.AnalyzeStringValue(floatValue);
 
-
 				columnData.dataCategoryKey = simple.Key()
 
-				dataCategory,err := columnData.Column.CategoryByKey(
-					columnData.dataCategoryKey ,
+				dataCategory, err := columnData.Column.CategoryByKey(
+					columnData.dataCategoryKey,
 					func() (result *DataCategoryType, err error) {
 						result = simple.covert()
 						count := len(columnData.Column.Categories)
@@ -394,7 +392,6 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 								dr.Config.StoragePath,
 								columnData.Column.Id.Value(),
 							)
-
 							if err != nil {
 								return
 							}
@@ -407,46 +404,49 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 								return
 							}
 
-							err = result.RunAnalyzer(ctx)
-							if err != nil {
-								return
-							}
 							//TODO: e3 is a channel
 							e3 := columnData.Column.RunStorage(ctx)
 							go func() {
-							select {
-							case <-ctx.Done():
-							case err := <- e3:
-								errChan<-err
-								return
-							}} ()
+								select {
+								case <-ctx.Done():
+								case err := <-e3:
+									if err != nil {
+										errChan <- err
+									}
+								}
+							}()
+						}
+						err = result.RunAnalyzer(ctx)
+						if err != nil {
+							return
 						}
 						return
-						},
+					},
 				)
+
 				if err != nil {
-					errChan<-err;
+					errChan <- err
 					break outer
 				}
 
 				select {
 				case <-ctx.Done():
-					return
+					break outer
 				case dataCategory.stringAnalysisChan <- stringValue:
 				}
 
 				if simple.IsNumeric {
 					select {
 					case <-ctx.Done():
-						return
+						break outer
 					case dataCategory.numericAnalysisChan <- floatValue:
 					}
 				}
 
 				select {
-				case columnData.Column.columnDataChan <- columnData:
 				case <-ctx.Done():
-					return
+					break outer
+				case columnData.Column.columnDataChan <- columnData:
 				}
 
 				select {

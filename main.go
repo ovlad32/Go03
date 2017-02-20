@@ -102,8 +102,8 @@ func main() {
 	dr := dataflow.DataReaderType{
 		Config: &dataflow.DumpConfigType{
 			BasePath:        "C:/home/data.151/",
-			TankPath:        "./BINDATA/",
-			StoragePath:     "./BINDATA/",
+			TankPath:        "G:/BINDATA/",
+			StoragePath:     "G:/BINDATA/",
 			InputBufferSize: 5 * 1024,
 			GZipped:         true,
 			FieldSeparator:  31,
@@ -199,20 +199,20 @@ func main() {
 				}
 			}
 			for _,col := range inTable.Columns{
-				err = col.CloseStorage()
 				fmt.Println(col.ColumnName.String())
 				fmt.Println("----------------")
 				for k,_ := range(col.Categories) {
 					fmt.Printf("%v,",k)
 				}
 				fmt.Println("\n----------------\n")
+				err = col.CloseStorage()
 			}
 			wg.Done()
 			fmt.Println(". Done")
 
 		}(dataflow.ExpandFromMetadataTable(table))
 
-	//	break;
+		//break;
 	}
 	wg.Wait()
 
