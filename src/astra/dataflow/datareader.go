@@ -16,6 +16,10 @@ import (
 	"hash/fnv"
 	"strconv"
 	"strings"
+	"github.com/boltdb/bolt"
+	"encoding/gob"
+	"math"
+	"github.com/cayleygraph/cayley/graph/memstore/b"
 )
 
 type DumpConfigType struct {
@@ -213,113 +217,91 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
 	return outChan, errChan
 }
+type StorageType struct{
+	db *bolt.DB
+	tx *bolt.Tx
+	bucket *bolt.Bucket
+}
 
-func (dr *DataReaderType) SplitToColumns(ctx context.Context, rowDataChan chan *RowDataType, colDataPool chan *ColumnDataType) (
-	outChan chan *ColumnDataType,
-	errChan chan error,
-) {
-	outChan = make(chan *ColumnDataType)
-	errChan = make(chan error, 1)
-	var wg sync.WaitGroup
+type StorageColumnBlockType struct{
+	Data []byte;
+}
+var offsetPoolSizeLog2 int = 4
+/*
+func(s StorageColumnBlockType) ColumnId() []uint64 {
+	pointer:=0;
+	for {
+		columnId := binary.LittleEndian.Uint64(s.data[pointer:pointer+8])
+		pointer  += 8;
+		watermark := binary.LittleEndian.Uint64(s.data[pointer:pointer+8])
+		pointer  += 8;
+		pointer = ((watermark>>10)+1)<<10 // (floor(watermark/10)+1)*10
 
-	processRowData := func() {
-	outer:
+	}
+}*/
+func nextPagePosition(currentPossition int)  int64{
+	return ((currentPossition >> offsetPoolSizeLog2)+1)<<offsetPoolSizeLog2;
+}
+
+func(s* StorageColumnBlockType) append(columnId uint64,offset uint64) (err error){
+	// columnId1,watermarkToLastOffset[offset1,offset2...offset128]
+	if s.Data == nil {
+		s.Data = make([]byte,2*8 + 2<<offsetPoolSizeLog2)
+		b := bytes.NewBuffer(s.Data);
+		b.Reset()
+		initialWatermark := 8;
+		nbytes, err := fmt.Fprint(b,columnId,initialWatermark,offset);
+		if err != nil {
+			return err
+		}
+		_=nbytes
+		s.Data = b.Bytes()
+	} else {
+		dataLen := len(s.Data)
+		b := bytes.NewBuffer(s.Data);
+		var storedColumnId uint64
+		var storedWatermark uint64
+		var position int = 0
 		for {
-			select {
-			case <-ctx.Done():
-				break outer
-			case rd, opened := <-rowDataChan:
-				if !opened {
-					break outer
+			_,err := fmt.Fscan(b,&storedColumnId,&storedWatermark)
+			position += 2
+			if err == io.EOF {
+				b.Grow(2*8 + 2<<offsetPoolSizeLog2)
+				initialWatermark := 8;
+				_, err = fmt.Fprint(b,columnId,initialWatermark,offset);
+				if err != nil {
+					return err
 				}
-				wg.Add(1)
-				go func(ird *RowDataType) {
-					var hashMethod = fnv.New64()
+				s.Data = b.Bytes()
+				break;
+			} else 	if err != nil {
+				return err
+			}
+			if storedColumnId != columnId {
+				next := nextPagePosition(position)
+				position += next
+				b.Next(next)
+				continue
+			}
 
-				outer:
-					for columnNumber, columnDataBytes := range ird.RawData {
-						byteLength := len(columnDataBytes)
-						if byteLength == 0 {
-							continue
-						}
-						var columnData *ColumnDataType
-
-						select {
-						case <-ctx.Done():
-						case columnData = <-colDataPool:
-						default:
-							columnData = new(ColumnDataType)
-						}
-
-						if columnData.RawData == nil || cap(columnData.RawData) < byteLength {
-							columnData.RawData = make([]byte, 0, byteLength)
-						} else {
-							columnData.RawData = columnData.RawData[0:0]
-						}
-
-						columnData.HashValue = B8.Clear(columnData.HashValue)
-
-						columnData.RawDataLength = byteLength
-						columnData.LineNumber = ird.LineNumber
-						columnData.LineOffset = ird.LineOffset
-						columnData.Column = ird.Table.Columns[columnNumber]
-
-						columnData.RawData = append(columnData.RawData, columnDataBytes...)
-						if columnData.RawDataLength > dr.Config.HashValueLength {
-							hashMethod.Reset()
-							hashMethod.Write(columnData.RawData)
-							hashUIntValue := hashMethod.Sum64()
-							B8.UInt64ToBuff(columnData.HashValue, hashUIntValue)
-						} else {
-							columnData.HashValue = append(columnData.HashValue, columnDataBytes...)
-						}
-
-						/*columnData := &ColumnDataType{
-							LineNumber: ird.LineNumber,
-							LineOffset: ird.LineOffset,
-							Column:     ird.Table.Columns[columnNumber],
-							RawDataLength:byteLength,
-						}
-						if columnData.RawDataLength>dr.Config.HashValueLength{
-							columnData.RawData = columnDataBytes
-							hashMethod.Reset()
-							hashMethod.Write(columnData.RawData)
-							hashUIntValue := hashMethod.Sum64()
-							columnData.HashValue = B8.UInt64ToB8(hashUIntValue)
-						} else if columnData.RawDataLength == dr.Config.HashValueLength {
-							columnData.RawData = columnDataBytes
-							columnData.HashValue = columnDataBytes
-						} else {
-							columnData.HashValue = make([]byte, dr.Config.HashValueLength)
-							copy(columnData.HashValue, columnDataBytes)
-							columnData.RawData = columnData.HashValue[:columnData.RawDataLength]
-						}*/
-						select {
-						case <-ctx.Done():
-							break outer
-						case outChan <- columnData:
-						}
-					}
-					wg.Done()
-				}(rd)
+			position += storedWatermark + 8
+			if dataLen < position {
+				limit := nextPagePosition(position)
+				if position < limit - 1 {
+					b.Next(position)
+					fmt.Fprint(b, offset)
+				} else {
+				//
+				}
+			} else {
 
 			}
 		}
-		wg.Done()
-		return
 	}
-
-	wg.Add(1)
-	go processRowData()
-
-	go func() {
-		wg.Wait()
-		close(outChan)
-		close(errChan)
-	}()
-
-	return outChan, errChan
+	return
 }
+
+
 
 func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
 	outChan chan *ColumnDataType,
@@ -328,6 +310,7 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 	errChan = make(chan error, 1)
 	outChan = make(chan *ColumnDataType,1000)
 	var wg sync.WaitGroup
+	var storages map[string]*StorageType = make(map[string]*StorageType);
 
 	processColumnData := func() {
 	outer:
@@ -376,8 +359,58 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				}
 				//TODO:REDESIGN THIS!
 				//cd.Column.AnalyzeStringValue(floatValue);
+				storageKey:=""
+				if columnData.RawDataLength<8 {
+					storageKey="R"
+				} else {
+					storageKey=simple.Key()
+				}
+				var storage *StorageType;
+				if value, found := storages[storageKey];!found {
+					db,err:= bolt.Open("./"+storageKey+".bolt.db",0700,nil)
+					if err != nil{
+						errChan<-err
+						break outer
+					}
+					tx,err := db.Begin(true)
+					if err != nil{
+						errChan<-err
+						break outer
+					}
 
-				columnData.dataCategoryKey = simple.Key()
+					bucket,err := tx.CreateBucketIfNotExists([]byte("0"))
+					if err != nil{
+						errChan<-err
+						break outer
+					}
+
+					storage := &StorageType{
+						db:db,
+						tx:tx,
+						bucket:bucket,
+					}
+
+					storages[storageKey] = storage
+
+				}  else {
+					storage = value
+				}
+
+				if storage.tx == nil {
+					tx,err := storage.db.Begin(true)
+					if err != nil{
+						errChan<-err
+						break outer
+					}
+					storage.tx = tx
+					storage.bucket = tx.Bucket([]byte("0"))
+				}
+
+				//storageValue := storage.bucket.Get(columnData.RawData)
+
+
+
+
 
 				dataCategory, err := columnData.Column.CategoryByKey(
 					columnData.dataCategoryKey,
