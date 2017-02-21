@@ -17,9 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"github.com/boltdb/bolt"
-	"encoding/gob"
-	"math"
-	"github.com/cayleygraph/cayley/graph/memstore/b"
+	"io/ioutil"
 )
 
 type DumpConfigType struct {
@@ -226,7 +224,7 @@ type StorageType struct{
 type StorageColumnBlockType struct{
 	Data []byte;
 }
-var offsetPoolSizeLog2 int = 4
+var offsetPoolSizeLog2 uint = 4
 /*
 func(s StorageColumnBlockType) ColumnId() []uint64 {
 	pointer:=0;
@@ -239,65 +237,41 @@ func(s StorageColumnBlockType) ColumnId() []uint64 {
 
 	}
 }*/
-func nextPagePosition(currentPossition int)  int64{
+func NextPagePosition(currentPossition uint64)  uint64{
 	return ((currentPossition >> offsetPoolSizeLog2)+1)<<offsetPoolSizeLog2;
 }
 
-func(s* StorageColumnBlockType) append(columnId uint64,offset uint64) (err error){
+func(s* StorageColumnBlockType) Append(columnId uint64,offset uint64) (err error){
 	// columnId1,watermarkToLastOffset[offset1,offset2...offset128]
+	var position uint64 = 0
+	var currentWatermark uint64 = 8;
 	if s.Data == nil {
 		s.Data = make([]byte,2*8 + 2<<offsetPoolSizeLog2)
-		b := bytes.NewBuffer(s.Data);
-		b.Reset()
-		initialWatermark := 8;
-		nbytes, err := fmt.Fprint(b,columnId,initialWatermark,offset);
-		if err != nil {
-			return err
-		}
-		_=nbytes
-		s.Data = b.Bytes()
+		binary.LittleEndian.PutUint64(s.Data[position:],columnId)
+		position += 8
+		binary.LittleEndian.PutUint64(s.Data[position:],currentWatermark)
+		position += 8
+		binary.LittleEndian.PutUint64(s.Data[position:],offset)
 	} else {
-		dataLen := len(s.Data)
-		b := bytes.NewBuffer(s.Data);
-		var storedColumnId uint64
-		var storedWatermark uint64
-		var position int = 0
+		//dataLen := uint64(len(s.Data))
 		for {
-			_,err := fmt.Fscan(b,&storedColumnId,&storedWatermark)
-			position += 2
-			if err == io.EOF {
-				b.Grow(2*8 + 2<<offsetPoolSizeLog2)
-				initialWatermark := 8;
-				_, err = fmt.Fprint(b,columnId,initialWatermark,offset);
-				if err != nil {
-					return err
-				}
-				s.Data = b.Bytes()
-				break;
-			} else 	if err != nil {
-				return err
+			var storedColumnId uint64
+			var storedWatermark uint64
+			storedColumnId = binary.LittleEndian.Uint64(s.Data[position:])
+			position += 8
+			waterMarkPosition := position
+			storedWatermark = binary.LittleEndian.Uint64(s.Data[position:])
+			position += 8
+			//next := NextPagePosition(storedWatermark)
+			if storedColumnId == columnId {
+				binary.LittleEndian.PutUint64(s.Data[position + storedWatermark:], offset)
+				currentWatermark = storedWatermark + 8
+				binary.LittleEndian.PutUint64(s.Data[waterMarkPosition:], currentWatermark)
 			}
-			if storedColumnId != columnId {
-				next := nextPagePosition(position)
-				position += next
-				b.Next(next)
-				continue
-			}
-
-			position += storedWatermark + 8
-			if dataLen < position {
-				limit := nextPagePosition(position)
-				if position < limit - 1 {
-					b.Next(position)
-					fmt.Fprint(b, offset)
-				} else {
-				//
-				}
-			} else {
-
-			}
+			break;
 		}
 	}
+	ioutil.WriteFile("./block",s.Data,700)
 	return
 }
 
