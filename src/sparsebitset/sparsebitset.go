@@ -80,7 +80,7 @@ func offsetBits(n uint64) (uint64, uint64) {
 	return n >> log2WordSize, n & modWordSize
 }
 func OffsetBits(n uint64) (uint64, uint64) {
-	return n >> log2WordSize, n & modWordSize
+	return (n >> log2WordSize), (n & modWordSize)
 }
 
 // block is a pair of (offset, mask).

@@ -57,13 +57,16 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 func main() {
+	fmt.Println(2&63)
 	b := &dataflow.StorageColumnBlockType{}
 	b.Append(uint64(35),uint64(1))
-	b.Append(uint64(35),uint64(2))
+	b.Append(uint64(35),uint64(128))
 	b.Append(uint64(35),uint64(3))
-	b.Append(uint64(35),uint64(4))
-	b.Append(uint64(35),uint64(5))
+	b.Append(uint64(35),uint64(384))
+	b.Append(uint64(34),uint64(3))
 	b.Append(uint64(35),uint64(6))
+	b.Append(uint64(36),uint64(2))
+	b.Append(uint64(35),uint64(129))
 }
 func main2() {
 

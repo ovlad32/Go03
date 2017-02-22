@@ -18,6 +18,7 @@ import (
 	"strings"
 	"github.com/boltdb/bolt"
 	"io/ioutil"
+	"sparsebitset"
 )
 
 type DumpConfigType struct {
@@ -240,36 +241,73 @@ func(s StorageColumnBlockType) ColumnId() []uint64 {
 func NextPagePosition(currentPossition uint64)  uint64{
 	return ((currentPossition >> offsetPoolSizeLog2)+1)<<offsetPoolSizeLog2;
 }
+var (
+	columnIdPosition = uint64(0)
+	countKeyValPosition = uint64(8)
+	keyValStartPosition = uint64(16)
+	keyLen = uint64(8)
+	valLen = uint64(8)
+)
 
 func(s* StorageColumnBlockType) Append(columnId uint64,offset uint64) (err error){
 	// columnId1,watermarkToLastOffset[offset1,offset2...offset128]
-	var position uint64 = 0
-	var currentWatermark uint64 = 8;
+	base,bitPosition := sparsebitset.OffsetBits(offset)
 	if s.Data == nil {
-		s.Data = make([]byte,2*8 + 2<<offsetPoolSizeLog2)
-		binary.LittleEndian.PutUint64(s.Data[position:],columnId)
-		position += 8
-		binary.LittleEndian.PutUint64(s.Data[position:],currentWatermark)
-		position += 8
-		binary.LittleEndian.PutUint64(s.Data[position:],offset)
+		s.Data = make([]byte,keyValStartPosition+ keyLen + valLen)
+		binary.LittleEndian.PutUint64(s.Data[columnIdPosition:],columnId)
+		binary.LittleEndian.PutUint64(s.Data[countKeyValPosition:],uint64(1))
+		binary.LittleEndian.PutUint64(s.Data[keyValStartPosition:],base)
+		binary.LittleEndian.PutUint64(s.Data[keyValStartPosition+ keyLen:],1<<bitPosition)
 	} else {
-		//dataLen := uint64(len(s.Data))
+		position := uint64(0)
+		dataLen := uint64(len(s.Data))
+		columnFound := false
+		// making a new buffer in the worst case: we add a new column
+		newBuffer := make([]byte, 0, dataLen + keyValStartPosition + keyLen + valLen)
 		for {
-			var storedColumnId uint64
-			var storedWatermark uint64
-			storedColumnId = binary.LittleEndian.Uint64(s.Data[position:])
-			position += 8
-			waterMarkPosition := position
-			storedWatermark = binary.LittleEndian.Uint64(s.Data[position:])
-			position += 8
-			//next := NextPagePosition(storedWatermark)
+			storedColumnId := binary.LittleEndian.Uint64(s.Data[position + columnIdPosition:])
+			keyValCount := binary.LittleEndian.Uint64(s.Data[position + countKeyValPosition:])
+			bytesToCopy := (keyValStartPosition + keyValCount * (keyLen + valLen))
+			newBuffer = append(newBuffer[position:position], s.Data[position:position + bytesToCopy]...)
 			if storedColumnId == columnId {
-				binary.LittleEndian.PutUint64(s.Data[position + storedWatermark:], offset)
-				currentWatermark = storedWatermark + 8
-				binary.LittleEndian.PutUint64(s.Data[waterMarkPosition:], currentWatermark)
+				columnFound = true
+				kvPosition := position + keyValStartPosition
+				baseFound := false
+				for index := uint64(0); index < keyValCount; index++ {
+					storedBase := binary.LittleEndian.Uint64(newBuffer[kvPosition:])
+					kvPosition += keyLen
+					if storedBase == base {
+						storedBits := binary.LittleEndian.Uint64(newBuffer[kvPosition :])
+						newBits := storedBits | (1 << bitPosition);
+						binary.LittleEndian.PutUint64(newBuffer[kvPosition:], newBits)
+						baseFound = true
+						break
+					}
+					kvPosition += valLen
+				}
+				if !baseFound {
+					keyValCount += 1
+					newBuffer = append(newBuffer,make([]byte,valLen + keyLen)...)
+					binary.LittleEndian.PutUint64(newBuffer[position + countKeyValPosition:], keyValCount)
+					binary.LittleEndian.PutUint64(newBuffer[position + bytesToCopy:], base)
+					bytesToCopy += keyLen
+					binary.LittleEndian.PutUint64(newBuffer[position + bytesToCopy:], (1 << bitPosition))
+					bytesToCopy += valLen
+				}
 			}
-			break;
+			position += bytesToCopy
+			if position>=dataLen {
+				break;
+			}
 		}
+		if !columnFound {
+			newBuffer = append(newBuffer,make([]byte,keyValStartPosition + keyLen + valLen)...)
+			binary.LittleEndian.PutUint64(newBuffer[position + columnIdPosition:],columnId)
+			binary.LittleEndian.PutUint64(newBuffer[position + countKeyValPosition:],uint64(1))
+			binary.LittleEndian.PutUint64(newBuffer[position + keyValStartPosition:],base)
+			binary.LittleEndian.PutUint64(newBuffer[position + keyValStartPosition+ keyLen:],1<<bitPosition)
+		}
+		s.Data = newBuffer
 	}
 	ioutil.WriteFile("./block",s.Data,700)
 	return
