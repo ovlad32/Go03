@@ -13,12 +13,12 @@ import (
 	"sync"
 
 	"astra/B8"
-	"hash/fnv"
-	"strconv"
-	"strings"
 	"github.com/boltdb/bolt"
+	"hash/fnv"
 	"io/ioutil"
 	"sparsebitset"
+	"strconv"
+	"strings"
 )
 
 type DumpConfigType struct {
@@ -216,16 +216,19 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
 	return outChan, errChan
 }
-type StorageType struct{
-	db *bolt.DB
-	tx *bolt.Tx
+
+type StorageType struct {
+	db     *bolt.DB
+	tx     *bolt.Tx
 	bucket *bolt.Bucket
 }
 
-type StorageColumnBlockType struct{
-	Data []byte;
+type StorageColumnBlockType struct {
+	Data []byte
 }
+
 var offsetPoolSizeLog2 uint = 4
+
 /*
 func(s StorageColumnBlockType) ColumnId() []uint64 {
 	pointer:=0;
@@ -238,91 +241,89 @@ func(s StorageColumnBlockType) ColumnId() []uint64 {
 
 	}
 }*/
-func NextPagePosition(currentPossition uint64)  uint64{
-	return ((currentPossition >> offsetPoolSizeLog2)+1)<<offsetPoolSizeLog2;
+func NextPagePosition(currentPossition uint64) uint64 {
+	return ((currentPossition >> offsetPoolSizeLog2) + 1) << offsetPoolSizeLog2
 }
+
 var (
-	columnIdPosition = uint64(0)
+	columnIdPosition    = uint64(0)
 	countKeyValPosition = uint64(8)
 	keyValStartPosition = uint64(16)
-	keyLen = uint64(8)
-	valLen = uint64(8)
+	keyLen              = uint64(8)
+	valLen              = uint64(8)
 )
 
-func(s* StorageColumnBlockType) Append(columnId uint64,offset uint64) (err error){
+func (s *StorageColumnBlockType) Append(columnId uint64, offset uint64) (err error) {
 	// columnId1,watermarkToLastOffset[offset1,offset2...offset128]
-	base,bitPosition := sparsebitset.OffsetBits(offset)
-	if s.Data == nil {
-		s.Data = make([]byte,keyValStartPosition+ keyLen + valLen)
-		binary.LittleEndian.PutUint64(s.Data[columnIdPosition:],columnId)
-		binary.LittleEndian.PutUint64(s.Data[countKeyValPosition:],uint64(1))
-		binary.LittleEndian.PutUint64(s.Data[keyValStartPosition:],base)
-		binary.LittleEndian.PutUint64(s.Data[keyValStartPosition+ keyLen:],1<<bitPosition)
-	} else {
-		position := uint64(0)
+	base, bitPosition := sparsebitset.OffsetBits(offset)
+	/*if s.Data == nil {
+		s.Data = make([]byte, keyValStartPosition+keyLen+valLen)
+		binary.LittleEndian.PutUint64(s.Data[columnIdPosition:], columnId)
+		binary.LittleEndian.PutUint64(s.Data[countKeyValPosition:], uint64(1))
+		binary.LittleEndian.PutUint64(s.Data[keyValStartPosition:], base)
+		binary.LittleEndian.PutUint64(s.Data[keyValStartPosition+keyLen:], 1<<bitPosition)
+	} else {*/
+		sourcePosition := uint64(0)
+		destPosition := uint64(0)
 		dataLen := uint64(len(s.Data))
 		columnFound := false
-		// making a new buffer in the worst case: we add a new column
-		newBuffer := make([]byte, 0, dataLen + keyValStartPosition + keyLen + valLen)
-		for {
-			storedColumnId := binary.LittleEndian.Uint64(s.Data[position + columnIdPosition:])
-			keyValCount := binary.LittleEndian.Uint64(s.Data[position + countKeyValPosition:])
-			bytesToCopy := (keyValStartPosition + keyValCount * (keyLen + valLen))
-			newBuffer = append(newBuffer[position:position], s.Data[position:position + bytesToCopy]...)
+		// making a new buffer as large like the worst scenario: we add a new column
+		newBuffer := make([]byte, 0, dataLen+keyValStartPosition+keyLen+valLen)
+		for dataLen > 0 && sourcePosition < dataLen {
+			storedColumnId := binary.LittleEndian.Uint64(s.Data[sourcePosition+columnIdPosition:])
+			keyValCount := binary.LittleEndian.Uint64(s.Data[sourcePosition+countKeyValPosition:])
+			bytesToCopy := (keyValStartPosition + keyValCount*(keyLen+valLen))
+			newBuffer = append(newBuffer, s.Data[sourcePosition:sourcePosition+bytesToCopy]...)
 			if storedColumnId == columnId {
 				columnFound = true
-				kvPosition := position + keyValStartPosition
+				currentKeyValPosition := destPosition + keyValStartPosition
 				baseFound := false
 				for index := uint64(0); index < keyValCount; index++ {
-					storedBase := binary.LittleEndian.Uint64(newBuffer[kvPosition:])
-					kvPosition += keyLen
+					storedBase := binary.LittleEndian.Uint64(newBuffer[currentKeyValPosition:])
+					currentKeyValPosition += keyLen
 					if storedBase == base {
-						storedBits := binary.LittleEndian.Uint64(newBuffer[kvPosition :])
-						newBits := storedBits | (1 << bitPosition);
-						binary.LittleEndian.PutUint64(newBuffer[kvPosition:], newBits)
+						storedBits := binary.LittleEndian.Uint64(newBuffer[currentKeyValPosition:])
+						newBits := storedBits | (1 << bitPosition)
+						binary.LittleEndian.PutUint64(newBuffer[currentKeyValPosition:], newBits)
 						baseFound = true
 						break
 					}
-					kvPosition += valLen
+					currentKeyValPosition += valLen
 				}
 				if !baseFound {
 					keyValCount += 1
-					newBuffer = append(newBuffer,make([]byte,valLen + keyLen)...)
-					binary.LittleEndian.PutUint64(newBuffer[position + countKeyValPosition:], keyValCount)
-					binary.LittleEndian.PutUint64(newBuffer[position + bytesToCopy:], base)
-					bytesToCopy += keyLen
-					binary.LittleEndian.PutUint64(newBuffer[position + bytesToCopy:], (1 << bitPosition))
-					bytesToCopy += valLen
+					newBuffer = append(newBuffer, make([]byte, valLen+keyLen)...)
+					binary.LittleEndian.PutUint64(newBuffer[destPosition+countKeyValPosition:], keyValCount)
+					binary.LittleEndian.PutUint64(newBuffer[destPosition+bytesToCopy:], base)
+					destPosition += keyLen
+					binary.LittleEndian.PutUint64(newBuffer[destPosition+bytesToCopy:], (1 << bitPosition))
+					destPosition += valLen
 				}
 			}
-			position += bytesToCopy
-			if position>=dataLen {
-				break;
-			}
+			sourcePosition += bytesToCopy
+			destPosition += bytesToCopy
 		}
 		if !columnFound {
-			newBuffer = append(newBuffer,make([]byte,keyValStartPosition + keyLen + valLen)...)
-			binary.LittleEndian.PutUint64(newBuffer[position + columnIdPosition:],columnId)
-			binary.LittleEndian.PutUint64(newBuffer[position + countKeyValPosition:],uint64(1))
-			binary.LittleEndian.PutUint64(newBuffer[position + keyValStartPosition:],base)
-			binary.LittleEndian.PutUint64(newBuffer[position + keyValStartPosition+ keyLen:],1<<bitPosition)
+			newBuffer = append(newBuffer, make([]byte, keyValStartPosition+keyLen+valLen)...)
+			binary.LittleEndian.PutUint64(newBuffer[destPosition+columnIdPosition:], columnId)
+			binary.LittleEndian.PutUint64(newBuffer[destPosition+countKeyValPosition:], uint64(1))
+			binary.LittleEndian.PutUint64(newBuffer[destPosition+keyValStartPosition:], base)
+			binary.LittleEndian.PutUint64(newBuffer[destPosition+keyValStartPosition+keyLen:], 1<<bitPosition)
 		}
 		s.Data = newBuffer
-	}
-	ioutil.WriteFile("./block",s.Data,700)
+	//}
+	ioutil.WriteFile("./block", s.Data, 700)
 	return
 }
-
-
 
 func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
 	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
 	errChan = make(chan error, 1)
-	outChan = make(chan *ColumnDataType,1000)
+	outChan = make(chan *ColumnDataType, 1000)
 	var wg sync.WaitGroup
-	var storages map[string]*StorageType = make(map[string]*StorageType);
+	var storages map[string]*StorageType = make(map[string]*StorageType)
 
 	processColumnData := func() {
 	outer:
@@ -371,47 +372,47 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				}
 				//TODO:REDESIGN THIS!
 				//cd.Column.AnalyzeStringValue(floatValue);
-				storageKey:=""
-				if columnData.RawDataLength<8 {
-					storageKey="R"
+				storageKey := ""
+				if columnData.RawDataLength < 8 {
+					storageKey = "R"
 				} else {
-					storageKey=simple.Key()
+					storageKey = simple.Key()
 				}
-				var storage *StorageType;
-				if value, found := storages[storageKey];!found {
-					db,err:= bolt.Open("./"+storageKey+".bolt.db",0700,nil)
-					if err != nil{
-						errChan<-err
+				var storage *StorageType
+				if value, found := storages[storageKey]; !found {
+					db, err := bolt.Open("./"+storageKey+".bolt.db", 0700, nil)
+					if err != nil {
+						errChan <- err
 						break outer
 					}
-					tx,err := db.Begin(true)
-					if err != nil{
-						errChan<-err
+					tx, err := db.Begin(true)
+					if err != nil {
+						errChan <- err
 						break outer
 					}
 
-					bucket,err := tx.CreateBucketIfNotExists([]byte("0"))
-					if err != nil{
-						errChan<-err
+					bucket, err := tx.CreateBucketIfNotExists([]byte("0"))
+					if err != nil {
+						errChan <- err
 						break outer
 					}
 
 					storage := &StorageType{
-						db:db,
-						tx:tx,
-						bucket:bucket,
+						db:     db,
+						tx:     tx,
+						bucket: bucket,
 					}
 
 					storages[storageKey] = storage
 
-				}  else {
+				} else {
 					storage = value
 				}
 
 				if storage.tx == nil {
-					tx,err := storage.db.Begin(true)
-					if err != nil{
-						errChan<-err
+					tx, err := storage.db.Begin(true)
+					if err != nil {
+						errChan <- err
 						break outer
 					}
 					storage.tx = tx
@@ -419,10 +420,6 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				}
 
 				//storageValue := storage.bucket.Get(columnData.RawData)
-
-
-
-
 
 				dataCategory, err := columnData.Column.CategoryByKey(
 					columnData.dataCategoryKey,

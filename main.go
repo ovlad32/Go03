@@ -67,6 +67,10 @@ func main() {
 	b.Append(uint64(35),uint64(6))
 	b.Append(uint64(36),uint64(2))
 	b.Append(uint64(35),uint64(129))
+	b.Append(uint64(34),uint64(323))
+	b.Append(uint64(36),uint64(222))
+	b.Append(uint64(34),uint64(623))
+	b.Append(uint64(35),uint64(600))
 }
 func main2() {
 
