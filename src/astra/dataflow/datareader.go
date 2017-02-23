@@ -20,21 +20,24 @@ import (
 )
 
 type DumpConfigType struct {
-	BasePath        string
-	TankPath        string
-	StoragePath     string
-	GZipped         bool
-	FieldSeparator  byte
-	LineSeparator   byte
-	InputBufferSize int
-	HashValueLength int
+	BasePath            string
+	TankPath            string
+	StorePath           string
+	GZipped             bool
+	FieldSeparator      byte
+	LineSeparator       byte
+	InputBufferSize     int
+	HashValueLength     int
+	BackboneChannelSize int
 }
 
 type DataReaderType struct {
 	Config *DumpConfigType
+	blockStoreLock sync.RWMutex
+	blockStores map[string]*DataCategoryStore
 }
 
-func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, colDataPool chan *ColumnDataType) (
+func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
@@ -42,9 +45,8 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
 	var x0D = []byte{0x0D}
-	var wg sync.WaitGroup
 
-	outChan = make(chan *ColumnDataType,10)
+	outChan = make(chan *ColumnDataType,dr.Config.BackboneChannelSize)
 	errChan = make(chan error, 1)
 
 	writeToTank := func(rowData [][]byte) (result int) {
@@ -61,66 +63,65 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 		return
 	}
 
-	splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes []byte) {
-		var hashMethod = fnv.New64()
-		defer wg.Done()
 
-		byteLength := len(columnBytes)
-		if byteLength == 0 {
-			return
-		}
-		var columnData *ColumnDataType
-
-		select {
-		case <-ctx.Done():
-			return
-		case columnData = <-colDataPool:
-		default:
-			columnData = new(ColumnDataType)
-		}
-
-		if columnData.RawData == nil || cap(columnData.RawData) < byteLength {
-			columnData.RawData = make([]byte, 0, byteLength)
-		} else {
-			columnData.RawData = columnData.RawData[0:0]
-		}
-
-		if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
-			columnData.HashValue = make([]byte, 8, 8)
-		} else {
-			columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
-		}
-		columnData.RawDataLength = byteLength
-		columnData.LineNumber = LineNumber
-		columnData.LineOffset = LineOffset
-		columnData.Column = column
-
-		columnData.RawData = append(columnData.RawData, (columnBytes)...)
-
-		if columnData.RawDataLength > dr.Config.HashValueLength {
-			hashMethod.Reset()
-			hashMethod.Write(columnData.RawData)
-			columnData.HashInt = hashMethod.Sum64()
-			B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
-		} else {
-			copy(columnData.HashValue[dr.Config.HashValueLength-byteLength:], columnBytes)
-			columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
-		}
-		if false || "!CREDIT_BLOCKED" == column.ColumnName.String() {
-			fmt.Printf("%v %v %v\n", column.ColumnName.String(), string(columnBytes), columnData.HashValue)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case outChan <- columnData:
-		}
-	}
 
 	readFromDump := func() (err error) {
 		funcName := "DataReaderType.ReadSource.readFromDump"
 
 		var tankCancelFunc context.CancelFunc
 		var tankContext context.Context
+		var wg sync.WaitGroup
+
+		splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes []byte) {
+			var hashMethod = fnv.New64()
+			defer wg.Done()
+
+			byteLength := len(columnBytes)
+			if byteLength == 0 {
+				return
+			}
+
+			columnData := &ColumnDataType {}
+
+			if columnData.RawData == nil || cap(columnData.RawData) < byteLength {
+				columnData.RawData = make([]byte, 0, byteLength)
+			} else {
+				columnData.RawData = columnData.RawData[0:0]
+			}
+
+			if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
+				columnData.HashValue = make([]byte, 8, 8)
+			} else {
+				columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
+			}
+			columnData.RawDataLength = byteLength
+			columnData.LineNumber = LineNumber
+			columnData.LineOffset = LineOffset
+			columnData.Column = column
+
+			columnData.RawData = append(columnData.RawData, (columnBytes)...)
+
+			if columnData.RawDataLength > dr.Config.HashValueLength {
+				hashMethod.Reset()
+				hashMethod.Write(columnData.RawData)
+				columnData.HashInt = hashMethod.Sum64()
+				B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
+			} else {
+				copy(columnData.HashValue[dr.Config.HashValueLength-byteLength:], columnBytes)
+				columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
+			}
+			if false || "!CREDIT_BLOCKED" == column.ColumnName.String() {
+				fmt.Printf("%v %v %v\n", column.ColumnName.String(), string(columnBytes), columnData.HashValue)
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case outChan <- columnData:
+			}
+
+		}
+
 
 		gzFile, err := os.Open(dr.Config.BasePath + table.PathToFile.Value())
 		if err != nil {
@@ -145,10 +146,6 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 			} else if err != nil {
 				return err
 			}
-			//lineImageLen := len(lineImage)
-
-			//line:= make([]byte, lineImageLen, lineImageLen)
-			//copy(line, lineImage)
 
 			line = bytes.TrimSuffix(line, []byte{dr.Config.LineSeparator})
 			line = bytes.TrimSuffix(line, x0D)
@@ -177,24 +174,13 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType, c
 				defer tankCancelFunc()
 			}
 
-			/*result := &RowDataType{
-				RawData:    lineColumns,
-				LineNumber: lineNumber,
-				LineOffset: lineOffset,
-				Table:      table,
-			}*/
 
 			for columnNumber, columnDataBytes := range lineColumns {
 				wg.Add(1)
-				go splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], columnDataBytes)
+				splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], columnDataBytes)
 			}
 			wg.Wait()
 
-			/*select {
-			case rowDataChan <- result:
-			case <-ctx.Done():
-				return ctx.Err()
-			}*/
 			lineOffset = lineOffset + uint64(writeToTank(lineColumns))
 
 		}
@@ -221,17 +207,20 @@ type StoreType struct {
 	bucket *bolt.Bucket
 }
 
-func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
+func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
 	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
+	funcName := "DataReaderType.StoreByDataCategory"
+	tracelog.Started(packageName,funcName)
 	errChan = make(chan error, 1)
-	outChan = make(chan *ColumnDataType)
+	outChan = make(chan *ColumnDataType,dr.Config.BackboneChannelSize)
 	var wg sync.WaitGroup
-	var blockStores map[string]*StoreType = make(map[string]*StoreType)
 	columnBlock := &ColumnBlockType{}
+	_=columnBlock
 
 	processColumnData := func() {
+		funcName := "DataReaderType.StoreByDataCategory.goFunc1"
 	outer:
 		for {
 			select {
@@ -241,7 +230,13 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				if !opened {
 					break outer
 				}
+
 				if columnData.RawDataLength == 0 {
+					select {
+					case <-ctx.Done():
+						break outer
+					case outChan <- columnData:
+					}
 					continue
 				}
 				stringValue := string(columnData.RawData)
@@ -278,94 +273,41 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 				}
 				//TODO:REDESIGN THIS!
 				//cd.Column.AnalyzeStringValue(floatValue);
-				storeKey := ""
-				if columnData.RawDataLength < 8 {
-					storeKey = "R"
-				} else {
-					storeKey = simple.Key()
+				storeKey := simple.Key()
+
+				if dr.blockStores == nil {
+					dr.blockStoreLock.Lock()
+					if dr.blockStores == nil {
+						dr.blockStores = make(map[string]*DataCategoryStore)
+					}
+					dr.blockStoreLock.Unlock()
 				}
-				var store *StoreType
-				if value, found := blockStores[storeKey]; !found {
-					db, err := bolt.Open("./BINDATA/"+ storeKey +".bolt.db", 0700, nil)
-					if err != nil {
-						errChan <- err
-						break outer
-					}
-					tx, err := db.Begin(true)
-					if err != nil {
-						errChan <- err
-						break outer
-					}
-
-					bucket, err := tx.CreateBucketIfNotExists([]byte("0"))
+				var store *DataCategoryStore
+				dr.blockStoreLock.Lock()
+				if value, found := dr.blockStores[storeKey]; !found {
+					tracelog.Info(packageName,funcName,"not found for %v",storeKey)
+					store = &DataCategoryStore{}
+					err := store.Open(storeKey,dr.Config.StorePath)
 					if err != nil {
 						errChan <- err
 						break outer
 					}
 
-					store = &StoreType{
-						db:     db,
-						tx:     tx,
-						bucket: bucket,
-					}
-
-					blockStores[storeKey] = store
+					dr.blockStores[storeKey] = store
+					dr.blockStoreLock.Unlock()
+					store.RunStore(ctx)
+					tracelog.Info(packageName,funcName,"Opened Channel for %v",storeKey)
 
 				} else {
+					dr.blockStoreLock.Unlock()
 					store = value
 				}
-
-				if store.tx == nil {
-					tx, err := store.db.Begin(true)
-					if err != nil {
-						errChan <- err
-						break outer
-					}
-					store.tx = tx
-					store.bucket = tx.Bucket([]byte("0"))
-				}
-
-				columnBlock.Data = store.bucket.Get(columnData.RawData)
-				columnBlock.Append(columnData.Column.Id.Value(),columnData.LineOffset)
-				store.bucket.Put(columnData.RawData,columnBlock.Data)
 
 				dataCategory, err := columnData.Column.CategoryByKey(
 					columnData.dataCategoryKey,
 					func() (result *DataCategoryType, err error) {
 						result = simple.covert()
-						/*count := len(columnData.Column.Categories)
-						if count == 0 {
-							columnData.Column.hashStorage = new(boltStorageGroupType)
-							columnData.Column.bitsetStorage = new(boltStorageGroupType)
-							err = columnData.Column.hashStorage.Open(
-								"hash",
-								dr.Config.StoragePath,
-								columnData.Column.Id.Value(),
-							)
-							if err != nil {
-								return
-							}
-							err = columnData.Column.bitsetStorage.Open(
-								"bitset",
-								dr.Config.StoragePath,
-								columnData.Column.Id.Value(),
-							)
-							if err != nil {
-								return
-							}
-
-							//TODO: e3 is a channel
-							e3 := columnData.Column.RunStorage(ctx)
-							go func() {
-								select {
-								case <-ctx.Done():
-								case err := <-e3:
-									if err != nil {
-										errChan <- err
-									}
-								}
-							}()
-						}*/
+						tracelog.Info(packageName,funcName,"Column data category opened for %v",simple.Key())
 						err = result.RunAnalyzer(ctx)
 						if err != nil {
 							return
@@ -392,12 +334,13 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 					case dataCategory.numericAnalysisChan <- floatValue:
 					}
 				}
-				/*
+
 				select {
 				case <-ctx.Done():
 					break outer
-				case columnData.Column.columnDataChan <- columnData:
-				}*/
+				case store.columnDataChan <- columnData:
+				}
+
 				select {
 				case <-ctx.Done():
 					break outer
@@ -406,6 +349,7 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 			}
 		}
 		wg.Done()
+		tracelog.Completed(packageName,funcName)
 		return
 	}
 
@@ -417,11 +361,14 @@ func (dr DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan
 	}
 
 	go func() {
+		funcName := "DataReaderType.StoreByDataCategory.goFunc2"
+		tracelog.Started(packageName,funcName)
 		wg.Wait()
 		close(outChan)
 		close(errChan)
+		tracelog.Completed(packageName,funcName)
 	}()
-
+	tracelog.Completed(packageName,funcName)
 	return outChan, errChan
 }
 

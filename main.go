@@ -105,13 +105,14 @@ func main() {
 	dr := dataflow.DataReaderType{
 		Config: &dataflow.DumpConfigType{
 			BasePath:        "C:/home/data.151/",
-			TankPath:        "G:/BINDATA/",
-			StoragePath:     "G:/BINDATA/",
+			TankPath:        "./BINDATA/",
+			StorePath:     "./BINDATA/",
 			InputBufferSize: 5 * 1024,
 			GZipped:         true,
 			FieldSeparator:  31,
 			LineSeparator:   10,
 			HashValueLength: 8,
+			BackboneChannelSize:10000,
 		},
 	}
 
@@ -144,40 +145,37 @@ func main() {
 
 	for _, table := range tables {
 		wg.Add(1)
-		func(inTable *dataflow.TableInfoType) {
-			fmt.Print(inTable)
-			colDataPool := make(chan *dataflow.ColumnDataType,len(inTable.Columns)*100)
+		go	func(inTable *dataflow.TableInfoType) {
+				fmt.Print(inTable)
+				//colDataPool := make(chan *dataflow.ColumnDataType,len(inTable.Columns)*100)
 
-			//var drainChan chan *dataflow.ColumnDataType
-			var colChan1 chan *dataflow.ColumnDataType
-			//var colChan1 chan *dataflow.ColumnDataType
-			//var colChan2 chan *dataflow.ColumnDataType
+				//var drainChan chan *dataflow.ColumnDataType
+				var colChan1 chan *dataflow.ColumnDataType
+				//var colChan1 chan *dataflow.ColumnDataType
+				//var colChan2 chan *dataflow.ColumnDataType
 
-			var ctxf context.CancelFunc
-			ctx, ctxf := context.WithCancel(context.Background())
+				var ctxf context.CancelFunc
+				ctx, ctxf := context.WithCancel(context.Background())
 
-			colChan1, ec1 := dr.ReadSource(
-				ctx,
-				inTable,
-				colDataPool,
-			)
+				colChan1, ec1 := dr.ReadSource(
+					ctx,
+					inTable,
+				)
 
-			colChan2, ec3 := dr.StoreByDataCategory(
-				ctx,
-				colChan1,
-				1,
-			)
+				colChan2, ec3 := dr.StoreByDataCategory(
+					ctx,
+					colChan1,
+					100,
+				)
 
-
-
-			outer:
-			for {
-				select {
-				case value,closed := <-colChan2:
-					if !closed {
-						break outer
-					}
-					if cap(value.RawData)<1024 {
+				outer:
+				for {
+					select {
+					case value, closed := <-colChan2:
+						if !closed {
+							break outer
+						}
+					/*if cap(value.RawData)<1024 {
 						select {
 						case colDataPool <- value:
 						default:
@@ -185,36 +183,38 @@ func main() {
 
 					} else {
 						fmt.Println("!")
-					}
-					//fmt.Println(value.LineNumber)
+					}*/
+						/*if ((value.LineNumber-1 >> 15) << 15) == value.LineNumber-1 {
+							fmt.Println(value.Column.ColumnName.Value(), value.LineNumber)
+						}*/
 
-					_=value
+						_ = value
 
-				case err := <-ec1:
-					if err != nil {
-						fmt.Println(err.Error())
-						ctxf()
-					}
-				case err := <-ec3:
-					if err != nil {
-						fmt.Println(err.Error())
-						ctxf()
+					case err := <-ec1:
+						if err != nil {
+							fmt.Println(err.Error())
+							ctxf()
+						}
+					case err := <-ec3:
+						if err != nil {
+							fmt.Println(err.Error())
+							ctxf()
+						}
 					}
 				}
-			}
-			for _,col := range inTable.Columns{
-				fmt.Println(col.ColumnName.String())
-				fmt.Println("----------------")
-				for k,_ := range(col.Categories) {
-					fmt.Printf("%v,",k)
+				for _, col := range inTable.Columns {
+					fmt.Println(col.ColumnName.String())
+					fmt.Println("----------------")
+					for k, _ := range (col.Categories) {
+						fmt.Printf("%v,", k)
+					}
+					fmt.Println("\n----------------\n")
+					err = col.CloseStorage()
 				}
-				fmt.Println("\n----------------\n")
-				err = col.CloseStorage()
-			}
-			wg.Done()
-			fmt.Println(". Done")
+				wg.Done()
+				fmt.Println(". Done")
 
-		}(dataflow.ExpandFromMetadataTable(table))
+			}(dataflow.ExpandFromMetadataTable(table))
 
 		//break;
 	}

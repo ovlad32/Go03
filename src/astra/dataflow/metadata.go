@@ -1,19 +1,17 @@
 package dataflow
 
 import (
-	"astra/B8"
 	"astra/metadata"
 	"astra/nullable"
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"golang.org/x/net/context"
 	"os"
-	"sparsebitset"
 	"sync"
 )
+/*
 
 type boltStorageGroupType struct {
 	storage           *bolt.DB
@@ -24,7 +22,7 @@ type boltStorageGroupType struct {
 	pathToStorageFile string
 	storageName       string
 	columnId          int64
-}
+}*/
 
 /*func (s boltStorageGroupType) String() {
 	return fmt.Sprintf("Storage for %v, column %v, datacategory %v, on %v",
@@ -33,7 +31,6 @@ type boltStorageGroupType struct {
 		s.pathToStorageFile,
 	)
 }
-*/
 func (s *boltStorageGroupType) Open(
 	storageName string,
 	pathToStorageDir string,
@@ -128,6 +125,7 @@ func (s *boltStorageGroupType) Close() (err error) {
 	tracelog.Completed(packageName, funcName)
 	return
 }
+*/
 
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
@@ -137,11 +135,8 @@ type ColumnInfoType struct {
 
 	categoryLock sync.RWMutex
 	Categories   map[string]*DataCategoryType
-
-	hashStorage    *boltStorageGroupType
-	bitsetStorage  *boltStorageGroupType
-	columnDataChan chan *ColumnDataType
 }
+
 
 func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *DataCategoryType, err error),
 ) (result *DataCategoryType, err error) {
@@ -176,127 +171,15 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 	return result, err
 }
 func (ci *ColumnInfoType) CloseStorage() (err error) {
-	if ci.columnDataChan != nil {
-		//close(ci.columnDataChan)
-		if ci.Categories != nil {
-			for _,category := range ci.Categories{
-				category.CloseAnalyzerChannels()
-			}
+	if ci.Categories != nil {
+		for _,category := range ci.Categories{
+			category.CloseAnalyzerChannels()
 		}
-		//err = ci.bitsetStorage.Close()
-		//err = ci.hashStorage.Close()
-
 	}
 	return err
 }
 
 
-func (ci *ColumnInfoType) RunStorage(ctx context.Context) (errChan chan error) {
-	errChan = make(chan error, 1)
-	//TODO: check emptyness
-	if ci.columnDataChan == nil {
-		ci.columnDataChan = make(chan *ColumnDataType,1000)
-		go func() {
-			funcName:= "ColumnInfoType.RunStorage.gofunc1"
-//			var wg sync.WaitGroup
-			writtenHashValues := uint64(0)
-			writtenBitsetValues := uint64(0)
-		outer:
-			for {
-				select {
-				case <-ctx.Done():
-					break outer
-				case columnData, opened := <-ci.columnDataChan:
-					if !opened {
-						break outer
-					}
-					//wg.Add(2)
-					func(val *ColumnDataType) {
-					//	defer wg.Done()
-						offsetBytes := B8.UInt64ToB8(val.LineOffset)
-						var key B8.B8Type
-						copy(key[:],val.HashValue)
-						ci.hashStorage.currentBucket.Put(key[:], offsetBytes)
-						writtenHashValues++
-						if writtenHashValues >= 100000 {
-							writtenHashValues = 0
-							ci.hashStorage.currentTxLock.Lock()
-							err := ci.hashStorage.currentTx.Commit()
-							if err != nil {
-								tracelog.Errorf(err,packageName,funcName,"Commit 1000 hash values")
-								errChan <- err
-								return
-							}
-
-							ci.hashStorage.currentTx, err = ci.hashStorage.storage.Begin(true)
-							if err != nil {
-								tracelog.Errorf(err,packageName,funcName,"a new Tx for 1000 hash values")
-								errChan <- err
-								return
-							}
-							ci.hashStorage.currentTxLock.Unlock()
-							ci.hashStorage.OpenDefaultBucket()
-						}
-					}(columnData)
-					func(val *ColumnDataType) {
-						var err error
-						//defer wg.Done()
-						funcName := "RunStorage.bitset"
-						key := val.dataCategoryKey
-						bucket := ci.bitsetStorage.currentTx.Bucket([]byte(key))
-						if bucket == nil {
-							ci.bitsetStorage.currentBucketLock.Lock()
-							bucket = ci.bitsetStorage.currentTx.Bucket([]byte(key))
-							if bucket == nil {
-								bucket, err = ci.bitsetStorage.currentTx.CreateBucket([]byte(key))
-								ci.bitsetStorage.currentBucketLock.Unlock()
-								if err != nil {
-									tracelog.Errorf(err,packageName,funcName,"create bucket category %v",key)
-									errChan <- err
-									return
-								}
-							}
-						}
-						baseUIntValue, offsetUIntValue := sparsebitset.OffsetBits(val.HashInt)
-						baseB8Value := B8.UInt64ToB8(baseUIntValue)
-						bitsBytes := bucket.Get(baseB8Value)
-						bits, _ := B8.B8ToUInt64(bitsBytes)
-						bits = bits | (1 << offsetUIntValue)
-						bitsBytes = B8.UInt64ToB8(bits)
-						bucket.Put(baseB8Value, bitsBytes)
-
-						writtenBitsetValues++
-						if writtenBitsetValues >= 100000 {
-							//fmt.Println("bitset1000")
-							writtenBitsetValues = 0
-							ci.bitsetStorage.currentTxLock.Lock()
-							err = ci.bitsetStorage.currentTx.Commit()
-							if err != nil {
-								tracelog.Errorf(err,packageName,funcName,"Commit 1000 bitset values")
-								errChan <- err
-								return
-							}
-
-
-							ci.bitsetStorage.currentTx, err = ci.bitsetStorage.storage.Begin(true)
-							if err != nil {
-								tracelog.Errorf(err,packageName,funcName,"a new Tx for 1000 bitset values")
-								errChan <- err
-								return
-							}
-							ci.bitsetStorage.currentTxLock.Unlock()
-						}
-					}(columnData)
-					//wg.Wait()
-				}
-			}
-			close(errChan)
-		}()
-	} else {
-		close(errChan)
-	}
-	return errChan
-}
 
 func (ci *ColumnInfoType) AnalyzeStringValue(stringValue string) {
 	ci.stringAnalysisLock.Lock()
