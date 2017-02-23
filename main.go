@@ -57,22 +57,6 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 func main() {
-	fmt.Println(2&63)
-	b := &dataflow.StorageColumnBlockType{}
-	b.Append(uint64(35),uint64(1))
-	b.Append(uint64(35),uint64(128))
-	b.Append(uint64(35),uint64(3))
-	b.Append(uint64(35),uint64(384))
-	b.Append(uint64(34),uint64(3))
-	b.Append(uint64(35),uint64(6))
-	b.Append(uint64(36),uint64(2))
-	b.Append(uint64(35),uint64(129))
-	b.Append(uint64(34),uint64(323))
-	b.Append(uint64(36),uint64(222))
-	b.Append(uint64(34),uint64(623))
-	b.Append(uint64(35),uint64(600))
-}
-func main2() {
 
 
 
@@ -160,7 +144,7 @@ func main2() {
 
 	for _, table := range tables {
 		wg.Add(1)
-		go func(inTable *dataflow.TableInfoType) {
+		func(inTable *dataflow.TableInfoType) {
 			fmt.Print(inTable)
 			colDataPool := make(chan *dataflow.ColumnDataType,len(inTable.Columns)*100)
 
@@ -181,12 +165,12 @@ func main2() {
 			colChan2, ec3 := dr.StoreByDataCategory(
 				ctx,
 				colChan1,
-				len(inTable.Columns),
+				1,
 			)
 
 
 
-		outer:
+			outer:
 			for {
 				select {
 				case value,closed := <-colChan2:
@@ -202,6 +186,7 @@ func main2() {
 					} else {
 						fmt.Println("!")
 					}
+					//fmt.Println(value.LineNumber)
 
 					_=value
 

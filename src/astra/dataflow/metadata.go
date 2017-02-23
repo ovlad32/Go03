@@ -177,14 +177,14 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 }
 func (ci *ColumnInfoType) CloseStorage() (err error) {
 	if ci.columnDataChan != nil {
-		close(ci.columnDataChan)
+		//close(ci.columnDataChan)
 		if ci.Categories != nil {
 			for _,category := range ci.Categories{
 				category.CloseAnalyzerChannels()
 			}
 		}
-		err = ci.bitsetStorage.Close()
-		err = ci.hashStorage.Close()
+		//err = ci.bitsetStorage.Close()
+		//err = ci.hashStorage.Close()
 
 	}
 	return err

@@ -4,7 +4,8 @@ BINDATA/
 src/github.com/
 src/golang.org/
 *.exe
-HashStorage.*
+*.db
+*.lock
 .idea/
 *.iml
 gopath.cmd
