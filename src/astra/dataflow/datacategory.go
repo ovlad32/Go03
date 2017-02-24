@@ -15,7 +15,7 @@ type DataCategoryStore struct {
 	store           *bolt.DB
 	bucket          *bolt.Bucket
 	tx              *bolt.Tx
-	pathToStoreFile string
+	pathToStoreDir string
 	storeKey        string
 	columnDataChan chan *ColumnDataType
 	chanLock sync.Mutex
@@ -40,6 +40,14 @@ func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string) (err er
 		tracelog.Errorf(err, packageName, funcName, "Making directories for path %v", pathToStoreDir)
 		return err
 	}
+
+	s.pathToStoreDir = fmt.Sprintf("%v%c%v",
+		pathToStoreDir,
+		os.PathSeparator,
+		storeKey,
+	)
+
+	err = os.MkdirAll(s.pathToStoreDir, 700)
 
 	pathToStoreFile := fmt.Sprintf("%v%c%v.bolt.db",
 		pathToStoreDir,
@@ -79,7 +87,8 @@ func (s *DataCategoryStore) RunStore(ctx context.Context) (errChan chan error) {
 	go func() {
 
 		funcName:= "DataCategoryStore.RunStore.gofunc1"
-		writtenValues := uint64(0)
+		_=funcName
+		//writtenValues := uint64(0)
 		columnBlock:= &ColumnBlockType{}
 		_=columnBlock
 		outer:
@@ -92,10 +101,47 @@ func (s *DataCategoryStore) RunStore(ctx context.Context) (errChan chan error) {
 						break outer
 					}
 					_=columnData
-					columnBlock.Data = s.bucket.Get(columnData.RawData)
+				/*	columnBlock.Data = s.bucket.Get(columnData.RawData)
 					columnBlock.Append(columnData.Column.Id.Value(), columnData.LineOffset)
 					s.bucket.Put(columnData.RawData, columnBlock.Data)
-					l := len(columnBlock.Data)
+				*/  found := false
+					pathToChunk := fmt.Sprintf("%v%c%v",s.pathToStoreDir,os.PathSeparator,columnData.HashValue);
+					pathToChunkRenamed := pathToChunk+".r"
+					if false {
+						if fs, errc := os.Stat(pathToChunk); !os.IsNotExist(errc) {
+							os.Remove(pathToChunkRenamed)
+							errn := os.Rename(pathToChunk, pathToChunkRenamed)
+							if errn != nil {
+								errChan <- errn
+								tracelog.Error(errn,packageName,funcName)
+								break outer
+							}
+							var f *os.File
+							f, errc := os.OpenFile(pathToChunkRenamed, os.O_RDONLY, 0)
+							if errc != nil {
+								errChan <- errc
+								tracelog.Error(errc,packageName,funcName)
+								break outer
+							}
+							columnBlock.Data = make([]byte, fs.Size())
+							f.Read(columnBlock.Data)
+							f.Close();
+							found = true
+						}
+						//columnBlock.Append(columnData.Column.Id.Value(), columnData.LineOffset)
+						f, errc := os.OpenFile(pathToChunk, os.O_CREATE, 755)
+						if errc != nil {
+							errChan <- errc
+							tracelog.Error(errc,packageName,funcName)
+							break outer
+						}
+						f.Write(columnBlock.Data)
+						f.Close()
+						if found {
+							os.Remove(pathToChunkRenamed)
+						}
+					}
+					/*l := len(columnBlock.Data)
 
 					writtenValues++
 					if writtenValues >= 50000 {
@@ -115,7 +161,7 @@ func (s *DataCategoryStore) RunStore(ctx context.Context) (errChan chan error) {
 							return
 						}
 						s.OpenDefaultBucket()
-					}
+					}*/
 				}
 			}
 		close(errChan)
@@ -131,7 +177,7 @@ func(s *DataCategoryStore) OpenDefaultBucket() (err error){
 	bucketName := []byte("0")
 	s.bucket, err  = s.tx.CreateBucketIfNotExists(bucketName)
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Creating default bucket on %v  store %v", s.storeKey, s.pathToStoreFile)
+		tracelog.Errorf(err, packageName, funcName, "Creating default bucket on %v  store %v", s.storeKey, s.storeKey)
 		return err
 	}
 	tracelog.Completed(packageName,funcName)
@@ -146,7 +192,7 @@ func (s *DataCategoryStore) Close() (err error) {
 		s.tx = nil
 //		fmt.Println("close transaction " + s.storeKey)
 		if err != nil {
-			tracelog.Errorf(err, packageName, funcName, "Closing transaction on store %v", s.pathToStoreFile)
+			tracelog.Errorf(err, packageName, funcName, "Closing transaction on store %v", s.storeKey)
 			return
 		}
 
@@ -156,7 +202,7 @@ func (s *DataCategoryStore) Close() (err error) {
 		err = s.store.Close()
 		s.store = nil
 		if err != nil {
-			tracelog.Errorf(err, packageName, funcName, "Closing database for %v store %v", s.storeKey, s.pathToStoreFile)
+			tracelog.Errorf(err, packageName, funcName, "Closing database for %v store %v", s.storeKey, s.pathToStoreDir)
 			return
 		}
 	}

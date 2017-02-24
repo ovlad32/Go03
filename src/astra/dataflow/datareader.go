@@ -208,13 +208,11 @@ type StoreType struct {
 }
 
 func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
-	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
 	funcName := "DataReaderType.StoreByDataCategory"
 	tracelog.Started(packageName,funcName)
 	errChan = make(chan error, 1)
-	outChan = make(chan *ColumnDataType,dr.Config.BackboneChannelSize)
 	var wg sync.WaitGroup
 	columnBlock := &ColumnBlockType{}
 	_=columnBlock
@@ -228,15 +226,11 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 				break outer
 			case columnData, opened := <-columnDataChan:
 				if !opened {
+					fmt.Println("closed!")
 					break outer
 				}
 
 				if columnData.RawDataLength == 0 {
-					select {
-					case <-ctx.Done():
-						break outer
-					case outChan <- columnData:
-					}
 					continue
 				}
 				stringValue := string(columnData.RawData)
@@ -274,7 +268,6 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 				//TODO:REDESIGN THIS!
 				//cd.Column.AnalyzeStringValue(floatValue);
 				storeKey := simple.Key()
-
 				if dr.blockStores == nil {
 					dr.blockStoreLock.Lock()
 					if dr.blockStores == nil {
@@ -296,12 +289,14 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 					dr.blockStores[storeKey] = store
 					dr.blockStoreLock.Unlock()
 					store.RunStore(ctx)
-					tracelog.Info(packageName,funcName,"Opened Channel for %v",storeKey)
+					tracelog.Info(packageName,funcName,"Opened Channel for %s/%v",columnData.Column,storeKey)
 
 				} else {
 					dr.blockStoreLock.Unlock()
 					store = value
 				}
+
+				columnData.dataCategoryKey = storeKey
 
 				dataCategory, err := columnData.Column.CategoryByKey(
 					columnData.dataCategoryKey,
@@ -340,14 +335,9 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 					break outer
 				case store.columnDataChan <- columnData:
 				}
-
-				select {
-				case <-ctx.Done():
-					break outer
-				case outChan <- columnData:
-				}
 			}
 		}
+
 		wg.Done()
 		tracelog.Completed(packageName,funcName)
 		return
@@ -364,12 +354,16 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 		funcName := "DataReaderType.StoreByDataCategory.goFunc2"
 		tracelog.Started(packageName,funcName)
 		wg.Wait()
-		close(outChan)
 		close(errChan)
 		tracelog.Completed(packageName,funcName)
 	}()
 	tracelog.Completed(packageName,funcName)
-	return outChan, errChan
+	return  errChan
+}
+func (dr*DataReaderType) CloseStores() {
+	for _,store := range dr.blockStores {
+		close(store.columnDataChan)
+	}
 }
 
 /*

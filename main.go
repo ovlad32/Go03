@@ -106,7 +106,7 @@ func main() {
 		Config: &dataflow.DumpConfigType{
 			BasePath:        "C:/home/data.151/",
 			TankPath:        "./BINDATA/",
-			StorePath:     "./BINDATA/",
+			StorePath:     "G:/BINDATA/",
 			InputBufferSize: 5 * 1024,
 			GZipped:         true,
 			FieldSeparator:  31,
@@ -162,7 +162,7 @@ func main() {
 					inTable,
 				)
 
-				colChan2, ec3 := dr.StoreByDataCategory(
+				ec3 := dr.StoreByDataCategory(
 					ctx,
 					colChan1,
 					100,
@@ -171,25 +171,6 @@ func main() {
 				outer:
 				for {
 					select {
-					case value, closed := <-colChan2:
-						if !closed {
-							break outer
-						}
-					/*if cap(value.RawData)<1024 {
-						select {
-						case colDataPool <- value:
-						default:
-						}
-
-					} else {
-						fmt.Println("!")
-					}*/
-						/*if ((value.LineNumber-1 >> 15) << 15) == value.LineNumber-1 {
-							fmt.Println(value.Column.ColumnName.Value(), value.LineNumber)
-						}*/
-
-						_ = value
-
 					case err := <-ec1:
 						if err != nil {
 							fmt.Println(err.Error())
@@ -200,6 +181,7 @@ func main() {
 							fmt.Println(err.Error())
 							ctxf()
 						}
+						break outer
 					}
 				}
 				for _, col := range inTable.Columns {
@@ -211,15 +193,16 @@ func main() {
 					fmt.Println("\n----------------\n")
 					err = col.CloseStorage()
 				}
+
 				wg.Done()
-				fmt.Println(". Done")
+				fmt.Println(table.TableName.Value()+" Done")
 
 			}(dataflow.ExpandFromMetadataTable(table))
 
 		//break;
 	}
 	wg.Wait()
-
+	dr.CloseStores()
 	/*var err error
 	da.Repo, err = cayley.NewGraph("bolt","./dfd.cayley.db",nil)
 	if err != nil{
