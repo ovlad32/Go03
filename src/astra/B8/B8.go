@@ -6,12 +6,12 @@ type B8Type [8]byte
 
 func UInt64ToB8(value uint64) []byte {
 	var buff B8Type
-	binary.LittleEndian.PutUint64(buff[:], value)
+	binary.BigEndian.PutUint64(buff[:], value)
 	return buff[:]
 }
 
 func UInt64ToBuff(dst []byte, src uint64) {
-	binary.LittleEndian.PutUint64(dst, src)
+	binary.BigEndian.PutUint64(dst, src)
 }
 func Clear(dst []byte) []byte {
 	if dst == nil || cap(dst) < 8 {

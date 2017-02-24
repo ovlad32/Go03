@@ -5,63 +5,93 @@ import (
 	"astra/metadata"
 	"astra/nullable"
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/goinggo/tracelog"
 	"log"
+	"math"
 	"os"
 	"runtime"
+	"runtime/pprof"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
-	"flag"
-	"runtime/trace"
-	"runtime/pprof"
 )
 
 var packageName = "main"
-var recreate bool = true
-var isTrace bool = true
-var repo *metadata.Repository
+var repo *dataflow.Repository
 
-func init() {
-	var err error
-	funcName := "init"
-	tracelog.Start(tracelog.LevelInfo)
-	tracelog.Started(packageName, funcName)
-	repo, err = metadata.ConnectToAstraDB(
-		&metadata.RepositoryConfig{
-			Login:        "edm",
-			DatabaseName: "edm",
-			Host:         "localhost",
-			Password:     "edmedm",
-			Port:         "5435",
-		},
-	)
-	if err != nil {
-		tracelog.Error(err, packageName, funcName)
-		panic(err)
-	}
-
-	boltDbName := "./hashStorage.bolt.db"
-	if recreate {
-		os.Remove(boltDbName)
-	}
-	/*var err error
-	metadata.HashStorage, err = bolt.Open(boltDbName,0600,nil)
-	if err != nil {
-		panic(err)
-	}
-	*/
-	tracelog.Completed(packageName, funcName)
-}
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
+var pathToConfigFile = flag.String("configfile", "./config.json", "path to config file")
+var cliMode = flag.String("mode", "", "application mode")
+var argMetadataIds = flag.String("metadata_id", string(-math.MaxInt64), "")
+var argWorkflowIds = flag.String("workflow_id", string(-math.MaxInt64), "")
+
+func readConfig() (*dataflow.DumpConfigType, error) {
+	funcName := "readConfig"
+	if _, err := os.Stat(*pathToConfigFile); os.IsNotExist(err) {
+		tracelog.Error(err, funcName, "Specify correct path to config.json")
+		return nil, err
+	}
+
+	conf, err := os.Open(*pathToConfigFile)
+	if err != nil {
+		tracelog.Errorf(err, funcName, "Opening config file %v", *pathToConfigFile)
+		return nil, err
+	}
+	jd := json.NewDecoder(conf)
+	var result dataflow.DumpConfigType
+	err = jd.Decode(&result)
+	if err != nil {
+		tracelog.Errorf(err, funcName, "Decoding config file %v", *pathToConfigFile)
+		return nil, err
+	}
+	return &result, nil
+}
+
 func main() {
-
-
-
 	funcName := "main"
+	tracelog.Start(tracelog.LevelInfo)
+
 	flag.Parse()
+
+	conf, err := readConfig()
+	if err != nil {
+		os.Exit(1)
+	}
+	metadataIds := make(map[int64]bool)
+	workflowIds := make(map[int64]bool)
+
+	if *argMetadataIds != string(-math.MaxInt64) {
+		values := strings.Split(*argMetadataIds, ",")
+		for _, value := range values {
+			if value != "" {
+				if iValue, cnvErr := strconv.ParseInt(value, 10, 64); cnvErr != nil {
+					tracelog.Errorf(err, packageName, funcName, "Cannot convert %v to integer ", value)
+				} else {
+					metadataIds[iValue] = true
+				}
+			}
+		}
+	}
+
+	if *argWorkflowIds != string(-math.MaxInt64) {
+		values := strings.Split(*argWorkflowIds, ",")
+		for _, value := range values {
+			if value != "" {
+				if iValue, cnvErr := strconv.ParseInt(value, 10, 64); cnvErr != nil {
+					tracelog.Errorf(err, packageName, funcName, "Cannot convert %v to integer ", value)
+				} else {
+					workflowIds[iValue] = true
+				}
+			}
+		}
+	}
+
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
@@ -85,145 +115,144 @@ func main() {
 		f.Close()
 	}
 
-	var trfile *os.File
-	if !isTrace {
-		trfile, _ = os.Create("./trace.out")
-		trace.Start(trfile)
+	conf.HashValueLength = 8
+	conf.EmitRawData = true
+
+	dr := dataflow.DataReaderType{
+		Config: conf,
 	}
+
+	tracelog.Started(packageName, funcName)
+	astraRepo, err := metadata.ConnectToAstraDB(
+		&metadata.RepositoryConfig{
+			Login:        conf.AstraH2Login,
+			DatabaseName: conf.AstraH2Database,
+			Host:         conf.AstraH2Host,
+			Password:     conf.AstraH2Password,
+			Port:         conf.AstraH2Port,
+		},
+	)
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		os.Exit(2)
+	}
+	repo = &dataflow.Repository{Repository: astraRepo}
+	repo.CreateDataCategoryTable()
+
 	tracelog.Started(packageName, funcName)
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	//
 
-	/*router := mux.NewRouter()
-	router.HandleFunc("/databaseConfigurations/",controller.GetDC)
+	for id, _ := range workflowIds {
+		metadataId1, metadataId2, err := repo.MetadataByWorkflowId(nullable.NewNullInt64(id))
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return
+		}
+		if metadataId1.Valid() {
+			metadataIds[metadataId1.Value()] = true
+		}
+		if metadataId2.Valid() {
+			metadataIds[metadataId2.Value()] = true
+		}
+	}
+	tablesToProcess := make([]*dataflow.TableInfoType, 0, 100)
 
-	n := negroni.Classic() // Includes some default middlewares
-	n.Use(negroni.Wrap(router))
-	http.ListenAndServe(":3000", n)*/
+	for id, _ := range metadataIds {
+		meta, err := repo.MetadataById(nullable.NewNullInt64(id))
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return
+		}
 
-	dr := dataflow.DataReaderType{
-		Config: &dataflow.DumpConfigType{
-			BasePath:        "C:/home/data.151/",
-			TankPath:        "./BINDATA/",
-			StorePath:     "G:/BINDATA/",
-			InputBufferSize: 5 * 1024,
-			GZipped:         true,
-			FieldSeparator:  31,
-			LineSeparator:   10,
-			HashValueLength: 8,
-			BackboneChannelSize:10000,
-		},
+		tables, err := repo.TableInfoByMetadata(meta)
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return
+		}
+
+		for _, table := range tables {
+			tablesToProcess = append(
+				tablesToProcess,
+				&dataflow.TableInfoType{TableInfoType: table},
+			)
+		}
 	}
 
-	metadataId1, metadataId2, err := repo.MetadataByWorkflowId(nullable.NewNullInt64(int64(67)))
+	processTableChan := make(chan *dataflow.TableInfoType, dr.Config.TableWorkers)
 
-	if err != nil {
-		panic(err)
-	}
-
-	mtd1, err := repo.MetadataById(metadataId1)
-	if err != nil {
-		panic(err)
-	}
-
-	mtd2, err := repo.MetadataById(metadataId2)
-	if err != nil {
-		panic(err)
-	}
-
-	tables, err := repo.TableInfoByMetadata(mtd1)
-	if err != nil {
-		panic(err)
-	}
-	tables2, err := repo.TableInfoByMetadata(mtd2)
-	if err != nil {
-		panic(err)
-	}
-	_ = tables2
-	var wg sync.WaitGroup
-
-	for _, table := range tables {
-		wg.Add(1)
-		go	func(inTable *dataflow.TableInfoType) {
-				fmt.Print(inTable)
-				//colDataPool := make(chan *dataflow.ColumnDataType,len(inTable.Columns)*100)
-
-				//var drainChan chan *dataflow.ColumnDataType
+	processTable := func() {
+		for {
+			select {
+			case inTable, opened := <-processTableChan:
+				if !opened {
+					return
+				}
 				var colChan1 chan *dataflow.ColumnDataType
-				//var colChan1 chan *dataflow.ColumnDataType
-				//var colChan2 chan *dataflow.ColumnDataType
+				var cancelFunc context.CancelFunc
 
-				var ctxf context.CancelFunc
-				ctx, ctxf := context.WithCancel(context.Background())
+				runContext, cancelFunc := context.WithCancel(context.Background())
 
 				colChan1, ec1 := dr.ReadSource(
-					ctx,
+					runContext,
 					inTable,
 				)
 
 				ec3 := dr.StoreByDataCategory(
-					ctx,
+					runContext,
 					colChan1,
-					100,
+					dr.Config.CategoryWorkersPerTable,
 				)
 
-				outer:
+			outer:
 				for {
 					select {
 					case err := <-ec1:
 						if err != nil {
-							fmt.Println(err.Error())
-							ctxf()
+							tracelog.Error(err, packageName, funcName)
+							cancelFunc()
 						}
 					case err := <-ec3:
 						if err != nil {
-							fmt.Println(err.Error())
-							ctxf()
+							tracelog.Error(err, packageName, funcName)
+							cancelFunc()
 						}
 						break outer
 					}
 				}
 				for _, col := range inTable.Columns {
-					fmt.Println(col.ColumnName.String())
-					fmt.Println("----------------")
-					for k, _ := range (col.Categories) {
-						fmt.Printf("%v,", k)
-					}
-					fmt.Println("\n----------------\n")
 					err = col.CloseStorage()
+					if err != nil {
+						tracelog.Error(err, packageName, funcName)
+						break
+					}
+
+					err = repo.SaveColumnCategories(col)
+					if err != nil {
+						tracelog.Error(err, packageName, funcName)
+						break
+					}
+
 				}
+				fmt.Println(inTable.TableName.Value() + " Done")
+			}
+		}
+	}
 
-				wg.Done()
-				fmt.Println(table.TableName.Value()+" Done")
-
-			}(dataflow.ExpandFromMetadataTable(table))
-
-		//break;
+	var wg sync.WaitGroup
+	for index := 0; index < dr.Config.TableWorkers; index++ {
+		wg.Add(1)
+		go func() {
+			processTable()
+			wg.Done()
+		}()
+	}
+	for _,table := range tablesToProcess {
+		processTableChan <- table
 	}
 	wg.Wait()
-	dr.CloseStores()
-	/*var err error
-	da.Repo, err = cayley.NewGraph("bolt","./dfd.cayley.db",nil)
-	if err != nil{
-		panic(err)
-	}*/
 
-	if recreate {
-		//		da.LoadStorage(jsnull.NewNullInt64(int64(67)))
-	}
-	//fetchPairs(da);
-	//metadata.ReportHashStorageContents()
-	//da.MakeTablePairs(nil,nil)
+	dr.CloseStores()
 	log.Printf("%v", time.Since(start))
-	if trfile != nil {
-		trace.Stop()
-	}
 	tracelog.Completed(packageName, funcName)
 }
-
-/*func fetchPairs(da metadata.DataAccessType) {
-
-
-	da.MakeColumnPairs(jsnull.NewNullInt64(int64(67)));
-}*/

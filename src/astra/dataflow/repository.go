@@ -1,19 +1,22 @@
 package dataflow
 
 import (
-	"fmt"
-	"strings"
 	"astra/metadata"
+	"fmt"
+	"github.com/goinggo/tracelog"
+	"strings"
 )
+
 type Repository struct {
 	*metadata.Repository
 }
 
+func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
+	funcName := "Repository.SaveColumnCategories"
 
-
-func (h2 Repository) SaveColumnCategory(column *ColumnInfoType) (err error) {
 	tx, err := h2.IDb.Begin()
 	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Begin transaction...")
 		return
 	}
 	defer tx.Rollback()
@@ -21,25 +24,27 @@ func (h2 Repository) SaveColumnCategory(column *ColumnInfoType) (err error) {
 	for _, c := range column.Categories {
 		_, err = tx.Exec(
 			fmt.Sprintf("merge into column_datacategory_stats("+
-				" id"+
+				" column_id"+
+				", key "+
 				", byte_length"+
 				", is_numeric"+
 				", is_negative"+
 				", fp_scale"+
 				", non_null_count"+
-				", hash_unique_count"+
+				"/*, hash_unique_count*/"+
 				", min_sval"+
 				", max_sval"+
 				", min_fval"+
 				", max_fval) "+
-				" key(id, byte_length, is_numeric, is_negative, fp_scale) "+
-				" values(%v, %v, %v, %v, %v, %v, %v, '%v', '%v', %v, %v) ",
+				" key(column_id, key) "+
+				" values(%v, '%v', %v, %v, %v, %v, %v, /*%v,*/ '%v', '%v', %v, %v) ",
 				column.Id,
-				c.ByteLength,
-				c.IsNumeric,
-				c.IsNegative,
-				c.FloatingPointScale,
-				c.NonNullCount,
+				c.Key(),
+				c.ByteLength.Value(),
+				c.IsNumeric.Value(),
+				c.IsNegative.Value(),
+				c.FloatingPointScale.Value(),
+				c.NonNullCount.Value(),
 				c.HashUniqueCount,
 				strings.Replace(c.MinStringValue.Value(), "'", "''", -1),
 				strings.Replace(c.MaxStringValue.Value(), "'", "''", -1),
@@ -48,13 +53,34 @@ func (h2 Repository) SaveColumnCategory(column *ColumnInfoType) (err error) {
 			),
 		)
 		if err != nil {
+			tracelog.Error(err, packageName, funcName)
 			return
 		}
 	}
+
+	_, err = tx.Exec(fmt.Sprintf(
+		"update column_info c set "+
+			" (has_numeric_content, min_fval, max_fval, min_sval, max_sval) = ("+
+			" select max(is_numeric) as has_numeric_content "+
+			", min(min_fval)  as min_fval "+
+			", max(max_fval)  as max_fval"+
+			", min(min_sval)  as min_sval "+
+			", max(max_sval)  as max_sval "+
+			" from column_datacategory_stats s "+
+			"  where s.column_id = c.id " +
+			" ) where c.id = %v ", column.Id.Value(),
+	))
+
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
 	tx.Commit()
+
 	return
 }
 func (h2 Repository) CreateDataCategoryTable() (err error) {
+	funcName := "Repository.CreateDataCategoryTable"
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		return
@@ -63,8 +89,8 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
 
 	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
-		" id bigint not null " +
-	    ", key varchar(30) "+
+		" column_id bigint not null " +
+		", key varchar(30) " +
 		", byte_length int null " +
 		", is_numeric bool  null " +
 		", is_negative bool  null " +
@@ -76,31 +102,77 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		", min_fval float" +
 		", max_fval float" +
 		", constraint column_datacategory_stats_pk " +
-		"  primary key(id, key) " +
+		"  primary key(column_id, key) " +
 		" ) ")
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		//tracelog.Errorf(err,packageName,funcName,"Commit transaction...")
+		//return
+	}
 
 	tx, err = h2.IDb.Begin()
 	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Begin transaction...")
 		return
 	}
 	defer tx.Rollback()
 	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
 
-	_, err = tx.Exec("create table if not exists column_pair( " +
-		"id integer, "+
-		"column_1_id integer,  "+
-		"column_1_rowcount integer,  "+
-		"column_2_id integer,  "+
-		"column_2_rowcount integer,  "+
-		"category_Intersection_Count integer,  "+
-		"hash_Intersection_Count integer,  "+
-		"status char(1),"+
-		"constraint column_pair_pk primary key (column_1_id,column_2_id) "+
-		")  ");
-	tx.Commit()
+	_, err = tx.Exec("alter table column_info add column  if not exists has_numeric_content boolean ")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
 
+	_, err = tx.Exec("alter table column_info add column if not exists min_fval double")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
+	_, err = tx.Exec("alter table column_info add column if not exists max_fval double ")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
+	_, err = tx.Exec("alter table column_info add column  if not exists min_sval varchar(4000) ")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
+	_, err = tx.Exec("alter table column_info add column if not exists max_sval varchar(4000) ")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+	err = tx.Commit()
+	if err != nil {
+		//tracelog.Errorf(err, packageName, funcName, "Commit transaction...")
+		//return
+	}
+
+	/*	tx, err = h2.IDb.Begin()
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+		//_, err = tx.Exec("drop table if exists column_datacategory_stats")
+
+		_, err = tx.Exec("create table if not exists column_pair( " +
+			"id integer, "+
+			"column_1_id integer,  "+
+			"column_1_rowcount integer,  "+
+			"column_2_id integer,  "+
+			"column_2_rowcount integer,  "+
+			"category_Intersection_Count integer,  "+
+			"hash_Intersection_Count integer,  "+
+			"status char(1),"+
+			"constraint column_pair_pk primary key (column_1_id,column_2_id) "+
+			")  ");
+		tx.Commit()
+	*/
 
 	return
 }
-

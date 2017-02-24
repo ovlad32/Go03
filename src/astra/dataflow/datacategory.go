@@ -105,7 +105,7 @@ func (s *DataCategoryStore) RunStore(ctx context.Context) (errChan chan error) {
 					columnBlock.Append(columnData.Column.Id.Value(), columnData.LineOffset)
 					s.bucket.Put(columnData.RawData, columnBlock.Data)
 				*/  found := false
-					pathToChunk := fmt.Sprintf("%v%c%v",s.pathToStoreDir,os.PathSeparator,columnData.HashValue);
+					pathToChunk := fmt.Sprintf("%v%c%v",s.pathToStoreDir,os.PathSeparator,columnData.HashInt);
 					pathToChunkRenamed := pathToChunk+".r"
 					if false {
 						if fs, errc := os.Stat(pathToChunk); !os.IsNotExist(errc) {
@@ -260,6 +260,8 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	if simple.IsSubHash {
 		result.SubHash = nullable.NewNullInt64(int64(simple.SubHash))
 	}
+	result.stringAnalysisChan = make(chan string,300)
+	result.numericAnalysisChan = make(chan float64,300)
 	return
 }
 

@@ -1,0 +1,19 @@
+{
+  "astra-h2-host": "localhost",
+  "astra-h2-port": "5435",
+  "astra-h2-login": "edm",
+  "astra-h2-password": "edmedm",
+  "astra-h2-database": "edm",
+  "astra-dump-path": "C:/home/data.151/",
+  "astra-data-gzip": true,
+  "astra-field-byte-separator": 31,
+  "astra-line-byte-separator": 10,
+  "binary-dump-path": "./BINDATA/",
+  "kv-store-path": "./BINDATA/",
+  "astra-reader-buffer-size": 4096,
+  "table-workers": 5,
+  "category-worker-per-table": 100,
+  "raw-data-channel-size": 1000
+}
+
+
