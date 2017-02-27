@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"github.com/goinggo/tracelog"
 	"log"
 	"math"
@@ -172,27 +171,25 @@ func main() {
 		}
 
 		for _, table := range tables {
-			tablesToProcess = append(
-				tablesToProcess,
-				&dataflow.TableInfoType{TableInfoType: table},
-			)
+			tablesToProcess = append(tablesToProcess, dataflow.ExpandFromMetadataTable(table))
 		}
 	}
 
-	processTableChan := make(chan *dataflow.TableInfoType, dr.Config.TableWorkers)
+	var processTableChan chan *dataflow.TableInfoType;
 
-	processTable := func() {
+	processTable := func(runContext context.Context) (err error) {
+		funcName := "processTable"
+		tracelog.Started(packageName, funcName)
+	outer:
 		for {
 			select {
-			case inTable, opened := <-processTableChan:
-				if !opened {
-					return
+			case <-runContext.Done():
+				break outer
+			case inTable, open := <-processTableChan:
+				if !open {
+					break outer
 				}
 				var colChan1 chan *dataflow.ColumnDataType
-				var cancelFunc context.CancelFunc
-
-				runContext, cancelFunc := context.WithCancel(context.Background())
-
 				colChan1, ec1 := dr.ReadSource(
 					runContext,
 					inTable,
@@ -204,24 +201,30 @@ func main() {
 					dr.Config.CategoryWorkersPerTable,
 				)
 
-			outer:
-				for {
+				go func() {
 					select {
-					case err := <-ec1:
+					case <-runContext.Done():
+					case err, open := <-ec1:
 						if err != nil {
-							tracelog.Error(err, packageName, funcName)
-							cancelFunc()
+							ec3 <- err
 						}
-					case err := <-ec3:
-						if err != nil {
-							tracelog.Error(err, packageName, funcName)
-							cancelFunc()
+						if !open {
+							return
 						}
+					}
+				}()
+
+				select {
+				case <-runContext.Done():
+				case err = <-ec3:
+					if err != nil {
+						tracelog.Error(err, packageName, funcName)
 						break outer
 					}
 				}
+
 				for _, col := range inTable.Columns {
-					err = col.CloseStorage()
+					err = col.CloseStorage(runContext)
 					if err != nil {
 						tracelog.Error(err, packageName, funcName)
 						break
@@ -232,27 +235,40 @@ func main() {
 						tracelog.Error(err, packageName, funcName)
 						break
 					}
-
 				}
-				fmt.Println(inTable.TableName.Value() + " Done")
+				if err == nil {
+					tracelog.Info(packageName, funcName, "Table %v done", inTable)
+				}
+
 			}
 		}
+		tracelog.Completed(packageName, funcName)
+		return
 	}
 
 	var wg sync.WaitGroup
-	for index := 0; index < dr.Config.TableWorkers; index++ {
-		wg.Add(1)
-		go func() {
-			processTable()
-			wg.Done()
-		}()
+	if len(tablesToProcess) > 0 {
+		processTableChan = make(chan *dataflow.TableInfoType, dr.Config.TableWorkers)
+		processTableContext, processTableContextCancelFunc := context.WithCancel(context.Background())
+		for index := 0; index < dr.Config.TableWorkers; index++ {
+			wg.Add(1)
+			go func() {
+				err = processTable(processTableContext)
+				wg.Done()
+				if err != nil {
+					processTableContextCancelFunc()
+				}
+				return
+			}()
+		}
+		for _, table := range tablesToProcess {
+			processTableChan <- table
+		}
+		close(processTableChan)
+		wg.Wait()
+		tracelog.Info(packageName, funcName, "All tables processed")
+		dr.CloseStores()
 	}
-	for _,table := range tablesToProcess {
-		processTableChan <- table
-	}
-	wg.Wait()
-
-	dr.CloseStores()
 	log.Printf("%v", time.Since(start))
 	tracelog.Completed(packageName, funcName)
 }

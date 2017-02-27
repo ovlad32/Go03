@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"sync"
-	"sparsebitset"
 )
 
 type DataCategoryStore struct {
@@ -20,6 +19,7 @@ type DataCategoryStore struct {
 	storeKey        string
 	columnDataChan chan *ColumnDataType
 	chanLock sync.Mutex
+
 
 }
 
@@ -75,8 +75,9 @@ func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string) (err er
 	return
 }
 
-func (s *DataCategoryStore) RunStore(ctx context.Context) (errChan chan error) {
+func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan error) {
 	errChan = make(chan error, 1)
+
 	if s.columnDataChan == nil {
 		s.chanLock.Lock()
 		if s.columnDataChan == nil {
@@ -95,7 +96,7 @@ func (s *DataCategoryStore) RunStore(ctx context.Context) (errChan chan error) {
 		outer:
 			for {
 				select {
-				case <-ctx.Done():
+				case <-runContext.Done():
 					break outer
 				case columnData, opened := <-s.columnDataChan:
 					if !opened {
@@ -274,107 +275,110 @@ type DataCategoryType struct {
 	FloatingPointScale nullable.NullInt64
 	DataCount          nullable.NullInt64
 	HashUniqueCount    nullable.NullInt64
-	MinStringValue     nullable.NullString
-	MaxStringValue     nullable.NullString
-	MinNumericValue    nullable.NullFloat64
-	MaxNumericValue    nullable.NullFloat64
-	NonNullCount       nullable.NullInt64
-	SubHash            nullable.NullInt64
-	Stats              struct {
+	MinStringValue        nullable.NullString
+	MaxStringValue        nullable.NullString
+	MinNumericValue       nullable.NullFloat64
+	MaxNumericValue       nullable.NullFloat64
+	NonNullCount          nullable.NullInt64
+	SubHash               nullable.NullInt64
+	Stats                 struct {
 		MinStringValue  string
 		MaxStringValue  string
 		MinNumericValue float64
 		MaxNumericValue float64
 		NonNullCount    uint64
 	}
-	stringAnalysisChan  chan string
-	numericAnalysisChan chan float64
-	analysisChannelsLock sync.Mutex
-	NumBS *sparsebitset.BitSet
+	stringAnalysisChan    chan string
+	numericAnalysisChan   chan float64
+	//analysisChannelsLock  sync.Mutex
+	initChans sync.Once
+	drainAnalysisChannels sync.WaitGroup
 }
 
-func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error) {
+func (dc *DataCategoryType) RunAnalyzer(runContext context.Context,analysisChanSize int) (err error) {
 	funcName := "DataCategoryType.RunAnalyzer"
 	tracelog.Started(packageName,funcName)
-	if dc.stringAnalysisChan == nil{
+	dc.initChans.Do(func(){
+		dc.stringAnalysisChan = make(chan string,analysisChanSize)
+		dc.numericAnalysisChan = make(chan float64,analysisChanSize)
+
+	})
+	/*if dc.stringAnalysisChan == nil{
 		dc.analysisChannelsLock.Lock()
 		if dc.stringAnalysisChan == nil {
-			dc.stringAnalysisChan = make(chan string,300)
-			dc.numericAnalysisChan = make(chan float64,300)
 		}
 		dc.analysisChannelsLock.Unlock()
-	}
+	}*/
 
-		go func() {
-			funcName1 := "DataCategoryType.RunAnalyzer.gofunc1"
-			tracelog.Started(packageName,funcName1)
-			outer:
-			for {
-				select {
-				case <-ctx.Done():
+	dc.drainAnalysisChannels.Add(2)
+	go func() {
+		funcName1 := "DataCategoryType.RunAnalyzer.gofunc1"
+		tracelog.Started(packageName,funcName1)
+		outer:
+		for {
+			select {
+			case <-runContext.Done():
+				break outer
+			case stringValue, open := <-dc.stringAnalysisChan:
+				if !open {
 					break outer
-				case stringValue, opened := <-dc.stringAnalysisChan:
-					if !opened {
-						break outer
-					}
-					if dc.NonNullCount.Reference() == nil {
-						dc.NonNullCount = nullable.NewNullInt64(int64(0))
-					}
-					if !dc.MaxStringValue.Valid() {
-						dc.MaxStringValue = nullable.NewNullString("")
-					}
-					if !dc.MinStringValue.Valid() {
-						dc.MinStringValue = nullable.NewNullString("")
-					}
+				}
+				if dc.NonNullCount.Reference() == nil {
+					dc.NonNullCount = nullable.NewNullInt64(int64(0))
+				}
+				if !dc.MaxStringValue.Valid() {
+					dc.MaxStringValue = nullable.NewNullString("")
+				}
+				if !dc.MinStringValue.Valid() {
+					dc.MinStringValue = nullable.NewNullString("")
+				}
 
-					dc.Stats.NonNullCount++
-					if stringValue > dc.Stats.MaxStringValue {
-						dc.Stats.MaxStringValue = stringValue
-					}
-					if stringValue < dc.Stats.MinStringValue || dc.Stats.MinStringValue == "" {
-						dc.Stats.MinStringValue = stringValue
-					}
+				dc.Stats.NonNullCount++
+				if stringValue > dc.Stats.MaxStringValue {
+					dc.Stats.MaxStringValue = stringValue
+				}
+				if stringValue < dc.Stats.MinStringValue || dc.Stats.MinStringValue == "" {
+					dc.Stats.MinStringValue = stringValue
 				}
 			}
-			tracelog.Completed(packageName,funcName1)
-		}()
+		}
+		dc.drainAnalysisChannels.Done()
+		tracelog.Completed(packageName,funcName1)
+	}()
 
-		go func() {
-			funcName1 := "DataCategoryType.RunAnalyzer.gofunc2"
-			tracelog.Started(packageName,funcName1)
-			outer:
-			for {
-				select {
-				case <-ctx.Done():
+	go func() {
+		funcName1 := "DataCategoryType.RunAnalyzer.gofunc2"
+		tracelog.Started(packageName,funcName1)
+		outer:
+		for {
+			select {
+			case <-runContext.Done():
+				break outer
+			case floatValue, open := <-dc.numericAnalysisChan:
+				if !open {
 					break outer
-				case floatValue, opened := <-dc.numericAnalysisChan:
-					if !opened {
-						break outer
-					}
-					if !dc.MaxNumericValue.Valid() {
-						dc.MaxNumericValue = nullable.NewNullFloat64(float64(0))
-						dc.Stats.MaxNumericValue = -math.MaxFloat64
-					}
+				}
+				if !dc.MaxNumericValue.Valid() {
+					dc.MaxNumericValue = nullable.NewNullFloat64(float64(0))
+					dc.Stats.MaxNumericValue = -math.MaxFloat64
+				}
 
-					if !dc.MinNumericValue.Valid() {
-						dc.MinNumericValue = nullable.NewNullFloat64(float64(0))
-						dc.Stats.MinNumericValue = math.MaxFloat64
-
-					}
-					if floatValue > dc.Stats.MaxNumericValue {
-						dc.Stats.MaxNumericValue = floatValue
-					}
-					if floatValue < dc.Stats.MinNumericValue {
-						dc.Stats.MinNumericValue = floatValue
-					}
-					if dc.NumBS != nil {
-						dc.NumBS.Set(uint64(floatValue))
-					}
+				if !dc.MinNumericValue.Valid() {
+					dc.MinNumericValue = nullable.NewNullFloat64(float64(0))
+					dc.Stats.MinNumericValue = math.MaxFloat64
 
 				}
+				if floatValue > dc.Stats.MaxNumericValue {
+					dc.Stats.MaxNumericValue = floatValue
+				}
+				if floatValue < dc.Stats.MinNumericValue {
+					dc.Stats.MinNumericValue = floatValue
+				}
 			}
-			tracelog.Completed(packageName,funcName1)
-		}()
+		}
+		dc.drainAnalysisChannels.Done()
+		tracelog.Completed(packageName,funcName1)
+	}()
 
 
 	tracelog.Completed(packageName,funcName)
@@ -388,6 +392,8 @@ func (dc *DataCategoryType) CloseAnalyzerChannels() {
 	if dc.stringAnalysisChan != nil {
 		close(dc.stringAnalysisChan)
 	}
+	dc.drainAnalysisChannels.Wait()
+
 	if dc.MinStringValue.Valid() {
 		dc.MinStringValue = nullable.NewNullString(dc.Stats.MinStringValue)
 		dc.MaxStringValue = nullable.NewNullString(dc.Stats.MaxStringValue)

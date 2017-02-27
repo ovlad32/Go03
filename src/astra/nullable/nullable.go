@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"encoding/json"
+	"strings"
 )
 
 
@@ -37,6 +38,16 @@ func (n NullString) String() (result string) {
 	}
 	return
 }
+
+func (n NullString) SQLString() (result string) {
+	if n.Valid() {
+		result = "'"+strings.Replace(n.internal.String, "'", "''", -1)+"'"
+	} else {
+		result = "null"
+	}
+	return
+}
+
 
 func (s NullString) MarshalJSON() ([]byte, error) {
 	if s.internal.Valid {

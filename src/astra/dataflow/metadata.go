@@ -10,6 +10,8 @@ import (
 	"golang.org/x/net/context"
 	"os"
 	"sync"
+	"sparsebitset"
+	"math"
 )
 /*
 
@@ -130,11 +132,21 @@ func (s *boltStorageGroupType) Close() (err error) {
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
 
-	stringAnalysisLock  sync.Mutex
-	numericAnalysisLock sync.Mutex
+	IntegerUniqueCount           nullable.NullInt64
+	MovingMean                   nullable.NullFloat64
+	MovingStandardDeviation      nullable.NullFloat64
 
-	categoryLock sync.RWMutex
-	Categories   map[string]*DataCategoryType
+	stringAnalysisLock           sync.Mutex
+	numericAnalysisLock          sync.Mutex
+
+	categoryLock                 sync.RWMutex
+	Categories                   map[string]*DataCategoryType
+	initCategories               sync.Once
+	numericPositiveBitsetChannel chan uint64
+	numericNegativeBitsetChannel chan uint64
+	NumericPositiveBitset        *sparsebitset.BitSet
+	NumericNegativeBitset        *sparsebitset.BitSet
+	drainBitsetChannels          sync.WaitGroup
 }
 
 
@@ -142,13 +154,9 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 ) (result *DataCategoryType, err error) {
 	funcName := "ColumnInfoType.CategoryByKey"
 	tracelog.Started(packageName,funcName)
-	if ci.Categories == nil {
-		ci.categoryLock.Lock()
-		if ci.Categories == nil {
-			ci.Categories = make(map[string]*DataCategoryType)
-			ci.categoryLock.Unlock()
-		}
-	}
+	ci.initCategories.Do(func(){
+		ci.Categories = make(map[string]*DataCategoryType)
+	})
 
 	ci.categoryLock.Lock()
 	if value, found := ci.Categories[key]; !found {
@@ -170,12 +178,93 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 	tracelog.Completed(packageName,funcName)
 	return result, err
 }
-func (ci *ColumnInfoType) CloseStorage() (err error) {
+func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.Categories != nil {
 		for _,category := range ci.Categories{
 			category.CloseAnalyzerChannels()
 		}
 	}
+
+
+	var prevValue uint64
+	var count uint64 = 0
+	var gotPrevValue bool
+	var meanValue, cumulativeDeviaton float64 = 0,0
+	increasingOrder := context.WithValue(runContext,"sort",true)
+	reversedOrder := context.WithValue(context.WithValue(runContext,"sort",true),"desc",true)
+
+	if ci.NumericNegativeBitset != nil {
+		close(ci.numericNegativeBitsetChannel)
+	}
+	if ci.NumericPositiveBitset != nil {
+		close(ci.numericPositiveBitsetChannel)
+	}
+
+	ci.drainBitsetChannels.Wait()
+
+	if ci.NumericNegativeBitset != nil {
+		gotPrevValue = false
+		for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
+			count ++
+			if !gotPrevValue {
+				prevValue = value
+				gotPrevValue = true
+			} else {
+				cumulativeDeviaton += (float64(value) - float64(prevValue))
+				prevValue = value
+			}
+		}
+	}
+	if ci.NumericPositiveBitset != nil {
+		gotPrevValue = false
+		for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
+			count ++
+			if !gotPrevValue {
+				prevValue = value
+				gotPrevValue = true
+			} else {
+				cumulativeDeviaton += (float64(value) - float64(prevValue))
+				prevValue = value
+			}
+		}
+	}
+	if count> 0 {
+		meanValue = cumulativeDeviaton / float64(count)
+		totalDeviation := float64(0)
+
+		if ci.NumericNegativeBitset != nil {
+			gotPrevValue = false
+			for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
+				if !gotPrevValue {
+					prevValue = value
+					gotPrevValue = true
+				} else {
+					totalDeviation = totalDeviation +  math.Pow(meanValue - (float64(value) - float64(prevValue)),2)
+					prevValue = value
+				}
+			}
+		}
+
+		if ci.NumericPositiveBitset != nil {
+			gotPrevValue = false
+			for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
+				if !gotPrevValue {
+					prevValue = value
+					gotPrevValue = true
+				} else {
+					totalDeviation = totalDeviation +  math.Pow(meanValue - (float64(value) - float64(prevValue)),2)
+					prevValue = value
+				}
+			}
+		}
+		stddev:= math.Sqrt(totalDeviation /float64(count))
+		ci.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
+		ci.MovingMean = nullable.NewNullFloat64(meanValue)
+		ci.MovingStandardDeviation = nullable.NewNullFloat64(stddev)
+
+
+	}
+
 	return err
 }
 
@@ -250,7 +339,7 @@ type TableInfoType struct {
 	tankFileLock sync.Mutex
 }
 
-func (ti *TableInfoType) OpenTank(ctx context.Context, pathToTankDir string, flags int) (err error) {
+func (ti *TableInfoType) OpenTank(closeContext context.Context, pathToTankDir string, flags int) (err error) {
 	funcName := "TableInfoType.OpenTank"
 	tracelog.Started(packageName, funcName)
 
@@ -289,9 +378,10 @@ func (ti *TableInfoType) OpenTank(ctx context.Context, pathToTankDir string, fla
 				tracelog.Started(packageName, funcName)
 				if ti.TankWriter != nil {
 					select {
-					case <-ctx.Done():
+					case <-closeContext.Done():
 						ti.TankWriter.Flush()
 						ti.tankFile.Close()
+						return
 					}
 				}
 				tracelog.Completed(packageName, funcName)

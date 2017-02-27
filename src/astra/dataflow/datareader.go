@@ -17,6 +17,7 @@ import (
 	"hash/fnv"
 	"strconv"
 	"strings"
+	"sparsebitset"
 )
 
 type DumpConfigType struct {
@@ -34,6 +35,7 @@ type DumpConfigType struct {
 	AstraReaderBufferSize   int    `json:"astra-reader-buffer-size"`
 	TableWorkers            int    `json:"table-workers"`
 	CategoryWorkersPerTable int    `json:"category-worker-per-table"`
+	CategoryDataChannelSize int    `json:"category-data-channel-size"`
 	RawDataChannelSize      int    `json:"raw-data-channel-size"`
 	HashValueLength         int
 	EmitRawData             bool
@@ -47,7 +49,7 @@ type DataReaderType struct {
 	blockStores map[string]*DataCategoryStore
 }
 
-func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
+func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfoType) (
 	outChan chan *ColumnDataType,
 	errChan chan error,
 ) {
@@ -56,7 +58,7 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 
 	var x0D = []byte{0x0D}
 
-	outChan = make(chan *ColumnDataType,dr.Config.RawDataChannelSize)
+	outChan = make(chan *ColumnDataType, dr.Config.RawDataChannelSize)
 	errChan = make(chan error, 1)
 
 	writeToTank := func(rowData [][]byte) (result int) {
@@ -82,8 +84,6 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 	readFromDump := func() (err error) {
 		funcName := "DataReaderType.ReadSource.readFromDump"
 
-		var tankCancelFunc context.CancelFunc
-		var tankContext context.Context
 		var wg sync.WaitGroup
 
 		splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes []byte) {
@@ -128,7 +128,7 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 			}
 
 			select {
-			case <-ctx.Done():
+			case <-runContext.Done():
 				return
 			case outChan <- columnData:
 			}
@@ -153,50 +153,55 @@ func (dr DataReaderType) ReadSource(ctx context.Context, table *TableInfoType) (
 		lineNumber := uint64(0)
 		lineOffset := uint64(0)
 		for {
-			line, err := bufferedFile.ReadSlice(dr.Config.AstraLineSeparator)
-			if err == io.EOF {
-				return nil
-			} else if err != nil {
-				return err
-			}
+			select {
+			case <-runContext.Done():
+				return
+			default:
 
-			line = bytes.TrimSuffix(line, []byte{dr.Config.AstraLineSeparator})
-			line = bytes.TrimSuffix(line, x0D)
-
-			metadataColumnCount := len(table.Columns)
-
-			lineColumns := bytes.Split(line, []byte{dr.Config.AstraFieldSeparator})
-			lineColumnCount := len(lineColumns)
-
-			if metadataColumnCount != lineColumnCount {
-				err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
-					lineNumber,
-					metadataColumnCount,
-					lineColumnCount,
-				)
-				return err
-			}
-
-			lineNumber++
-			if lineNumber == 1 && dr.Config.WriteTank {
-				tankContext, tankCancelFunc = context.WithCancel(context.Background())
-				err = table.OpenTank(tankContext, dr.Config.BinaryDumpPath, os.O_CREATE)
-				if err != nil {
+				line, err := bufferedFile.ReadSlice(dr.Config.AstraLineSeparator)
+				if err == io.EOF {
+					return nil
+				} else if err != nil {
 					return err
 				}
-				defer tankCancelFunc()
-			}
 
-			if dr.Config.EmitRawData {
-				for columnNumber, columnDataBytes := range lineColumns {
-					wg.Add(1)
-					splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], columnDataBytes)
+				line = bytes.TrimSuffix(line, []byte{dr.Config.AstraLineSeparator})
+				line = bytes.TrimSuffix(line, x0D)
+
+				metadataColumnCount := len(table.Columns)
+
+				lineColumns := bytes.Split(line, []byte{dr.Config.AstraFieldSeparator})
+				lineColumnCount := len(lineColumns)
+
+				if metadataColumnCount != lineColumnCount {
+					err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+						lineNumber,
+						metadataColumnCount,
+						lineColumnCount,
+					)
+					return err
 				}
-				wg.Wait()
+
+				lineNumber++
+				if lineNumber == 1 && dr.Config.WriteTank {
+					closeContext, closeContextCancelFunc := context.WithCancel(context.Background())
+					err = table.OpenTank(closeContext, dr.Config.BinaryDumpPath, os.O_CREATE)
+					if err != nil {
+						return err
+					}
+					defer closeContextCancelFunc()
+				}
+
+				if dr.Config.EmitRawData {
+					for columnNumber, columnDataBytes := range lineColumns {
+						wg.Add(1)
+						go splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], columnDataBytes)
+					}
+					wg.Wait()
+				}
+
+				lineOffset = lineOffset + uint64(writeToTank(lineColumns))
 			}
-
-			lineOffset = lineOffset + uint64(writeToTank(lineColumns))
-
 		}
 		return nil
 	}
@@ -221,29 +226,27 @@ type StoreType struct {
 	bucket *bolt.Bucket
 }
 
-func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataChan chan *ColumnDataType, degree int) (
+func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, columnDataChan chan *ColumnDataType, degree int) (
 	errChan chan error,
 ) {
 	funcName := "DataReaderType.StoreByDataCategory"
 	tracelog.Started(packageName,funcName)
 	errChan = make(chan error, 1)
 	var wg sync.WaitGroup
-	columnBlock := &ColumnBlockType{}
-	_=columnBlock
 
 	processColumnData := func() {
 		funcName := "DataReaderType.StoreByDataCategory.goFunc1"
 	outer:
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runContext.Done():
 				break outer
-			case columnData, opened := <-columnDataChan:
-				if !opened {
+			case columnData, open := <-columnDataChan:
+				if !open {
 					break outer
 				}
 
-				if columnData.RawDataLength == 0 {
+				if columnData == nil || columnData.RawDataLength == 0 {
 					continue
 				}
 				stringValue := string(columnData.RawData)
@@ -304,7 +307,7 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 
 						dr.blockStores[columnData.dataCategoryKey ] = store
 						dr.blockStoreLock.Unlock()
-						store.RunStore(ctx)
+						store.RunStore(runContext)
 						tracelog.Info(packageName, funcName, "Opened Channel for %s/%v", columnData.Column, columnData.dataCategoryKey)
 
 					} else {
@@ -312,40 +315,102 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 						store = value
 					}
 				}
-
 				dataCategory, err := columnData.Column.CategoryByKey(
 					columnData.dataCategoryKey,
 					func() (result *DataCategoryType, err error) {
 						result = simple.covert()
-						if simple.FloatingPointScale == 0 {
-							//TODO: negative resolving
+						if simple.IsNumeric {
+							if simple.FloatingPointScale == 0 {
+								if !simple.IsNegative {
+									if columnData.Column.NumericPositiveBitset == nil {
+										columnData.Column.NumericPositiveBitset = sparsebitset.New(0)
+										columnData.Column.numericPositiveBitsetChannel = make(chan uint64,dr.Config.CategoryDataChannelSize)
+										columnData.Column.drainBitsetChannels.Add(1)
+										go func() {
+											outer:
+											for {
+												select {
+												case <-runContext.Done():
+													break outer;
+												case value,open := <-columnData.Column.numericPositiveBitsetChannel:
+													if !open {
+														break outer
+													}
+													columnData.Column.NumericPositiveBitset.Set(value)
+												}
+											}
+											columnData.Column.drainBitsetChannels.Done()
+										} ()
+									}
+								} else {
+									if columnData.Column.NumericNegativeBitset == nil {
+										columnData.Column.NumericNegativeBitset = sparsebitset.New(0)
+										columnData.Column.numericNegativeBitsetChannel = make(chan uint64,dr.Config.CategoryDataChannelSize)
+										columnData.Column.drainBitsetChannels.Add(1)
+										go func() {
+											outer:
+											for {
+												select {
+												case <-runContext.Done():
+													break outer;
+												case value,open := <- columnData.Column.numericNegativeBitsetChannel:
+													if !open {
+														break outer
+													}
+													columnData.Column.NumericNegativeBitset.Set(value)
+												}
+											}
+											columnData.Column.drainBitsetChannels.Done()
+										} ()
+									}
+								}
+							}
 						}
-						err = result.RunAnalyzer(ctx)
+						err = result.RunAnalyzer(runContext,dr.Config.CategoryDataChannelSize)
 						return
 					},
 				)
+
 
 				if err != nil {
 					errChan <- err
 					break outer
 				}
 				select {
-					case <-ctx.Done():
+					case <-runContext.Done():
 						break outer
 					case dataCategory.stringAnalysisChan <- stringValue:
 				}
 
 				if simple.IsNumeric {
 					select {
-					case <-ctx.Done():
+					case <-runContext.Done():
 						break outer
 					case dataCategory.numericAnalysisChan <- floatValue:
 					}
+					if simple.FloatingPointScale == 0 {
+						if !simple.IsNegative && columnData.Column.NumericPositiveBitset != nil {
+							select {
+							case <-runContext.Done():
+								break outer
+							case columnData.Column.numericPositiveBitsetChannel <- uint64(floatValue):
+							}
+						}
+
+						if simple.IsNegative && columnData.Column.NumericNegativeBitset != nil {
+							select {
+							case <-runContext.Done():
+								break outer
+							case columnData.Column.numericNegativeBitsetChannel <- uint64(-floatValue):
+							}
+						}
+					}
+
 				}
 
 				if dr.Config.EmitHashValues {
 					select {
-					case <-ctx.Done():
+					case <-runContext.Done():
 						break outer
 					case store.columnDataChan <- columnData:
 					}

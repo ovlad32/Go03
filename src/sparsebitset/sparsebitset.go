@@ -34,6 +34,7 @@ import (
 	"errors"
 	"context"
 	"sync"
+	"sort"
 )
 
 const (
@@ -984,6 +985,13 @@ func (b *BitSet) Test(n uint64) bool {
 }
 
 
+type byOrder []uint64
+
+func(a byOrder) Len() int {return len(a) }
+func (a byOrder) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byOrder) Less(i, j int) bool { return a[i] < a[j] }
+
+
 func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 	var wg sync.WaitGroup;
 
@@ -993,33 +1001,65 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 		wg.Wait()
 		close(out)
 	} ()
+
 	go func() {
-		// n := uint64(1)
-		outer:
-		for key, val := range b.set {
-			prod := key * wordSize
-			//fmt.Printf("%v, %v, %b",key,prod,val)
-			//fmt.Println()
-			rsh := uint64(0)
-			prev := uint64(0)
-			for {
-				w := val >> rsh
-				if w == 0 {
-					break
-				}
-				result := rsh + trailingZeroes64(w) + prod
-				if result != prev {
-					select {
-					case out <- result:
-					case <-ctx.Done():
-						break outer;
-					}
-					prev = result
-				}
-				rsh++
 
+		if toSort,ok := ctx.Value("sort").(bool); ok && toSort {
+			byOrder := make(byOrder,0,len(b.set));
+			for key, _ := range b.set {
+				byOrder = append(byOrder,key)
 			}
-
+			if desc,ok := ctx.Value("desc").(bool); ok && desc {
+				sort.Reverse(byOrder)
+			} else {
+				sort.Sort(byOrder)
+			}
+			outerSorted:
+			for _,key := range byOrder {
+				val := b.set[key]
+				prod := key * wordSize
+				rsh := uint64(0)
+				prev := uint64(0)
+				for {
+					w := val >> rsh
+					if w == 0 {
+						break
+					}
+					result := rsh + trailingZeroes64(w) + prod
+					if result != prev {
+						select {
+						case out <- result:
+						case <-ctx.Done():
+							break outerSorted;
+						}
+						prev = result
+					}
+					rsh++
+				}
+			}
+		} else {
+			outerNonSorted:
+			for key, val := range b.set {
+				prod := key * wordSize
+				rsh := uint64(0)
+				prev := uint64(0)
+				for {
+					w := val >> rsh
+					if w == 0 {
+						break
+					}
+					result := rsh + trailingZeroes64(w) + prod
+					if result != prev {
+						select {
+						case out <- result:
+						case <-ctx.Done():
+							break outerNonSorted;
+						}
+						prev = result
+					}
+					rsh++
+				}
+			}
 		}
 		wg.Done()
 	}()

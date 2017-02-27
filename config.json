@@ -10,9 +10,10 @@
   "astra-line-byte-separator": 10,
   "binary-dump-path": "./BINDATA/",
   "kv-store-path": "./BINDATA/",
-  "astra-reader-buffer-size": 4096,
-  "table-workers": 5,
-  "category-worker-per-table": 100,
+  "astra-reader-buffer-size": 40960,
+  "table-workers": 3,
+  "category-worker-per-table": 10,
+  "category-data-channel-size":100,
   "raw-data-channel-size": 1000
 }
 

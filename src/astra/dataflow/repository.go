@@ -4,7 +4,6 @@ import (
 	"astra/metadata"
 	"fmt"
 	"github.com/goinggo/tracelog"
-	"strings"
 )
 
 type Repository struct {
@@ -37,7 +36,7 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 				", min_fval"+
 				", max_fval) "+
 				" key(column_id, key) "+
-				" values(%v, '%v', %v, %v, %v, %v, %v, /*%v,*/ '%v', '%v', %v, %v) ",
+				" values(%v, '%v', %v, %v, %v, %v, %v, /*%v,*/ %v, %v, %v, %v) ",
 				column.Id,
 				c.Key(),
 				c.ByteLength.Value(),
@@ -46,8 +45,8 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 				c.FloatingPointScale.Value(),
 				c.NonNullCount.Value(),
 				c.HashUniqueCount,
-				strings.Replace(c.MinStringValue.Value(), "'", "''", -1),
-				strings.Replace(c.MaxStringValue.Value(), "'", "''", -1),
+				c.MinStringValue.SQLString(),
+				c.MaxStringValue.SQLString(),
 				c.MinNumericValue,
 				c.MaxNumericValue,
 			),
@@ -75,7 +74,24 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 		tracelog.Error(err, packageName, funcName)
 		return
 	}
+
+	_, err = tx.Exec(fmt.Sprintf("update column_info c set " +
+		"   integer_unique_count = %v" +
+		"   , moving_mean = %v" +
+		"   , moving_stddev = %v" +
+		"  where c.id = %v",
+			column.IntegerUniqueCount,
+		column.MovingMean,
+		column.MovingStandardDeviation,
+		column.Id))
+
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
 	tx.Commit()
+
 
 	return
 }
@@ -147,6 +163,27 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		tracelog.Error(err, packageName, funcName)
 		return
 	}
+
+
+	_, err = tx.Exec("alter table column_info add column if not exists integer_unique_count bigint")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
+	_, err = tx.Exec("alter table column_info add column if not exists moving_mean double")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
+	_, err = tx.Exec("alter table column_info add column if not exists moving_stddev double")
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
+
+
 	err = tx.Commit()
 	if err != nil {
 		//tracelog.Errorf(err, packageName, funcName, "Commit transaction...")
