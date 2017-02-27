@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"sync"
+	"sparsebitset"
 )
 
 type DataCategoryStore struct {
@@ -289,6 +290,7 @@ type DataCategoryType struct {
 	stringAnalysisChan  chan string
 	numericAnalysisChan chan float64
 	analysisChannelsLock sync.Mutex
+	NumBS *sparsebitset.BitSet
 }
 
 func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error) {
@@ -364,6 +366,9 @@ func (dc *DataCategoryType) RunAnalyzer(ctx context.Context) (err error) {
 					}
 					if floatValue < dc.Stats.MinNumericValue {
 						dc.Stats.MinNumericValue = floatValue
+					}
+					if dc.NumBS != nil {
+						dc.NumBS.Set(uint64(floatValue))
 					}
 
 				}

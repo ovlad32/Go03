@@ -317,6 +317,9 @@ func (dr *DataReaderType) StoreByDataCategory(ctx context.Context, columnDataCha
 					columnData.dataCategoryKey,
 					func() (result *DataCategoryType, err error) {
 						result = simple.covert()
+						if simple.FloatingPointScale == 0 {
+							//TODO: negative resolving
+						}
 						err = result.RunAnalyzer(ctx)
 						return
 					},
