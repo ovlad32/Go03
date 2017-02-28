@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"sparsebitset"
+	"time"
+	"sync/atomic"
 )
 
 type DumpConfigType struct {
@@ -115,7 +117,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 			columnData.RawData = append(columnData.RawData, (columnBytes)...)
 
-			if dr.Config.EmitHashValues {
+			if  dr.Config.EmitHashValues {
 				if columnData.RawDataLength > dr.Config.HashValueLength {
 					hashMethod.Reset()
 					hashMethod.Write(columnData.RawData)
@@ -232,10 +234,34 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 	funcName := "DataReaderType.StoreByDataCategory"
 	tracelog.Started(packageName,funcName)
 	errChan = make(chan error, 1)
+	timeChan :=  time.Tick(10*time.Second)
+//	threads := uint64(0)
+	var countPieces int64 = 0
+
 	var wg sync.WaitGroup
+	go func() {
+		for {
+			select {
+			case <-runContext.Done():
+				return
+			case _, open := <- timeChan:
+				if !open {
+					return
+				}
+				if countPieces != 0 {
+					tracelog.Info(packageName, funcName, "Processing speed %v/sec", countPieces / 10)
+					atomic.AddInt64(&countPieces,-countPieces)
+				}
+			}
+		}
+	} ()
 
 	processColumnData := func() {
-		funcName := "DataReaderType.StoreByDataCategory.goFunc1"
+		//threadNo := atomic.AddUint64(&threads,1) +fmt.Sprintf("%v",*threadNo)
+		funcName := "DataReaderType.StoreByDataCategory.goFunc1 "
+
+
+
 	outer:
 		for {
 			select {
@@ -408,14 +434,20 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 
 				}
 
+				atomic.AddInt64(&countPieces,1)
+
 				if dr.Config.EmitHashValues {
+
 					select {
 					case <-runContext.Done():
 						break outer
 					case store.columnDataChan <- columnData:
 					}
+
+
 				}
 			}
+			//close(timeChan)
 		}
 
 		wg.Done()

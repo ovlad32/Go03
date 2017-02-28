@@ -9,7 +9,24 @@ import (
 	"math"
 	"os"
 	"sync"
+	"encoding/gob"
+	"bufio"
+	"path/filepath"
+	"sparsebitset"
 )
+type OffsetsType map[uint64][]uint64;
+type H8BSType map[byte]*sparsebitset.BitSet;
+
+type H8BuffType struct {
+	 ColumnBlockType
+	 packetNumber uint64
+}
+
+type СacheOffsetType struct {
+	  packetNumber uint64
+      Offsets OffsetsType
+}
+
 
 type DataCategoryStore struct {
 	store           *bolt.DB
@@ -19,9 +36,10 @@ type DataCategoryStore struct {
 	storeKey        string
 	columnDataChan chan *ColumnDataType
 	chanLock sync.Mutex
-
-
 }
+
+
+
 
 func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string) (err error) {
 	funcName := "DataCategoryStore.Open." + storeKey
@@ -77,13 +95,97 @@ func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string) (err er
 
 func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan error) {
 	errChan = make(chan error, 1)
+	var wg sync.WaitGroup
+	workerChannels := make([](chan *ColumnDataType),256);
+	drainChan := make(chan*H8BuffType)
+
 
 	if s.columnDataChan == nil {
 		s.chanLock.Lock()
 		if s.columnDataChan == nil {
-			s.columnDataChan = make(chan *ColumnDataType,10000)
+			s.columnDataChan = make(chan *ColumnDataType,1000)
+
 		}
 		s.chanLock.Unlock()
+	}
+
+	drainToDisk := func(data *H8BuffType) (error) {
+		pathToFile := filepath.Join(
+			s.pathToStoreDir,
+			fmt.Sprintf("%v.cache", data.packetNumber),
+		)
+		file, err := os.Create(pathToFile)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		buff := bufio.NewWriter(file)
+		defer buff.Flush()
+		gobEnc := gob.NewEncoder(buff)
+		err = gobEnc.Encode(data.Data)
+		return err
+	}
+
+	worker := func(wc chan*ColumnDataType) {
+		countPackets := uint64(0)
+		buffer := new (H8BuffType)
+		toDrain := func() {
+			countPackets++
+			buffer.packetNumber = countPackets
+			drainChan <- buffer
+			buffer = new (H8BuffType)
+		}
+		outer:
+		for {
+			select {
+			case <-runContext.Done():
+				break outer
+			case columnData,open := <-wc:
+				if !open {
+					break outer
+			    }
+				_=columnData
+				buffer.Append(columnData.Column.Id.Value(),columnData.LineOffset)
+				if len(buffer.Data) > 1024*256 {
+					toDrain()
+				}
+			}
+		}
+		toDrain()
+		wg.Done()
+	}
+
+	wg.Add(1)
+	go func() {
+		outer:
+		for {
+			select {
+			case <-runContext.Done():
+				break outer
+			case buffer, open := <-drainChan:
+				if !open {
+					break outer
+				}
+
+				err := drainToDisk(buffer)
+
+				if err != nil {
+					select {
+					case <-runContext.Done():
+					case errChan <- err:
+					}
+				}
+			}
+		}
+	}()
+
+
+	wg.Add(len(workerChannels))
+	for index := range workerChannels {
+		workerChannels[index] = make(chan *ColumnDataType,100)
+		go worker(
+			workerChannels[index],
+		)
 	}
 
 	go func() {
@@ -102,14 +204,24 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 					if !opened {
 						break outer
 					}
-					_=columnData
+				//	_=columnData
 				/*	columnBlock.Data = s.bucket.Get(columnData.RawData)
 					columnBlock.Append(columnData.Column.Id.Value(), columnData.LineOffset)
 					s.bucket.Put(columnData.RawData, columnBlock.Data)
-				*/  found := false
-					pathToChunk := fmt.Sprintf("%v%c%v",s.pathToStoreDir,os.PathSeparator,columnData.HashInt);
-					pathToChunkRenamed := pathToChunk+".r"
+				*/
+
+					workerChannels[columnData.HashValue[7]] <-columnData
+
+
+
+
+
 					if false {
+						found := false
+						pathToChunk := fmt.Sprintf("%v%c%v",s.pathToStoreDir,os.PathSeparator,columnData.HashInt);
+						pathToChunkRenamed := pathToChunk+".r"
+
+
 						if fs, errc := os.Stat(pathToChunk); !os.IsNotExist(errc) {
 							os.Remove(pathToChunkRenamed)
 							errn := os.Rename(pathToChunk, pathToChunkRenamed)
@@ -166,6 +278,11 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 					}*/
 				}
 			}
+		for _,wc := range workerChannels {
+			close(wc)
+		}
+		close(drainChan)
+		wg.Wait()
 		close(errChan)
 	}()
 	return errChan
@@ -323,7 +440,7 @@ func (dc *DataCategoryType) RunAnalyzer(runContext context.Context,analysisChanS
 				if !open {
 					break outer
 				}
-				if dc.NonNullCount.Reference() == nil {
+				if !dc.NonNullCount.Valid()  {
 					dc.NonNullCount = nullable.NewNullInt64(int64(0))
 				}
 				if !dc.MaxStringValue.Valid() {
@@ -401,6 +518,9 @@ func (dc *DataCategoryType) CloseAnalyzerChannels() {
 	if dc.MinNumericValue.Valid() {
 		dc.MinNumericValue = nullable.NewNullFloat64(dc.Stats.MinNumericValue)
 		dc.MaxNumericValue = nullable.NewNullFloat64(dc.Stats.MaxNumericValue)
+	}
+	if dc.NonNullCount.Valid() {
+		dc.NonNullCount = nullable.NewNullInt64(int64(dc.Stats.NonNullCount))
 	}
 }
 
