@@ -140,7 +140,6 @@ type ColumnInfoType struct {
 	numericAnalysisLock          sync.Mutex
 
 	categoryRLock                sync.RWMutex
-	categoryWLock                sync.Mutex
 	Categories                   map[string]*DataCategoryType
 	initCategories               sync.Once
 	numericPositiveBitsetChannel chan uint64
@@ -159,22 +158,20 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 		ci.Categories = make(map[string]*DataCategoryType)
 	})
 
-	ci.categoryRLock.RLock()
+	ci.categoryRLock.Lock()
 	if value, found := ci.Categories[key]; !found {
 		if callBack != nil {
 			result,err = callBack()
 			if err != nil {
-				ci.categoryRLock.RUnlock()
+				ci.categoryRLock.Unlock()
 				tracelog.Error(err,packageName,funcName)
 				return nil,err
 			}
 		}
-		ci.categoryWLock.Lock()
-		ci.categoryRLock.RUnlock()
 		ci.Categories[key] = result
-		ci.categoryWLock.Unlock()
+		ci.categoryRLock.Unlock()
 	} else {
-		ci.categoryRLock.RUnlock()
+		ci.categoryRLock.Unlock()
 		result = value
 	}
 
@@ -336,18 +333,18 @@ func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoTy
 
 type TableInfoType struct {
 	*metadata.TableInfoType
-	Columns      []*ColumnInfoType
-	TankWriter   *bufio.Writer
-	tankFile     *os.File
-	tankFileLock sync.Mutex
+	Columns            []*ColumnInfoType
+	binaryDumpWriter   *bufio.Writer
+	binaryDumpFile     *os.File
+	binaryDumpFileLock sync.Mutex
 }
 
-func (ti *TableInfoType) OpenTank(closeContext context.Context, pathToTankDir string, flags int) (err error) {
-	funcName := "TableInfoType.OpenTank"
+func (ti *TableInfoType) OpenBinaryDump(closeContext context.Context, pathToTankDir string, flags int) (err error) {
+	funcName := "TableInfoType.OpenBinaryDump"
 	tracelog.Started(packageName, funcName)
 
 	if pathToTankDir == "" {
-		err = errors.New("Given path to binary tank directory is empty")
+		err = errors.New("Given path to binary dump directory is empty")
 		tracelog.Error(err, packageName, funcName)
 		return err
 	}
@@ -359,31 +356,31 @@ func (ti *TableInfoType) OpenTank(closeContext context.Context, pathToTankDir st
 		return err
 	}
 
-	pathToTankFile := fmt.Sprintf("%v%v%v.tank",
+	pathToTankFile := fmt.Sprintf("%v%v%v.bin.dump",
 		pathToTankDir,
 		os.PathSeparator,
 		ti.Id.String(),
 	)
 
-	if ti.tankFile == nil && ((flags & os.O_CREATE) == os.O_CREATE) {
-		ti.tankFileLock.Lock()
-		defer ti.tankFileLock.Unlock()
-		if ti.tankFile == nil && ((flags & os.O_CREATE) == os.O_CREATE) {
+	if ti.binaryDumpFile == nil && ((flags & os.O_CREATE) == os.O_CREATE) {
+		ti.binaryDumpFileLock.Lock()
+		defer ti.binaryDumpFileLock.Unlock()
+		if ti.binaryDumpFile == nil && ((flags & os.O_CREATE) == os.O_CREATE) {
 			file, err := os.OpenFile(pathToTankFile, flags, 0666)
 			if err != nil {
 				tracelog.Errorf(err, packageName, funcName, "Opening file %v", pathToTankFile)
 				return err
 			}
-			ti.TankWriter = bufio.NewWriter(file)
-			ti.tankFile = file
+			ti.binaryDumpWriter = bufio.NewWriter(file)
+			ti.binaryDumpFile = file
 			go func() {
-				funcName := "TableInfoType.OpenTank.delayedClose"
+				funcName := "TableInfoType.OpenBinaryDump.delayedClose"
 				tracelog.Started(packageName, funcName)
-				if ti.TankWriter != nil {
+				if ti.binaryDumpWriter != nil {
 					select {
 					case <-closeContext.Done():
-						ti.TankWriter.Flush()
-						ti.tankFile.Close()
+						ti.binaryDumpWriter.Flush()
+						ti.binaryDumpFile.Close()
 						return
 					}
 				}

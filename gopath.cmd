@@ -1,6 +1,7 @@
-set GOPATH=C:\Users\Admin\IdeaProjects\Go03\
+rem set GOPATH=C:\Users\Admin\IdeaProjects\Go03\
+set GOPATH=C:\Users\vladymyr.orlovskiy\IdeaProjects\Go03\
 set GOOS=windows
 rem set GOOS=linux
 set GOARCH=amd64
 set CGO_ENABLED=0
-go build -o Go03
+rem go build -o Go03

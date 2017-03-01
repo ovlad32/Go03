@@ -62,6 +62,14 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+	conf.HashValueLength = 8
+	if len(conf.LogBaseFile)>0 {
+		tracelog.StartFile(tracelog.LogLevel(),conf.LogBaseFile,conf.LogBaseFileKeepDay )
+		defer tracelog.Stop()
+	}
+
+
+
 	metadataIds := make(map[int64]bool)
 	workflowIds := make(map[int64]bool)
 
@@ -114,10 +122,6 @@ func main() {
 		f.Close()
 	}
 
-	conf.HashValueLength = 8
-	conf.EmitRawData = true
-	conf.EmitHashValues = true
-
 	dr := dataflow.DataReaderType{
 		Config: conf,
 	}
@@ -142,6 +146,7 @@ func main() {
 	tracelog.Started(packageName, funcName)
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
 
 	for id, _ := range workflowIds {
 		metadataId1, metadataId2, err := repo.MetadataByWorkflowId(nullable.NewNullInt64(id))
@@ -270,6 +275,6 @@ func main() {
 		tracelog.Info(packageName, funcName, "All tables processed")
 		dr.CloseStores()
 	}
-	log.Printf("%v", time.Since(start))
+	tracelog.Info(packageName,funcName,"Elapsed time: %v", time.Since(start))
 	tracelog.Completed(packageName, funcName)
 }

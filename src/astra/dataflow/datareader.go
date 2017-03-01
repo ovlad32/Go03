@@ -20,6 +20,7 @@ import (
 	"sparsebitset"
 	"time"
 	"sync/atomic"
+	"github.com/shirou/gopsutil/mem"
 )
 
 type DumpConfigType struct {
@@ -40,9 +41,13 @@ type DumpConfigType struct {
 	CategoryDataChannelSize int    `json:"category-data-channel-size"`
 	RawDataChannelSize      int    `json:"raw-data-channel-size"`
 	HashValueLength         int
-	EmitRawData             bool
-	EmitHashValues          bool
-	WriteTank               bool
+	EmitRawData             bool   `json:"emit-raw-data"`
+	EmitHashValues          bool   `json:"emit-hash-data"`
+	BuildBinaryDump         bool   `json:"build-binary-dump"`
+	SpeedTickTimeSec        int    `json:"speed-tick-time-sec"`
+	MemUsageTickTimeSec     int     `json:"memory-usage-tick-time-sec"`
+	LogBaseFile             string  `json:"log-base-file"`
+	LogBaseFileKeepDay      int  `json:"log-base-file-keep-day"`
 }
 
 type DataReaderType struct {
@@ -65,17 +70,17 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 	writeToTank := func(rowData [][]byte) (result int) {
 		columnCount := len(rowData)
-		if table.TankWriter != nil {
-			binary.Write(table.TankWriter, binary.LittleEndian, uint16(columnCount)) //
+		if table.binaryDumpWriter != nil {
+			binary.Write(table.binaryDumpWriter, binary.LittleEndian, uint16(columnCount)) //
 		}
 		result = 2
 		for _, colData := range rowData {
 			colDataLength := len(colData)
 			result = result + 2
 			result = result + colDataLength
-			if table.TankWriter != nil {
-				binary.Write(table.TankWriter, binary.LittleEndian, uint16(colDataLength))
-				table.TankWriter.Write(colData)
+			if table.binaryDumpWriter != nil {
+				binary.Write(table.binaryDumpWriter, binary.LittleEndian, uint16(colDataLength))
+				table.binaryDumpWriter.Write(colData)
 			}
 		}
 		return
@@ -185,9 +190,9 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				}
 
 				lineNumber++
-				if lineNumber == 1 && dr.Config.WriteTank {
+				if lineNumber == 1 && dr.Config.BuildBinaryDump {
 					closeContext, closeContextCancelFunc := context.WithCancel(context.Background())
-					err = table.OpenTank(closeContext, dr.Config.BinaryDumpPath, os.O_CREATE)
+					err = table.OpenBinaryDump(closeContext, dr.Config.BinaryDumpPath, os.O_CREATE)
 					if err != nil {
 						return err
 					}
@@ -234,27 +239,58 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 	funcName := "DataReaderType.StoreByDataCategory"
 	tracelog.Started(packageName,funcName)
 	errChan = make(chan error, 1)
-	timeChan :=  time.Tick(10*time.Second)
-//	threads := uint64(0)
-	var countPieces int64 = 0
+	var speedTickerChan <- chan time.Time
+	var memoryStatsTickerChan <- chan time.Time
 
-	var wg sync.WaitGroup
-	go func() {
-		for {
-			select {
-			case <-runContext.Done():
-				return
-			case _, open := <- timeChan:
-				if !open {
+	var tickerByteCounter int64 = 0
+
+	if dr.Config.SpeedTickTimeSec > 0 {
+
+		speedTickerChan = time.Tick(time.Duration(dr.Config.SpeedTickTimeSec) * time.Second)
+		go func() {
+			for {
+				select {
+				case <-runContext.Done():
 					return
-				}
-				if countPieces != 0 {
-					tracelog.Info(packageName, funcName, "Processing speed %v/sec", countPieces / 10)
-					atomic.AddInt64(&countPieces,-countPieces)
+				case _, open := <-speedTickerChan:
+					if !open {
+						return
+					}
+					if tickerByteCounter != 0 {
+						tracelog.Info(packageName, funcName, "Processing speed %.2f kb/sec",  float64(tickerByteCounter) / float64(1024*dr.Config.SpeedTickTimeSec))
+						atomic.AddInt64(&tickerByteCounter,-tickerByteCounter)
+					}
 				}
 			}
-		}
-	} ()
+		} ()
+
+	}
+
+	if dr.Config.MemUsageTickTimeSec > 0 {
+		memoryStatsTickerChan =  time.Tick(time.Duration(dr.Config.MemUsageTickTimeSec)*time.Second)
+		go func() {
+			for {
+				select {
+				case <- runContext.Done():
+				case _,open := <-memoryStatsTickerChan:
+					if !open {
+						return
+					}
+				vmem,_:= mem.VirtualMemory()
+				fmt.Printf("Memory usage %%: %v\n",vmem.UsedPercent)
+				}
+			}
+		}()
+	}
+
+
+
+
+
+	//	threads := uint64(0)
+
+	var wg sync.WaitGroup
+
 
 	processColumnData := func() {
 		//threadNo := atomic.AddUint64(&threads,1) +fmt.Sprintf("%v",*threadNo)
@@ -323,9 +359,9 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 					}
 					dr.blockStoreLock.Lock()
 					if value, found := dr.blockStores[columnData.dataCategoryKey ]; !found {
-						tracelog.Info(packageName, funcName, "not found for %v", columnData.dataCategoryKey)
+						//tracelog.Info(packageName, funcName, "not found for %v", columnData.dataCategoryKey)
 						store = &DataCategoryStore{}
-						err := store.Open(columnData.dataCategoryKey, dr.Config.KVStorePath)
+						err := store.Open(columnData.dataCategoryKey, dr.Config.KVStorePath,dr.Config.RawDataChannelSize)
 						if err != nil {
 							errChan <- err
 							break outer
@@ -334,21 +370,22 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 						dr.blockStores[columnData.dataCategoryKey ] = store
 						dr.blockStoreLock.Unlock()
 						store.RunStore(runContext)
-						tracelog.Info(packageName, funcName, "Opened Channel for %s/%v", columnData.Column, columnData.dataCategoryKey)
+						//tracelog.Info(packageName, funcName, "Opened Channel for %s/%v", columnData.Column, columnData.dataCategoryKey)
 
 					} else {
 						dr.blockStoreLock.Unlock()
 						store = value
 					}
 
-					go func(data *ColumnDataType){
-						select {
-						case <-runContext.Done():
-							return
-						case store.columnDataChan <-data:
-						}
-					}	(columnData)
+					select {
+					case <-runContext.Done():
+						break outer
+					case store.columnDataChan <- columnData:
+					}
+				}
 
+				if dr.Config.SpeedTickTimeSec > 0 {
+					atomic.AddInt64(&tickerByteCounter, int64(columnData.RawDataLength))
 				}
 
 
@@ -447,7 +484,7 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 
 				}
 
-				atomic.AddInt64(&countPieces,1)
+
 
 			}
 		}

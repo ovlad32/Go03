@@ -11,10 +11,17 @@
   "binary-dump-path": "./BINDATA/",
   "kv-store-path": "./BINDATA/",
   "astra-reader-buffer-size": 40960,
-  "table-workers": 3,
-  "category-worker-per-table": 10,
-  "category-data-channel-size":100,
-  "raw-data-channel-size": 1000
+  "table-workers": 10,
+  "category-worker-per-table": 100,
+  "category-data-channel-size": 100,
+  "raw-data-channel-size": 1000,
+  "speed-tick-time-sec": 30,
+  "memory-usage-tick-time-sec": 0,
+  "build-binary-dump": true,
+  "emit-hash-data": true,
+  "emit-raw-data": true,
+  "log-base-file": "./log",
+  "log-base-file-keep-day": 1
 }
 
 

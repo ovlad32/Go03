@@ -13,6 +13,10 @@ import (
 	"bufio"
 	"path/filepath"
 	"sparsebitset"
+	"runtime"
+	"compress/gzip"
+	"errors"
+	"encoding/binary"
 )
 type OffsetsType map[uint64][]uint64;
 type H8BSType map[byte]*sparsebitset.BitSet;
@@ -41,7 +45,7 @@ type DataCategoryStore struct {
 
 
 
-func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string) (err error) {
+func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string,channelSize int) (err error) {
 	funcName := "DataCategoryStore.Open." + storeKey
 	tracelog.Started(packageName, funcName)
 
@@ -90,24 +94,26 @@ func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string) (err er
 
 	s.OpenDefaultBucket()
 
+	if s.columnDataChan == nil {
+		s.chanLock.Lock()
+		if s.columnDataChan == nil {
+			s.columnDataChan = make(chan *ColumnDataType, channelSize)
+		}
+		s.chanLock.Unlock()
+	}
 	return
 }
 
 func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan error) {
 	errChan = make(chan error, 1)
-	var wg sync.WaitGroup
+	var wgWorker sync.WaitGroup
+	var wgDrainer sync.WaitGroup
+
 	workerChannels := make([](chan *ColumnDataType),256);
 	drainChan := make(chan*H8BuffType)
 
 
-	if s.columnDataChan == nil {
-		s.chanLock.Lock()
-		if s.columnDataChan == nil {
-			s.columnDataChan = make(chan *ColumnDataType,1000)
 
-		}
-		s.chanLock.Unlock()
-	}
 
 	drainToDisk := func(data *H8BuffType) (error) {
 		pathToFile := filepath.Join(
@@ -119,10 +125,13 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 			return err
 		}
 		defer file.Close()
-		buff := bufio.NewWriter(file)
+		gzfile := gzip.NewWriter(file)
+		defer gzfile.Close()
+		buff := bufio.NewWriter(gzfile)
 		defer buff.Flush()
 		gobEnc := gob.NewEncoder(buff)
 		err = gobEnc.Encode(data.Data)
+		defer runtime.GC()
 		return err
 	}
 
@@ -142,19 +151,20 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 				break outer
 			case columnData,open := <-wc:
 				if !open {
+					toDrain()
 					break outer
 			    }
 				buffer.Append(columnData.Column.Id.Value(), columnData.LineOffset)
 				if len(buffer.Data) > 1024*256 {
 					toDrain()
 				}
+
 			}
 		}
-		toDrain()
-		wg.Done()
+		wgWorker.Done()
 	}
 
-	wg.Add(1)
+	wgDrainer.Add(1)
 	go func() {
 		outer:
 		for {
@@ -172,14 +182,17 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 					select {
 					case <-runContext.Done():
 					case errChan <- err:
+						break outer
 					}
 				}
 			}
 		}
+		wgDrainer.Done()
+
 	}()
 
 
-	wg.Add(len(workerChannels))
+	wgWorker.Add(len(workerChannels))
 	for index := range workerChannels {
 		workerChannels[index] = make(chan *ColumnDataType,100)
 		go worker(
@@ -203,10 +216,11 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 					if !open {
 						break outer
 					}
-					go func(index byte, data *ColumnDataType) {
-						workerChannels[index] <-columnData
+					workerChannels[columnData.HashValue[7]] <-columnData
+				/*	go func(index byte, data *ColumnDataType) {
+						workerChannels[index] <-data
 					}(columnData.HashValue[7],columnData)
-
+				*/
 					//_=columnData
 
 				/*	columnBlock.Data = s.bucket.Get(columnData.RawData)
@@ -285,8 +299,9 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 		for _,wc := range workerChannels {
 			close(wc)
 		}
+		wgWorker.Wait()
 		close(drainChan)
-		wg.Wait()
+		wgDrainer.Wait()
 		close(errChan)
 	}()
 	return errChan
@@ -386,6 +401,46 @@ func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
 	result.stringAnalysisChan = make(chan string,300)
 	result.numericAnalysisChan = make(chan float64,300)
 	return
+}
+
+func (simple *DataCategorySimpleType) KeyBin() (result []byte) {
+	funcName := "DataCategorySimpleType.KeyBin"
+	tracelog.Started(packageName, funcName)
+
+	result = make([]byte, 3, 5)
+
+	if simple.IsNumeric {
+		result[0] = (1 << 2)
+		if simple.FloatingPointScale == 0 {
+			if simple.IsNegative {
+				result[0] = result[0] | (1 << 0)
+			}
+		} else {
+			result[0] = result[0] | (1 << 1)
+			if simple.IsNegative {
+				result[0] = result[0] | (1 << 0)
+		}
+	}
+	}
+
+	binary.LittleEndian.PutUint16(result[1:], uint16(simple.ByteLength.Value()))
+	if simple.IsNumeric.Value() {
+	if simple.FloatingPointScale.Value() != -1 {
+	result = append(
+	result,
+	byte(simple.FloatingPointScale.Value()),
+	)
+	}
+	}
+	if simple.IsSubHash.Value() {
+	result = append(
+	result,
+	byte(simple.SubHash.Value()),
+	)
+	}
+	return
+	}
+
 }
 
 type DataCategoryType struct {
