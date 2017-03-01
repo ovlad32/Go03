@@ -15,8 +15,6 @@ import (
 	"sparsebitset"
 	"runtime"
 	"compress/gzip"
-	"errors"
-	"encoding/binary"
 )
 type OffsetsType map[uint64][]uint64;
 type H8BSType map[byte]*sparsebitset.BitSet;
@@ -407,40 +405,32 @@ func (simple *DataCategorySimpleType) KeyBin() (result []byte) {
 	funcName := "DataCategorySimpleType.KeyBin"
 	tracelog.Started(packageName, funcName)
 
-	result = make([]byte, 3, 5)
+	result = make([]byte, 2, 2)
 
 	if simple.IsNumeric {
-		result[0] = (1 << 2)
-		if simple.FloatingPointScale == 0 {
-			if simple.IsNegative {
-				result[0] = result[0] | (1 << 0)
-			}
-		} else {
-			result[0] = result[0] | (1 << 1)
-			if simple.IsNegative {
-				result[0] = result[0] | (1 << 0)
+		result[0] = (1 << 7)
+		if simple.IsNegative {
+			result[0] = result[0] | (1 << 6)
 		}
+		if simple.FloatingPointScale > 0 {
+			fp := simple.FloatingPointScale
+			if fp > 0x3F {
+				fp = 0x3F
+			}
+			result[0] |= byte(fp)
+		}
+		bl := uint16(simple.ByteLength)
+		if bl > 0xFF {
+			bl = 0xFF
+		}
+		result[1] = byte(bl)
+	} else {
+		bl := uint16(simple.ByteLength)
+		result[1] = byte(bl & 0xFF)
+		result[0] = byte((bl >> 8) & 0x7F)
 	}
-	}
-
-	binary.LittleEndian.PutUint16(result[1:], uint16(simple.ByteLength.Value()))
-	if simple.IsNumeric.Value() {
-	if simple.FloatingPointScale.Value() != -1 {
-	result = append(
-	result,
-	byte(simple.FloatingPointScale.Value()),
-	)
-	}
-	}
-	if simple.IsSubHash.Value() {
-	result = append(
-	result,
-	byte(simple.SubHash.Value()),
-	)
-	}
-	return
-	}
-
+	tracelog.Completed(packageName, funcName)
+	return result
 }
 
 type DataCategoryType struct {

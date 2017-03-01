@@ -1,5 +1,5 @@
-rem set GOPATH=C:\Users\Admin\IdeaProjects\Go03\
-set GOPATH=C:\Users\vladymyr.orlovskiy\IdeaProjects\Go03\
+set GOPATH=C:\Users\Admin\IdeaProjects\Go03\
+rem set GOPATH=C:\Users\vladymyr.orlovskiy\IdeaProjects\Go03\
 set GOOS=windows
 rem set GOOS=linux
 set GOARCH=amd64
