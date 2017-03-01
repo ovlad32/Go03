@@ -139,7 +139,8 @@ type ColumnInfoType struct {
 	stringAnalysisLock           sync.Mutex
 	numericAnalysisLock          sync.Mutex
 
-	categoryLock                 sync.RWMutex
+	categoryRLock                sync.RWMutex
+	categoryWLock                sync.Mutex
 	Categories                   map[string]*DataCategoryType
 	initCategories               sync.Once
 	numericPositiveBitsetChannel chan uint64
@@ -158,20 +159,22 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 		ci.Categories = make(map[string]*DataCategoryType)
 	})
 
-	ci.categoryLock.Lock()
+	ci.categoryRLock.RLock()
 	if value, found := ci.Categories[key]; !found {
 		if callBack != nil {
 			result,err = callBack()
 			if err != nil {
-				ci.categoryLock.Unlock()
+				ci.categoryRLock.RUnlock()
 				tracelog.Error(err,packageName,funcName)
 				return nil,err
 			}
 		}
+		ci.categoryWLock.Lock()
+		ci.categoryRLock.RUnlock()
 		ci.Categories[key] = result
-		ci.categoryLock.Unlock()
+		ci.categoryWLock.Unlock()
 	} else {
-		ci.categoryLock.Unlock()
+		ci.categoryRLock.RUnlock()
 		result = value
 	}
 

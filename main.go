@@ -116,7 +116,7 @@ func main() {
 
 	conf.HashValueLength = 8
 	conf.EmitRawData = true
-	conf.EmitHashValues = false
+	conf.EmitHashValues = true
 
 	dr := dataflow.DataReaderType{
 		Config: conf,

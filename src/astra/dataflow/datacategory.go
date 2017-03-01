@@ -73,14 +73,14 @@ func (s *DataCategoryStore) Open(storeKey string, pathToStoreDir string) (err er
 		os.PathSeparator,
 		storeKey,
 	)
-	s.store, err = bolt.Open(pathToStoreFile, 700, &bolt.Options{InitialMmapSize: 16})
+	//s.store, err = bolt.Open(pathToStoreFile, 700, &bolt.Options{InitialMmapSize: 16})
 	//	s.store.MaxBatchSize = 100000
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening database for %v store %v", storeKey, pathToStoreFile)
 		return err
 	}
 
-	s.tx, err = s.store.Begin(true)
+	//s.tx, err = s.store.Begin(true)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening transaction on %v store %v", storeKey, pathToStoreFile)
 		return err
@@ -144,8 +144,7 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 				if !open {
 					break outer
 			    }
-				_=columnData
-				buffer.Append(columnData.Column.Id.Value(),columnData.LineOffset)
+				buffer.Append(columnData.Column.Id.Value(), columnData.LineOffset)
 				if len(buffer.Data) > 1024*256 {
 					toDrain()
 				}
@@ -200,17 +199,22 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 				select {
 				case <-runContext.Done():
 					break outer
-				case columnData, opened := <-s.columnDataChan:
-					if !opened {
+				case columnData, open := <-s.columnDataChan:
+					if !open {
 						break outer
 					}
-				//	_=columnData
+					go func(index byte, data *ColumnDataType) {
+						workerChannels[index] <-columnData
+					}(columnData.HashValue[7],columnData)
+
+					//_=columnData
+
 				/*	columnBlock.Data = s.bucket.Get(columnData.RawData)
 					columnBlock.Append(columnData.Column.Id.Value(), columnData.LineOffset)
 					s.bucket.Put(columnData.RawData, columnBlock.Data)
 				*/
 
-					workerChannels[columnData.HashValue[7]] <-columnData
+					//
 
 
 
@@ -293,8 +297,8 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 func(s *DataCategoryStore) OpenDefaultBucket() (err error){
 	funcName := "DataCategoryStore.OpenDefaultBucket." + s.storeKey
 	tracelog.Started(packageName, funcName)
-	bucketName := []byte("0")
-	s.bucket, err  = s.tx.CreateBucketIfNotExists(bucketName)
+	//bucketName := []byte("0")
+//	s.bucket, err  = s.tx.CreateBucketIfNotExists(bucketName)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Creating default bucket on %v  store %v", s.storeKey, s.storeKey)
 		return err

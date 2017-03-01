@@ -340,7 +340,19 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 						dr.blockStoreLock.Unlock()
 						store = value
 					}
+
+					go func(data *ColumnDataType){
+						select {
+						case <-runContext.Done():
+							return
+						case store.columnDataChan <-data:
+						}
+					}	(columnData)
+
 				}
+
+
+
 				dataCategory, err := columnData.Column.CategoryByKey(
 					columnData.dataCategoryKey,
 					func() (result *DataCategoryType, err error) {
@@ -403,9 +415,9 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 					break outer
 				}
 				select {
-					case <-runContext.Done():
-						break outer
-					case dataCategory.stringAnalysisChan <- stringValue:
+				case <-runContext.Done():
+					break outer
+				case dataCategory.stringAnalysisChan <- stringValue:
 				}
 
 				if simple.IsNumeric {
@@ -414,6 +426,7 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 						break outer
 					case dataCategory.numericAnalysisChan <- floatValue:
 					}
+
 					if simple.FloatingPointScale == 0 {
 						if !simple.IsNegative && columnData.Column.NumericPositiveBitset != nil {
 							select {
@@ -436,18 +449,7 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 
 				atomic.AddInt64(&countPieces,1)
 
-				if dr.Config.EmitHashValues {
-
-					select {
-					case <-runContext.Done():
-						break outer
-					case store.columnDataChan <- columnData:
-					}
-
-
-				}
 			}
-			//close(timeChan)
 		}
 
 		wg.Done()

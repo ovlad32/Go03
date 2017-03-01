@@ -17,7 +17,88 @@ var (
 	valLen              = uint64(8)
 )
 
+
 func (s *ColumnBlockType) Append(columnId int64, offset uint64) (columns []int64) {
+	//ColumnId[1],
+	//      CountBitsetKeyVal,key,val...,
+	// ColumnId[2],
+	//      CountBitsetKeyVal,key,val...,
+	// ColumnId[N],
+	//      CountBitsetKeyVal,key,val...
+	base, bitPosition := sparsebitset.OffsetBits(offset)
+	//fmt.Println(base,bitPosition);
+	sourcePosition := uint64(0)
+	destPosition := uint64(0)
+	dataLen := uint64(len(s.Data))
+	columnFound := false
+	columns = make([]int64,0,10)
+	// making a new buffer as large like the worst scenario: we add a new column
+	worstScenario := dataLen+keyValStartPosition+keyLen+valLen
+	if (uint64(cap(s.Data))<worstScenario) {
+		worstScenario = worstScenario*3;
+		newBuffer := make([]byte, len(s.Data), dataLen+worstScenario)
+		copy(newBuffer,s.Data)
+		s.Data=newBuffer
+	}
+	//newBuffer := make([]byte, 0, dataLen+keyValStartPosition+keyLen+valLen)
+	for dataLen > 0 && sourcePosition < dataLen {
+		storedColumnId := binary.LittleEndian.Uint64(s.Data[sourcePosition+columnIdPosition:])
+		columns = append(columns,int64(storedColumnId))
+		keyValCount := binary.LittleEndian.Uint64(s.Data[sourcePosition+countKeyValPosition:])
+		bytesToCopy := (keyValStartPosition + keyValCount*(keyLen+valLen))
+		//newBuffer = append(newBuffer, s.Data[sourcePosition:sourcePosition+bytesToCopy]...)
+		if storedColumnId == uint64(columnId) {
+			columnFound = true
+			currentKeyValPosition := destPosition + keyValStartPosition
+			baseFound := false
+			for index := uint64(0); index < keyValCount; index++ {
+				storedBase := binary.LittleEndian.Uint64(s.Data[currentKeyValPosition:])
+				currentKeyValPosition += keyLen
+				if storedBase == base {
+					storedBits := binary.LittleEndian.Uint64(s.Data[currentKeyValPosition:])
+					newBits := storedBits | (1 << bitPosition)
+					binary.LittleEndian.PutUint64(s.Data[currentKeyValPosition:], newBits)
+					baseFound = true
+					break
+				}
+				currentKeyValPosition += valLen
+			}
+			if !baseFound {
+				keyValCount += 1
+				binary.LittleEndian.PutUint64(s.Data[destPosition+countKeyValPosition:], keyValCount)
+				s.Data = append(s.Data, s.Data[dataLen - (valLen + keyLen):]...)
+				if destPosition+bytesToCopy <  dataLen {
+					copy(
+						s.Data[destPosition + bytesToCopy + keyLen + valLen : dataLen ],
+						s.Data[destPosition + bytesToCopy: dataLen - (valLen + keyLen)],
+					)
+				}
+				dataLen += valLen + keyLen
+				binary.LittleEndian.PutUint64(s.Data[destPosition+bytesToCopy:], base)
+				destPosition += keyLen
+				binary.LittleEndian.PutUint64(s.Data[destPosition+bytesToCopy:], (1 << bitPosition))
+				destPosition += valLen
+			}
+		}
+		sourcePosition += bytesToCopy
+		destPosition += bytesToCopy
+	}
+	if !columnFound {
+		s.Data = append(s.Data, make([]byte, keyValStartPosition+keyLen+valLen)...)
+		binary.LittleEndian.PutUint64(s.Data[destPosition+columnIdPosition:], uint64(columnId))
+		binary.LittleEndian.PutUint64(s.Data[destPosition+countKeyValPosition:], uint64(1))
+		binary.LittleEndian.PutUint64(s.Data[destPosition+keyValStartPosition:], base)
+		binary.LittleEndian.PutUint64(s.Data[destPosition+keyValStartPosition+keyLen:], 1<<bitPosition)
+		columns = append(columns,columnId)
+	}
+	//s.Data = newBuffer
+	//ioutil.WriteFile("./block",newBuffer,700)
+	return
+}
+
+
+
+func (s *ColumnBlockType) AppendWithNew(columnId int64, offset uint64) (columns []int64) {
 	//ColumnId[1],
 	//      CountBitsetKeyVal,key,val...,
 	// ColumnId[2],
