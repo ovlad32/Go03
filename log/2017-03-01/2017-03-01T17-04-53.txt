@@ -1,9 +1,0 @@
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.COLLATERAL_TYPES done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.ADDRESS_TYPES done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.CURRENCIES done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.COUNTRIES done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.CUSTOMER_TYPES done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.CUSTOMER_RATING_REPORT done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.DOCUMENT_TYPES done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.INDUSTRY_SECTORS done
-INFO: 2017/03/01 19:04:53 main.go:246: main : processTable : Info : Table CRA.INFORMERS done
