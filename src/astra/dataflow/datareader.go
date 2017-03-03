@@ -11,16 +11,15 @@ import (
 	"io"
 	"os"
 	"sync"
-
 	"astra/B8"
 	"github.com/boltdb/bolt"
 	"hash/fnv"
-	"strconv"
 	"strings"
 	"sparsebitset"
 	"time"
 	"sync/atomic"
 	"github.com/shirou/gopsutil/mem"
+	"strconv"
 )
 
 type DumpConfigType struct {
@@ -312,13 +311,16 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 					continue
 				}
 				stringValue := string(columnData.RawData)
+				var floatValue float64 = 0
+				var parseError error
+				floatValue, parseError = strconv.ParseFloat(stringValue, 64)
 
-				floatValue, parseError := strconv.ParseFloat(stringValue, 64)
 				simple := &DataCategorySimpleType{
 					ByteLength: columnData.RawDataLength,
 					IsNumeric:  parseError == nil,
 					IsSubHash:  false, //byteLength > da.SubHashByteLengthThreshold
 				}
+
 
 				if simple.IsNumeric {
 					//var lengthChanged bool

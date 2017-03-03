@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"github.com/goinggo/tracelog"
 	"golang.org/x/net/context"
-	"os"
-	"sync"
-	"sparsebitset"
 	"math"
+	"os"
+	"sparsebitset"
+	"sync"
 )
+
 /*
 
 type boltStorageGroupType struct {
@@ -132,12 +133,12 @@ func (s *boltStorageGroupType) Close() (err error) {
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
 
-	IntegerUniqueCount           nullable.NullInt64
-	MovingMean                   nullable.NullFloat64
-	MovingStandardDeviation      nullable.NullFloat64
+	IntegerUniqueCount      nullable.NullInt64
+	MovingMean              nullable.NullFloat64
+	MovingStandardDeviation nullable.NullFloat64
 
-	stringAnalysisLock           sync.Mutex
-	numericAnalysisLock          sync.Mutex
+	stringAnalysisLock  sync.Mutex
+	numericAnalysisLock sync.Mutex
 
 	categoryRLock                sync.RWMutex
 	Categories                   map[string]*DataCategoryType
@@ -149,23 +150,22 @@ type ColumnInfoType struct {
 	drainBitsetChannels          sync.WaitGroup
 }
 
-
 func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *DataCategoryType, err error),
 ) (result *DataCategoryType, err error) {
 	funcName := "ColumnInfoType.CategoryByKey"
-	tracelog.Started(packageName,funcName)
-	ci.initCategories.Do(func(){
+	tracelog.Started(packageName, funcName)
+	ci.initCategories.Do(func() {
 		ci.Categories = make(map[string]*DataCategoryType)
 	})
 
 	ci.categoryRLock.Lock()
 	if value, found := ci.Categories[key]; !found {
 		if callBack != nil {
-			result,err = callBack()
+			result, err = callBack()
 			if err != nil {
 				ci.categoryRLock.Unlock()
-				tracelog.Error(err,packageName,funcName)
-				return nil,err
+				tracelog.Error(err, packageName, funcName)
+				return nil, err
 			}
 		}
 		ci.Categories[key] = result
@@ -175,23 +175,22 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 		result = value
 	}
 
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 	return result, err
 }
 func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.Categories != nil {
-		for _,category := range ci.Categories{
+		for _, category := range ci.Categories {
 			category.CloseAnalyzerChannels()
 		}
 	}
 
-
 	var prevValue uint64
 	var count uint64 = 0
 	var gotPrevValue bool
-	var meanValue, cumulativeDeviaton float64 = 0,0
-	increasingOrder := context.WithValue(runContext,"sort",true)
-	reversedOrder := context.WithValue(context.WithValue(runContext,"sort",true),"desc",true)
+	var meanValue, cumulativeDeviaton float64 = 0, 0
+	increasingOrder := context.WithValue(runContext, "sort", true)
+	reversedOrder := context.WithValue(context.WithValue(runContext, "sort", true), "desc", true)
 
 	if ci.NumericNegativeBitset != nil {
 		close(ci.numericNegativeBitsetChannel)
@@ -205,7 +204,7 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.NumericNegativeBitset != nil {
 		gotPrevValue = false
 		for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
-			count ++
+			count++
 			if !gotPrevValue {
 				prevValue = value
 				gotPrevValue = true
@@ -218,7 +217,7 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.NumericPositiveBitset != nil {
 		gotPrevValue = false
 		for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
-			count ++
+			count++
 			if !gotPrevValue {
 				prevValue = value
 				gotPrevValue = true
@@ -228,7 +227,7 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 			}
 		}
 	}
-	if count> 0 {
+	if count > 0 {
 		meanValue = cumulativeDeviaton / float64(count)
 		totalDeviation := float64(0)
 
@@ -239,7 +238,7 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 					prevValue = value
 					gotPrevValue = true
 				} else {
-					totalDeviation = totalDeviation +  math.Pow(meanValue - (float64(value) - float64(prevValue)),2)
+					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
 					prevValue = value
 				}
 			}
@@ -252,23 +251,20 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 					prevValue = value
 					gotPrevValue = true
 				} else {
-					totalDeviation = totalDeviation +  math.Pow(meanValue - (float64(value) - float64(prevValue)),2)
+					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
 					prevValue = value
 				}
 			}
 		}
-		stddev:= math.Sqrt(totalDeviation /float64(count))
+		stdDev := math.Sqrt(totalDeviation / float64(count))
 		ci.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
 		ci.MovingMean = nullable.NewNullFloat64(meanValue)
-		ci.MovingStandardDeviation = nullable.NewNullFloat64(stddev)
-
+		ci.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
 
 	}
 
 	return err
 }
-
-
 
 func (ci *ColumnInfoType) AnalyzeStringValue(stringValue string) {
 	ci.stringAnalysisLock.Lock()
