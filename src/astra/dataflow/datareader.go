@@ -109,11 +109,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				columnData.RawData = columnData.RawData[0:0]
 			}
 
-			if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
-				columnData.HashValue = make([]byte, 8, 8)
-			} else {
-				columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
-			}
+
 			columnData.RawDataLength = byteLength
 			columnData.LineNumber = LineNumber
 			columnData.LineOffset = LineOffset
@@ -122,6 +118,12 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 			columnData.RawData = append(columnData.RawData, (columnBytes)...)
 
 			if  dr.Config.EmitHashValues {
+				if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
+					columnData.HashValue = make([]byte, 8, 8)
+				} else {
+					columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
+				}
+
 				if columnData.RawDataLength > dr.Config.HashValueLength {
 					hashMethod.Reset()
 					hashMethod.Write(columnData.RawData)
@@ -199,8 +201,8 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				}
 
 				if dr.Config.EmitRawData {
+					wg.Add(len(lineColumns))
 					for columnNumber, columnDataBytes := range lineColumns {
-						wg.Add(1)
 						go splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], columnDataBytes)
 					}
 					wg.Wait()

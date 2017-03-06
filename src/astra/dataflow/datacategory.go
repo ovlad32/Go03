@@ -22,6 +22,7 @@ type H8BSType map[byte]*sparsebitset.BitSet;
 type H8BuffType struct {
 	 ColumnBlockType
 	 packetNumber uint64
+	 bucket byte
 }
 
 type СacheOffsetType struct {
@@ -116,7 +117,7 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 	drainToDisk := func(data *H8BuffType) (error) {
 		pathToFile := filepath.Join(
 			s.pathToStoreDir,
-			fmt.Sprintf("%v.cache", data.packetNumber),
+			fmt.Sprintf("%v.%X.cache", data.packetNumber,data.bucket),
 		)
 		file, err := os.Create(pathToFile)
 		if err != nil {
@@ -133,9 +134,10 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 		return err
 	}
 
-	worker := func(wc chan*ColumnDataType) {
+	worker := func(bucket byte, wc chan*ColumnDataType) {
 		countPackets := uint64(0)
 		buffer := new (H8BuffType)
+		buffer.bucket = bucket
 		toDrain := func() {
 			countPackets++
 			buffer.packetNumber = countPackets
@@ -149,6 +151,7 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 				break outer
 			case columnData,open := <-wc:
 				if !open {
+					fmt.Printf("final Drain %v\n",bucket)
 					toDrain()
 					break outer
 			    }
@@ -191,9 +194,11 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 
 
 	wgWorker.Add(len(workerChannels))
+
 	for index := range workerChannels {
 		workerChannels[index] = make(chan *ColumnDataType,100)
 		go worker(
+			byte(index),
 			workerChannels[index],
 		)
 	}
@@ -297,7 +302,9 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 		for _,wc := range workerChannels {
 			close(wc)
 		}
+
 		wgWorker.Wait()
+
 		close(drainChan)
 		wgDrainer.Wait()
 		close(errChan)

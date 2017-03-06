@@ -205,11 +205,13 @@ func (a blockAry) delete(idx uint32) (blockAry, error) {
 // setBit sets the bit at the given position to `1`.
 func (a *blockAry) setBit(n uint64) error {
 	off, bit := offsetBits(n)
+	val := uint64(1)<< bit
 	if _, found := (*a)[off]; !found {
 		(*a)[off] = (1 << bit)
 	} else {
-		//setBit_( &(*a)[off],bit)
-		(*a)[off] |= 1 << bit
+		if (*a)[off] & val == 0 {
+			(*a)[off] |= val
+		}
 	}
 	return nil
 }
