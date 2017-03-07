@@ -18,9 +18,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+//	 _ "net/http/pprof"
 )
 
-//-workflow_id 57
+//-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
 
 var packageName = "main"
 var repo *dataflow.Repository
@@ -29,7 +30,6 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 var pathToConfigFile = flag.String("configfile", "./config.json", "path to config file")
-var cliMode = flag.String("mode", "", "application mode")
 var argMetadataIds = flag.String("metadata_id", string(-math.MaxInt64), "")
 var argWorkflowIds = flag.String("workflow_id", string(-math.MaxInt64), "")
 
@@ -58,6 +58,10 @@ func readConfig() (*dataflow.DumpConfigType, error) {
 func main() {
 	funcName := "main"
 	tracelog.Start(tracelog.LevelInfo)
+	/*
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()*/
 
 	flag.Parse()
 
@@ -198,6 +202,7 @@ func main() {
 				if !open {
 					break outer
 				}
+				tracelog.Info(packageName, funcName, "Start processing table %v", inTable)
 				var colChan1 chan *dataflow.ColumnDataType
 				colChan1, ec1 := dr.ReadSource(
 					runContext,
@@ -213,22 +218,19 @@ func main() {
 				go func() {
 					select {
 					case <-runContext.Done():
-					case err, open := <-ec1:
+					case err, open = <-ec1:
 						if err != nil {
 							ec3 <- err
-						}
-						if !open {
-							return
 						}
 					}
 				}()
 
 				select {
 				case <-runContext.Done():
-				case err = <-ec3:
+				case err,open = <-ec3:
 					if err != nil {
 						tracelog.Error(err, packageName, funcName)
-						break outer
+						return err
 					}
 				}
 
@@ -246,7 +248,7 @@ func main() {
 					}
 				}
 				if err == nil {
-					tracelog.Info(packageName, funcName, "Table %v done", inTable)
+					tracelog.Info(packageName, funcName, "Table processing %v has been done", inTable)
 				}
 
 			}
@@ -265,6 +267,7 @@ func main() {
 				err = processTable(processTableContext)
 				wg.Done()
 				if err != nil {
+					//tracelog.Info(packageName,funcName,"Сancel сontext called ")
 					processTableContextCancelFunc()
 				}
 				return

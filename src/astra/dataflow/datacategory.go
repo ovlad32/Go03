@@ -533,12 +533,12 @@ func (dc *DataCategoryType) RunAnalyzer(runContext context.Context,analysisChanS
 				}
 				if !dc.MaxNumericValue.Valid() {
 					dc.MaxNumericValue = nullable.NewNullFloat64(float64(0))
-					dc.Stats.MaxNumericValue = -math.MaxFloat64
+					dc.Stats.MaxNumericValue = math.Inf(-1)
 				}
 
 				if !dc.MinNumericValue.Valid() {
 					dc.MinNumericValue = nullable.NewNullFloat64(float64(0))
-					dc.Stats.MinNumericValue = math.MaxFloat64
+					dc.Stats.MinNumericValue = math.Inf(1)
 
 				}
 				if floatValue > dc.Stats.MaxNumericValue {

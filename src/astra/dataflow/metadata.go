@@ -142,6 +142,7 @@ type ColumnInfoType struct {
 
 	categoryRLock                sync.RWMutex
 	Categories                   map[string]*DataCategoryType
+	CategoriesB                  []map[string]*DataCategoryType
 	initCategories               sync.Once
 	numericPositiveBitsetChannel chan uint64
 	numericNegativeBitsetChannel chan uint64
@@ -157,6 +158,8 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 	ci.initCategories.Do(func() {
 		ci.Categories = make(map[string]*DataCategoryType)
 	})
+
+
 
 	ci.categoryRLock.Lock()
 	if value, found := ci.Categories[key]; !found {

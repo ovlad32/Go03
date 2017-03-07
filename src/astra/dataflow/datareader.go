@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"github.com/shirou/gopsutil/mem"
 	"strconv"
+	"math"
 )
 
 type DumpConfigType struct {
@@ -92,30 +93,24 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 		var wg sync.WaitGroup
 
-		splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes []byte) {
+		splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes *[]byte)  {
 			var hashMethod = fnv.New64()
 			defer wg.Done()
 
-			byteLength := len(columnBytes)
+			byteLength := len(*columnBytes)
 			if byteLength == 0 {
 				return
 			}
 
 			columnData := &ColumnDataType {}
+			columnData.RawData = columnBytes
 
-			if columnData.RawData == nil || cap(columnData.RawData) < byteLength {
-				columnData.RawData = make([]byte, 0, byteLength)
-			} else {
-				columnData.RawData = columnData.RawData[0:0]
-			}
 
 
 			columnData.RawDataLength = byteLength
 			columnData.LineNumber = LineNumber
 			columnData.LineOffset = LineOffset
 			columnData.Column = column
-
-			columnData.RawData = append(columnData.RawData, (columnBytes)...)
 
 			if  dr.Config.EmitHashValues {
 				if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
@@ -126,21 +121,20 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				if columnData.RawDataLength > dr.Config.HashValueLength {
 					hashMethod.Reset()
-					hashMethod.Write(columnData.RawData)
+					hashMethod.Write(*columnData.RawData)
 					columnData.HashInt = hashMethod.Sum64()
 					B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
 				} else {
-					copy(columnData.HashValue[dr.Config.HashValueLength - byteLength:], columnBytes)
+					copy(columnData.HashValue[dr.Config.HashValueLength - byteLength:], *columnBytes)
 					columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
 				}
 			}
 
 			select {
-			case <-runContext.Done():
-				return
-			case outChan <- columnData:
+				case <-runContext.Done():
+					return
+				case outChan <- columnData:
 			}
-
 		}
 
 
@@ -161,10 +155,10 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 		lineNumber := uint64(0)
 		lineOffset := uint64(0)
 		for {
-			select {
+			/*select {
 			case <-runContext.Done():
 				return
-			default:
+			default:*/
 
 				line, err := bufferedFile.ReadSlice(dr.Config.AstraLineSeparator)
 				if err == io.EOF {
@@ -173,8 +167,16 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 					return err
 				}
 
-				line = bytes.TrimSuffix(line, []byte{dr.Config.AstraLineSeparator})
-				line = bytes.TrimSuffix(line, x0D)
+				//line = bytes.TrimSuffix(line, []byte{dr.Config.AstraLineSeparator})
+				//line = bytes.TrimSuffix(line, x0D)
+				lineLength := len(line)
+				if line[lineLength-1] == dr.Config.AstraLineSeparator {
+					line = line[:lineLength-1]
+				}
+				if line[lineLength-2] == x0D[0]{
+					line = line[:lineLength-2]
+				}
+
 
 				metadataColumnCount := len(table.Columns)
 
@@ -202,14 +204,14 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				if dr.Config.EmitRawData {
 					wg.Add(len(lineColumns))
-					for columnNumber, columnDataBytes := range lineColumns {
-						go splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], columnDataBytes)
+					for columnNumber := range  lineColumns{
+						splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], &lineColumns[columnNumber])
 					}
 					wg.Wait()
 				}
 
 				lineOffset = lineOffset + uint64(writeToTank(lineColumns))
-			}
+		//	}
 		}
 		return nil
 	}
@@ -312,7 +314,7 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 				if columnData == nil || columnData.RawDataLength == 0 {
 					continue
 				}
-				stringValue := string(columnData.RawData)
+				stringValue := string(*columnData.RawData)
 				var floatValue float64 = 0
 				var parseError error
 				floatValue, parseError = strconv.ParseFloat(stringValue, 64)
@@ -403,7 +405,7 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 								if !simple.IsNegative {
 									if columnData.Column.NumericPositiveBitset == nil {
 										columnData.Column.NumericPositiveBitset = sparsebitset.New(0)
-										columnData.Column.numericPositiveBitsetChannel = make(chan uint64,dr.Config.CategoryDataChannelSize)
+										columnData.Column.numericPositiveBitsetChannel = make(chan uint64, dr.Config.CategoryDataChannelSize)
 										columnData.Column.drainBitsetChannels.Add(1)
 										go func() {
 											outer:
@@ -411,20 +413,21 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 												select {
 												case <-runContext.Done():
 													break outer;
-												case value,open := <-columnData.Column.numericPositiveBitsetChannel:
+												case value, open := <-columnData.Column.numericPositiveBitsetChannel:
 													if !open {
 														break outer
 													}
+												//_=value
 													columnData.Column.NumericPositiveBitset.Set(value)
 												}
 											}
 											columnData.Column.drainBitsetChannels.Done()
-										} ()
+										}()
 									}
 								} else {
 									if columnData.Column.NumericNegativeBitset == nil {
 										columnData.Column.NumericNegativeBitset = sparsebitset.New(0)
-										columnData.Column.numericNegativeBitsetChannel = make(chan uint64,dr.Config.CategoryDataChannelSize)
+										columnData.Column.numericNegativeBitsetChannel = make(chan uint64, dr.Config.CategoryDataChannelSize)
 										columnData.Column.drainBitsetChannels.Add(1)
 										go func() {
 											outer:
@@ -432,15 +435,16 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 												select {
 												case <-runContext.Done():
 													break outer;
-												case value,open := <- columnData.Column.numericNegativeBitsetChannel:
+												case value, open := <-columnData.Column.numericNegativeBitsetChannel:
 													if !open {
 														break outer
 													}
+												//_=value
 													columnData.Column.NumericNegativeBitset.Set(value)
 												}
 											}
 											columnData.Column.drainBitsetChannels.Done()
-										} ()
+										}()
 									}
 								}
 							}
@@ -455,13 +459,14 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 					errChan <- err
 					break outer
 				}
+
 				select {
 				case <-runContext.Done():
 					break outer
 				case dataCategory.stringAnalysisChan <- stringValue:
 				}
 
-				if simple.IsNumeric {
+				if simple.IsNumeric && !math.IsInf(floatValue,-1) && !math.IsInf(floatValue,1) {
 					select {
 					case <-runContext.Done():
 						break outer
@@ -485,8 +490,8 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 							}
 						}
 					}
-
 				}
+
 
 
 
