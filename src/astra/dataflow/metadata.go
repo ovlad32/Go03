@@ -189,7 +189,8 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	}
 
 	var prevValue uint64
-	var count uint64 = 0
+	var count uint64 = 0;
+	var countInDeviation uint64 = 0;
 	var gotPrevValue bool
 	var meanValue, cumulativeDeviaton float64 = 0, 0
 	increasingOrder := context.WithValue(runContext, "sort", true)
@@ -207,11 +208,11 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.NumericNegativeBitset != nil {
 		gotPrevValue = false
 		for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
-			count++
 			if !gotPrevValue {
 				prevValue = value
 				gotPrevValue = true
 			} else {
+				count++
 				cumulativeDeviaton += (float64(value) - float64(prevValue))
 				prevValue = value
 			}
@@ -220,11 +221,11 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.NumericPositiveBitset != nil {
 		gotPrevValue = false
 		for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
-			count++
 			if !gotPrevValue {
 				prevValue = value
 				gotPrevValue = true
 			} else {
+				count++
 				cumulativeDeviaton += (float64(value) - float64(prevValue))
 				prevValue = value
 			}
@@ -241,6 +242,7 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 					prevValue = value
 					gotPrevValue = true
 				} else {
+					countInDeviation ++;
 					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
 					prevValue = value
 				}
@@ -254,15 +256,18 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 					prevValue = value
 					gotPrevValue = true
 				} else {
+					countInDeviation ++;
 					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
 					prevValue = value
 				}
 			}
 		}
-		stdDev := math.Sqrt(totalDeviation / float64(count))
+		if countInDeviation > 1 {
+			stdDev := math.Sqrt(totalDeviation / float64(countInDeviation-1))
+			ci.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
+		}
 		ci.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
 		ci.MovingMean = nullable.NewNullFloat64(meanValue)
-		ci.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
 
 	}
 

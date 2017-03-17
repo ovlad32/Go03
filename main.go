@@ -199,7 +199,7 @@ func main() {
 			case <-runContext.Done():
 				break outer
 			case inTable, open := <-processTableChan:
-				if !open {
+				if !open && inTable == nil {
 					break outer
 				}
 				tracelog.Info(packageName, funcName, "Start processing table %v", inTable)

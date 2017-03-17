@@ -93,11 +93,11 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 		var wg sync.WaitGroup
 
-		splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes *[]byte)  {
+		splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes []byte)  {
 			var hashMethod = fnv.New64()
 			defer wg.Done()
 
-			byteLength := len(*columnBytes)
+			byteLength := len(columnBytes)
 			if byteLength == 0 {
 				return
 			}
@@ -121,11 +121,11 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				if columnData.RawDataLength > dr.Config.HashValueLength {
 					hashMethod.Reset()
-					hashMethod.Write(*columnData.RawData)
+					hashMethod.Write(columnData.RawData)
 					columnData.HashInt = hashMethod.Sum64()
 					B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
 				} else {
-					copy(columnData.HashValue[dr.Config.HashValueLength - byteLength:], *columnBytes)
+					copy(columnData.HashValue[dr.Config.HashValueLength - byteLength:], columnBytes)
 					columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
 				}
 			}
@@ -176,11 +176,14 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				if line[lineLength-2] == x0D[0]{
 					line = line[:lineLength-2]
 				}
+				image := make([]byte,len(line))
+				copy(image,line)
+
 
 
 				metadataColumnCount := len(table.Columns)
 
-				lineColumns := bytes.Split(line, []byte{dr.Config.AstraFieldSeparator})
+				lineColumns := bytes.Split(image, []byte{dr.Config.AstraFieldSeparator})
 				lineColumnCount := len(lineColumns)
 
 				if metadataColumnCount != lineColumnCount {
@@ -205,7 +208,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				if dr.Config.EmitRawData {
 					wg.Add(len(lineColumns))
 					for columnNumber := range  lineColumns{
-						splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], &lineColumns[columnNumber])
+						splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], lineColumns[columnNumber])
 					}
 					wg.Wait()
 				}
@@ -294,7 +297,6 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 
 	var wg sync.WaitGroup
 
-
 	processColumnData := func() {
 		//threadNo := atomic.AddUint64(&threads,1) +fmt.Sprintf("%v",*threadNo)
 		funcName := "DataReaderType.StoreByDataCategory.goFunc1 "
@@ -307,17 +309,17 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 			case <-runContext.Done():
 				break outer
 			case columnData, open := <-columnDataChan:
-				if !open {
+				if !open && columnData == nil {
 					break outer
 				}
 
 				if columnData == nil || columnData.RawDataLength == 0 {
 					continue
 				}
-				stringValue := string(*columnData.RawData)
+				stringValue := string(columnData.RawData)
 				var floatValue float64 = 0
 				var parseError error
-				floatValue, parseError = strconv.ParseFloat(stringValue, 64)
+				floatValue, parseError = strconv.ParseFloat(strings.Trim(stringValue," "), 64)
 
 				simple := &DataCategorySimpleType{
 					ByteLength: columnData.RawDataLength,
