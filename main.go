@@ -19,6 +19,11 @@ import (
 	"sync"
 	"time"
 //	 _ "net/http/pprof"
+	"bufio"
+	"compress/gzip"
+	"io"
+	"bytes"
+	"fmt"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -55,6 +60,37 @@ func readConfig() (*dataflow.DumpConfigType, error) {
 	return &result, nil
 }
 
+func f1() {
+	i := 0;
+	start := time.Now()
+	file, err := os.Open("C:/home/data.253.4/data/100020/86/ORCL.CRA.LIABILITIES.dat")
+	if err != nil {
+		panic (err)
+	}
+	defer file.Close()
+	bfile  := bufio.NewReaderSize(file,4096);
+	zfile,err := gzip.NewReader(bfile)
+	if err != nil {
+		panic (err)
+	}
+	defer zfile.Close()
+	buf := bufio.NewReaderSize(zfile,4096*5);
+	for {
+		b, err := buf.ReadSlice(byte(10))
+		if err == nil {
+			i += len(bytes.Split(b, []byte{31}))
+		}else if err == io.EOF {
+			break
+		} else {
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	fmt.Println(i)
+	tracelog.Info(packageName,"f1","Elapsed time: %v", time.Since(start))
+}
+
 func main() {
 	funcName := "main"
 	tracelog.Start(tracelog.LevelInfo)
@@ -63,6 +99,10 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()*/
 
+
+
+	f1()
+	return;
 	flag.Parse()
 
 	conf, err := readConfig()
@@ -203,15 +243,15 @@ func main() {
 					break outer
 				}
 				tracelog.Info(packageName, funcName, "Start processing table %v", inTable)
-				var colChan1 chan *dataflow.ColumnDataType
-				colChan1, ec1 := dr.ReadSource(
+				var colChans1 []chan *dataflow.ColumnDataType
+				colChans1, ec1 := dr.ReadSource(
 					runContext,
 					inTable,
 				)
 
 				ec3 := dr.StoreByDataCategory(
 					runContext,
-					colChan1,
+					colChans1,
 					dr.Config.CategoryWorkersPerTable,
 				)
 

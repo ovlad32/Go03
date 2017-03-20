@@ -57,15 +57,17 @@ type DataReaderType struct {
 }
 
 func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfoType) (
-	outChan chan *ColumnDataType,
+	outChans []chan *ColumnDataType,
 	errChan chan error,
 ) {
 	funcName := "DataReaderType.ReadSource"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
 	var x0D = []byte{0x0D}
-
-	outChan = make(chan *ColumnDataType, dr.Config.RawDataChannelSize)
+	outChans = make([]chan *ColumnDataType, len(table.Columns))
+	for index := range (table.Columns) {
+		outChans[index] = make(chan *ColumnDataType, dr.Config.RawDataChannelSize)
+	}
 	errChan = make(chan error, 1)
 
 	writeToTank := func(rowData [][]byte) (result int) {
@@ -93,11 +95,11 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 		var wg sync.WaitGroup
 
-		splitToColumns := func(LineNumber, LineOffset uint64, column *ColumnInfoType, columnBytes []byte)  {
+		splitToColumns := func(LineNumber, LineOffset uint64, columnIndex int, columnBytes *[]byte)  {
 			var hashMethod = fnv.New64()
 			defer wg.Done()
 
-			byteLength := len(columnBytes)
+			byteLength := len(*columnBytes)
 			if byteLength == 0 {
 				return
 			}
@@ -110,7 +112,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 			columnData.RawDataLength = byteLength
 			columnData.LineNumber = LineNumber
 			columnData.LineOffset = LineOffset
-			columnData.Column = column
+			columnData.Column = table.Columns[columnIndex]
 
 			if  dr.Config.EmitHashValues {
 				if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
@@ -121,11 +123,11 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				if columnData.RawDataLength > dr.Config.HashValueLength {
 					hashMethod.Reset()
-					hashMethod.Write(columnData.RawData)
+					hashMethod.Write(*columnData.RawData)
 					columnData.HashInt = hashMethod.Sum64()
 					B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
 				} else {
-					copy(columnData.HashValue[dr.Config.HashValueLength - byteLength:], columnBytes)
+					copy(columnData.HashValue[dr.Config.HashValueLength - byteLength:], *columnBytes)
 					columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
 				}
 			}
@@ -133,7 +135,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 			select {
 				case <-runContext.Done():
 					return
-				case outChan <- columnData:
+				case outChans[columnIndex] <- columnData:
 			}
 		}
 
@@ -144,7 +146,9 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 			return
 		}
 		defer gzFile.Close()
-		file, err := gzip.NewReader(gzFile)
+
+		bf := bufio.NewReaderSize(gzFile, dr.Config.AstraReaderBufferSize)
+		file, err := gzip.NewReader(bf)
 		if err != nil {
 			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
 			return
@@ -207,8 +211,8 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				if dr.Config.EmitRawData {
 					wg.Add(len(lineColumns))
-					for columnNumber := range  lineColumns{
-						splitToColumns(lineNumber, lineOffset, table.Columns[columnNumber], lineColumns[columnNumber])
+					for columnIndex := range  lineColumns{
+						go splitToColumns(lineNumber, lineOffset, columnIndex, &lineColumns[columnIndex])
 					}
 					wg.Wait()
 				}
@@ -224,13 +228,16 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 		if err != nil {
 			errChan <- err
 		}
-
-		close(outChan)
+		for index:= range outChans{
+			if outChans[index] != nil {
+				close(outChans[index])
+			}
+		}
 		close(errChan)
 	}()
 
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
-	return outChan, errChan
+	return outChans, errChan
 }
 
 type StoreType struct {
@@ -239,7 +246,7 @@ type StoreType struct {
 	bucket *bolt.Bucket
 }
 
-func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, columnDataChan chan *ColumnDataType, degree int) (
+func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, columnDataChans []chan *ColumnDataType, degree int) (
 	errChan chan error,
 ) {
 	funcName := "DataReaderType.StoreByDataCategory"
@@ -297,26 +304,22 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 
 	var wg sync.WaitGroup
 
-	processColumnData := func() {
+	processColumnData := func(columnDataChan chan*ColumnDataType) {
 		//threadNo := atomic.AddUint64(&threads,1) +fmt.Sprintf("%v",*threadNo)
 		funcName := "DataReaderType.StoreByDataCategory.goFunc1 "
-
-
-
 	outer:
 		for {
 			select {
 			case <-runContext.Done():
 				break outer
 			case columnData, open := <-columnDataChan:
-				if !open && columnData == nil {
+				if !open {
 					break outer
 				}
-
 				if columnData == nil || columnData.RawDataLength == 0 {
 					continue
 				}
-				stringValue := string(columnData.RawData)
+				stringValue := string(*columnData.RawData)
 				var floatValue float64 = 0
 				var parseError error
 				floatValue, parseError = strconv.ParseFloat(strings.Trim(stringValue," "), 64)
@@ -506,10 +509,9 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 	}
 
 	//degree = 1
-	wg.Add(degree)
-
-	for ; degree > 0; degree-- {
-		go processColumnData()
+	for index := range columnDataChans{
+			wg.Add(1)
+			go processColumnData(columnDataChans[index])
 	}
 
 	go func() {
