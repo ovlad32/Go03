@@ -78,7 +78,9 @@ func f1() {
 	for {
 		b, err := buf.ReadSlice(byte(10))
 		if err == nil {
-			i += len(bytes.Split(b, []byte{31}))
+			s := string(bytes.Split(b, []byte{31})[0])
+			_,_= strconv.ParseFloat(s,64)
+			i += len(s)
 		}else if err == io.EOF {
 			break
 		} else {
@@ -101,8 +103,8 @@ func main() {
 
 
 
-	f1()
-	return;
+	//f1()
+	//return;
 	flag.Parse()
 
 	conf, err := readConfig()

@@ -159,11 +159,6 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 		lineNumber := uint64(0)
 		lineOffset := uint64(0)
 		for {
-			/*select {
-			case <-runContext.Done():
-				return
-			default:*/
-
 				line, err := bufferedFile.ReadSlice(dr.Config.AstraLineSeparator)
 				if err == io.EOF {
 					return nil
@@ -171,16 +166,17 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 					return err
 				}
 
-				//line = bytes.TrimSuffix(line, []byte{dr.Config.AstraLineSeparator})
-				//line = bytes.TrimSuffix(line, x0D)
 				lineLength := len(line)
+
 				if line[lineLength-1] == dr.Config.AstraLineSeparator {
 					line = line[:lineLength-1]
 				}
 				if line[lineLength-2] == x0D[0]{
 					line = line[:lineLength-2]
 				}
+
 				image := make([]byte,len(line))
+
 				copy(image,line)
 
 
