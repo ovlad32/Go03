@@ -5,32 +5,8 @@ import (
 	"github.com/goinggo/tracelog"
 	"errors"
 	"astra/nullable"
-	"astra/dataflow"
-	"bufio"
-	"compress/gzip"
-	"io"
-	"bytes"
-	"os"
-	"context"
 )
 
-type TableDumpConfig struct {
-	Path           string
-	GZip           bool
-	FieldSeparator byte
-	LineSeparator  byte
-	BufferSize     int
-}
-
-func defaultTableDumpConfig () (*TableDumpConfig){
-	return &TableDumpConfig{
-		Path:"./",
-		GZip:true,
-		FieldSeparator:0x1F,
-		LineSeparator:0x0A,
-		BufferSize:4096,
-	}
-}
 
 type TableInfoType struct {
 	Id            nullable.NullInt64  `json:"tale-id"`
@@ -179,93 +155,3 @@ func (t TableInfoType) GoString() string {
 	return result
 }
 
-
-func (t TableInfoType) ReadAstraDump(ctx context.Context, handler func(*ColumnInfoType,[][]byte),cfg *TableDumpConfig) (uint64,error){
-	funcName := "TableInfoType.ReadAstraDump"
-	var x0D = []byte{0x0D}
-
-	gzFile, err := os.Open(cfg.Path + t.PathToFile.Value())
-
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "for table %v", t)
-		return
-	}
-	defer gzFile.Close()
-	if cfg == nil {
-		cfg = defaultTableDumpConfig();
-	}
-	bf := bufio.NewReaderSize(gzFile, cfg.BufferSize)
-	file, err := gzip.NewReader(bf)
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "for table %v", t)
-		return
-	}
-	defer file.Close()
-	bufferedFile := bufio.NewReaderSize(file, cfg.BufferSize)
-
-	lineNumber := uint64(0)
-	lineOffset := uint64(0)
-	for {
-
-		select {
-		case <-ctx.Done():
-			return lineNumber,nil
-		default:
-		line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
-		if err == io.EOF {
-			return lineNumber,nil
-		} else if err != nil {
-			return lineNumber,err
-		}
-
-		lineLength := len(line)
-
-		if line[lineLength-1] == cfg.LineSeparator {
-			line = line[:lineLength-1]
-		}
-		if line[lineLength-2] == x0D[0]{
-			line = line[:lineLength-2]
-		}
-
-
-	image := make([]byte,len(line))
-
-	copy(image,line)
-
-
-
-metadataColumnCount := len(table.Columns)
-
-lineColumns := bytes.Split(image, []byte{dr.Config.AstraFieldSeparator})
-lineColumnCount := len(lineColumns)
-
-if metadataColumnCount != lineColumnCount {
-err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
-lineNumber,
-metadataColumnCount,
-lineColumnCount,
-)
-return err
-}
-
-lineNumber++
-if lineNumber == 1 && dr.Config.BuildBinaryDump {
-closeContext, closeContextCancelFunc := context.WithCancel(context.Background())
-err = table.OpenBinaryDump(closeContext, dr.Config.BinaryDumpPath, os.O_CREATE)
-if err != nil {
-return err
-}
-defer closeContextCancelFunc()
-}
-
-if dr.Config.EmitRawData {
-wg.Add(len(lineColumns))
-for columnIndex := range  lineColumns{
-go splitToColumns(lineNumber, lineOffset, columnIndex, &lineColumns[columnIndex])
-}
-wg.Wait()
-}
-
-lineOffset = lineOffset + uint64(writeToTank(lineColumns))
-//	}
-}

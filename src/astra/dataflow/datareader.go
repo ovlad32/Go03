@@ -1,15 +1,10 @@
 package dataflow
 
 import (
-	"bufio"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/goinggo/tracelog"
-	"io"
-	"os"
 	"sync"
 	"astra/B8"
 	"github.com/boltdb/bolt"
@@ -31,7 +26,7 @@ type DumpConfigType struct {
 	AstraH2Database         string `json:"astra-h2-database"`
 	AstraDumpPath           string `json:"astra-dump-path"`
 	AstraDataGZip           bool   `json:"astra-data-gzip"`
-	AstraFieldSeparator     byte   `json:"astra-field-byte-separator"`
+	AstraColumnSeparator    byte   `json:"astra-column-byte-separator"`
 	AstraLineSeparator      byte   `json:"astra-line-byte-separator"`
 	BinaryDumpPath          string `json:"binary-dump-path"`
 	KVStorePath             string `json:"kv-store-path"`
@@ -63,7 +58,6 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 	funcName := "DataReaderType.ReadSource"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
-	var x0D = []byte{0x0D}
 	outChans = make([]chan *ColumnDataType, len(table.Columns))
 	for index := range (table.Columns) {
 		outChans[index] = make(chan *ColumnDataType, dr.Config.RawDataChannelSize)
@@ -87,12 +81,12 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 		}
 		return
 	}
-
+	_ = writeToTank
 
 
 	readFromDump := func() (err error) {
 		funcName := "DataReaderType.ReadSource.readFromDump"
-
+		_ = funcName
 		var wg sync.WaitGroup
 
 		splitToColumns := func(LineNumber, LineOffset uint64, columnIndex int, columnBytes *[]byte)  {
@@ -138,9 +132,25 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				case outChans[columnIndex] <- columnData:
 			}
 		}
+		_ = splitToColumns
+
+		processDump1 := func(ctx context.Context, lineNumber uint64, data[][] byte) (error) {
+			return nil;
+		}
+
+		table.ReadAstraDump(
+			runContext,
+			processDump1,
+			&TableDumpConfig{
+				Path:dr.Config.AstraDumpPath,
+				GZip:dr.Config.AstraDataGZip,
+				ColumnSeparator:dr.Config.AstraColumnSeparator,
+				LineSeparator:dr.Config.AstraLineSeparator,
+			},
+		);
 
 
-		gzFile, err := os.Open(dr.Config.AstraDumpPath + table.PathToFile.Value())
+		/*gzFile, err := os.Open(dr.Config.AstraDumpPath + table.PathToFile.Value())
 		if err != nil {
 			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
 			return
@@ -183,7 +193,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				metadataColumnCount := len(table.Columns)
 
-				lineColumns := bytes.Split(image, []byte{dr.Config.AstraFieldSeparator})
+				lineColumns := bytes.Split(image, []byte{dr.Config.AstraColumnSeparator})
 				lineColumnCount := len(lineColumns)
 
 				if metadataColumnCount != lineColumnCount {
@@ -215,7 +225,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				lineOffset = lineOffset + uint64(writeToTank(lineColumns))
 		//	}
-		}
+		}*/
 		return nil
 	}
 

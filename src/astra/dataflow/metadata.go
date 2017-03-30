@@ -7,12 +7,35 @@ import (
 	"errors"
 	"fmt"
 	"github.com/goinggo/tracelog"
-	"golang.org/x/net/context"
 	"math"
 	"os"
 	"sparsebitset"
 	"sync"
+	"compress/gzip"
+	"io"
+	"bytes"
+	"context"
 )
+
+
+
+type TableDumpConfig struct {
+	Path            string
+	GZip            bool
+	ColumnSeparator byte
+	LineSeparator   byte
+	BufferSize      int
+}
+
+func defaultTableDumpConfig () (*TableDumpConfig){
+	return &TableDumpConfig{
+		Path:"./",
+		GZip:true,
+		ColumnSeparator:0x1F,
+		LineSeparator:0x0A,
+		BufferSize:4096,
+	}
+}
 
 /*
 
@@ -394,4 +417,78 @@ func (ti *TableInfoType) OpenBinaryDump(closeContext context.Context, pathToTank
 	}
 
 	return
+}
+
+func (t TableInfoType) ReadAstraDump(
+	ctx context.Context,
+	handler func(context.Context,uint64,[][]byte) (error),
+	cfg *TableDumpConfig,
+) (uint64, error) {
+	funcName := "TableInfoType.ReadAstraDump"
+	var x0D = []byte{0x0D}
+
+	gzFile, err := os.Open(cfg.Path + t.PathToFile.Value())
+
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "for table %v", t)
+		return 0, err
+	}
+	defer gzFile.Close()
+	if cfg == nil {
+		cfg = defaultTableDumpConfig();
+	}
+	bf := bufio.NewReaderSize(gzFile, cfg.BufferSize)
+	file, err := gzip.NewReader(bf)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "for table %v", t)
+		return 0, err
+	}
+	defer file.Close()
+	bufferedFile := bufio.NewReaderSize(file, cfg.BufferSize)
+	lineNumber := uint64(0)
+	for {
+		select {
+		case <-ctx.Done():
+			return lineNumber, nil
+		default:
+			line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
+			if err == io.EOF {
+				return lineNumber, nil
+			} else if err != nil {
+				return lineNumber, err
+			}
+
+			lineLength := len(line)
+
+			if line[lineLength - 1] == cfg.LineSeparator {
+				line = line[:lineLength - 1]
+			}
+			if line[lineLength - 2] == x0D[0] {
+				line = line[:lineLength - 2]
+			}
+
+			metadataColumnCount := len(t.Columns)
+
+			lineColumns := bytes.Split(line, []byte{cfg.ColumnSeparator})
+			lineColumnCount := len(lineColumns)
+
+			if metadataColumnCount != lineColumnCount {
+				err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
+					lineNumber,
+					metadataColumnCount,
+					lineColumnCount,
+				)
+				return lineNumber, err
+			}
+
+			lineNumber++
+			if handler != nil {
+				err = handler(ctx, lineNumber, lineColumns)
+				if err != nil {
+					return lineNumber, err
+				}
+			}
+		}
+	}
+	return lineNumber,nil
 }
