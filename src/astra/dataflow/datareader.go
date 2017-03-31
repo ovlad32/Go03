@@ -51,6 +51,13 @@ type DataReaderType struct {
 	blockStores map[string]*DataCategoryStore
 }
 
+
+
+
+
+
+
+
 func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfoType) (
 	outChans []chan *ColumnDataType,
 	errChan chan error,
@@ -134,9 +141,27 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 		}
 		_ = splitToColumns
 
-		processDump1 := func(ctx context.Context, lineNumber uint64, data[][] byte) (error) {
+
+
+		processDump1 := func (ctx context.Context, lineNumber uint64, data[][] byte) (error) {
+
+			for columnNumber := range table.Columns {
+				dataLength := len(data[columnNumber]);
+				if dataLength == 0 {
+					continue
+				}
+
+			}
+
+
+
+
+
+
 			return nil;
 		}
+
+
 
 		table.ReadAstraDump(
 			runContext,

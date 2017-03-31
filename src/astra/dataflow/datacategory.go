@@ -15,6 +15,7 @@ import (
 	"sparsebitset"
 	"runtime"
 	"compress/gzip"
+	"strings"
 )
 type OffsetsType map[uint64][]uint64;
 type H8BSType map[byte]*sparsebitset.BitSet;
@@ -466,6 +467,49 @@ type DataCategoryType struct {
 	//analysisChannelsLock  sync.Mutex
 	initChans sync.Once
 	drainAnalysisChannels sync.WaitGroup
+}
+
+
+
+func NewDataCategory(rawData []byte) (*DataCategorySimpleType) {
+	var result *DataCategorySimpleType;
+
+	rawDataLength := len(rawData)
+
+	if rawDataLength == 0 {
+		return nil
+	}
+
+	 simple := &DataCategorySimpleType{
+		ByteLength: columnData.RawDataLength,
+		IsNumeric:  parseError == nil,
+		IsSubHash:  false, //byteLength > da.SubHashByteLengthThreshold
+	}
+
+
+	if simple.IsNumeric {
+		//var lengthChanged bool
+		if strings.Count(stringValue, ".") == 1 {
+			//trimmedValue := strings.TrimLeft(stringValue, "0")
+			//lengthChanged = false && (len(stringValue) != len(trimmedValue)) // Stop using it now
+			//if lengthChanged {
+			//	stringValue = trimmedValue
+			//}
+			simple.FloatingPointScale = len(stringValue) - (strings.Index(stringValue, ".") + 1)
+			//if fpScale != -1 && lengthChanged {
+			//	stringValue = strings.TrimRight(fmt.Sprintf("%f", floatValue), "0")
+			//	columnData.RawData = []byte(stringValue)
+			//	byteLength = len(columnData.RawData)
+			//}
+		} else {
+			simple.FloatingPointScale = 0
+		}
+
+		simple.IsNegative = floatValue < float64(0)
+
+		//TODO:REDESIGN THIS!
+		//cd.Column.AnalyzeNumericValue(floatValue);
+	}
 }
 
 func (dc *DataCategoryType) RunAnalyzer(runContext context.Context,analysisChanSize int) (err error) {
