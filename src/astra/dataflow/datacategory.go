@@ -16,6 +16,9 @@ import (
 	"runtime"
 	"compress/gzip"
 	"strings"
+	"strconv"
+	"errors"
+	"math/big"
 )
 type OffsetsType map[uint64][]uint64;
 type H8BSType map[byte]*sparsebitset.BitSet;
@@ -471,17 +474,36 @@ type DataCategoryType struct {
 
 
 
-func NewDataCategory(rawData []byte) (*DataCategorySimpleType) {
-	var result *DataCategorySimpleType;
+func NewDataCategory(rawData []byte) ([]DataCategorySimpleType) {
+	var result []DataCategorySimpleType;
 
 	rawDataLength := len(rawData)
 
 	if rawDataLength == 0 {
 		return nil
 	}
+	result = make([]DataCategorySimpleType,0,1)
 
-	 simple := &DataCategorySimpleType{
-		ByteLength: columnData.RawDataLength,
+	stringValue := strings.Trim(string(*rawData)," ")
+
+
+	floatValue, parseError := strconv.ParseFloat(stringValue,64)
+	if parseError == nil {
+		expIndex := strings.Index(stringValue,"E")
+		if expIndex == -1 {
+			expIndex = strings.Index(stringValue,"e")
+		}
+		if expIndex != -1 {
+			pointIndex := strings.Index(stringValue, ".")
+			if pointIndex == -1 {
+				parseError = errors.New("");
+			}
+		}
+	}
+
+
+	simple := &DataCategorySimpleType{
+		ByteLength: len(stringValue),
 		IsNumeric:  parseError == nil,
 		IsSubHash:  false, //byteLength > da.SubHashByteLengthThreshold
 	}
