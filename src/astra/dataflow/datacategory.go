@@ -474,64 +474,37 @@ type DataCategoryType struct {
 
 
 
-func NewDataCategory(rawData []byte) ([]DataCategorySimpleType) {
-	var result []DataCategorySimpleType;
+func NewDataCategory(rawData []byte) (DataCategorySimpleType) {
 
 	rawDataLength := len(rawData)
 
 	if rawDataLength == 0 {
 		return nil
 	}
-	result = make([]DataCategorySimpleType,0,1)
-
+	simple := new(DataCategorySimpleType)
+	simple.ByteLength = rawDataLength
 	stringValue := strings.Trim(string(*rawData)," ")
 
-
 	floatValue, parseError := strconv.ParseFloat(stringValue,64)
+
 	if parseError == nil {
+		simple.IsNumeric =true
 		expIndex := strings.Index(stringValue,"E")
 		if expIndex == -1 {
 			expIndex = strings.Index(stringValue,"e")
 		}
 		if expIndex != -1 {
 			pointIndex := strings.Index(stringValue, ".")
-			if pointIndex == -1 {
+			if pointIndex == -1 || pointIndex > expIndex {
 				parseError = errors.New("");
 			}
-		}
-	}
-
-
-	simple := &DataCategorySimpleType{
-		ByteLength: len(stringValue),
-		IsNumeric:  parseError == nil,
-		IsSubHash:  false, //byteLength > da.SubHashByteLengthThreshold
-	}
-
-
-	if simple.IsNumeric {
-		//var lengthChanged bool
-		if strings.Count(stringValue, ".") == 1 {
-			//trimmedValue := strings.TrimLeft(stringValue, "0")
-			//lengthChanged = false && (len(stringValue) != len(trimmedValue)) // Stop using it now
-			//if lengthChanged {
-			//	stringValue = trimmedValue
-			//}
-			simple.FloatingPointScale = len(stringValue) - (strings.Index(stringValue, ".") + 1)
-			//if fpScale != -1 && lengthChanged {
-			//	stringValue = strings.TrimRight(fmt.Sprintf("%f", floatValue), "0")
-			//	columnData.RawData = []byte(stringValue)
-			//	byteLength = len(columnData.RawData)
-			//}
 		} else {
-			simple.FloatingPointScale = 0
+			//??
+			simple.FloatingPointScale = len(stringValue) - (strings.Index(stringValue, ".") + 1)
 		}
-
 		simple.IsNegative = floatValue < float64(0)
-
-		//TODO:REDESIGN THIS!
-		//cd.Column.AnalyzeNumericValue(floatValue);
 	}
+	return simple
 }
 
 func (dc *DataCategoryType) RunAnalyzer(runContext context.Context,analysisChanSize int) (err error) {
