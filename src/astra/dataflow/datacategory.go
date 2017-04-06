@@ -17,8 +17,6 @@ import (
 	"compress/gzip"
 	"strings"
 	"strconv"
-	"errors"
-	"math/big"
 )
 type OffsetsType map[uint64][]uint64;
 type H8BSType map[byte]*sparsebitset.BitSet;
@@ -366,6 +364,8 @@ type DataCategorySimpleType struct {
 	FloatingPointScale int
 	IsSubHash          bool
 	SubHash            uint
+	StringValue        string
+	FloatValue         float64
 }
 
 func (simple *DataCategorySimpleType) Key() (result string) {
@@ -472,40 +472,63 @@ type DataCategoryType struct {
 	drainAnalysisChannels sync.WaitGroup
 }
 
+type dataTypeAware interface {
+	IsNumericDataType() bool
+}
 
-
-func NewDataCategory(rawData []byte) (DataCategorySimpleType) {
+func NewDataCategory(rawData []byte, source dataTypeAware) (result *DataCategorySimpleType) {
 
 	rawDataLength := len(rawData)
 
 	if rawDataLength == 0 {
 		return nil
 	}
-	simple := new(DataCategorySimpleType)
-	simple.ByteLength = rawDataLength
-	stringValue := strings.Trim(string(*rawData)," ")
+	result = new(DataCategorySimpleType)
+	result.ByteLength = rawDataLength
+	result.StringValue = strings.Trim(string(rawData)," ")
 
-	floatValue, parseError := strconv.ParseFloat(stringValue,64)
+	var parseError error
+	result.FloatValue, parseError = strconv.ParseFloat(result.StringValue,64)
+	result.IsNumeric = parseError == nil
 
-	if parseError == nil {
-		simple.IsNumeric =true
-		expIndex := strings.Index(stringValue,"E")
-		if expIndex == -1 {
-			expIndex = strings.Index(stringValue,"e")
-		}
-		if expIndex != -1 {
-			pointIndex := strings.Index(stringValue, ".")
-			if pointIndex == -1 || pointIndex > expIndex {
-				parseError = errors.New("");
+	if result.IsNumeric {
+		var expIndex int = -1
+		var pointIndex int = -1
+		if !source.IsNumericDataType() {
+			expIndex = strings.Index(result.StringValue, "E")
+			if expIndex == -1 {
+				expIndex = strings.Index(result.StringValue, "e")
 			}
-		} else {
-			//??
-			simple.FloatingPointScale = len(stringValue) - (strings.Index(stringValue, ".") + 1)
+			if expIndex != -1 {
+				pointIndex = strings.Index(result.StringValue, ".")
+				if pointIndex == -1 || pointIndex > expIndex {
+					result.IsNumeric = false;
+				}
+			}
 		}
-		simple.IsNegative = floatValue < float64(0)
+		if result.IsNumeric {
+			parseFloatingPointScale := func(stringValue string) int {
+				parts := strings.SplitAfter(stringValue,".")
+				if len(parts) <2 {
+					return 0
+				}
+				fmt.Printf("index %v\n",parts[1])
+				return len(stringValue) - (strings.Index(stringValue, ".") + 1)
+			}
+			result.IsNegative = result.FloatValue < float64(0)
+			sval := fmt.Sprintf("%100.100f",result.FloatValue)
+			fmt.Printf("%v,%v\n",result.StringValue,sval);
+			if expIndex >= 0 {
+				result.FloatingPointScale  = parseFloatingPointScale(sval)
+			} else {
+				result.FloatingPointScale = parseFloatingPointScale(result.StringValue)
+			}
+		}
 	}
-	return simple
+	return result
 }
+
+
 
 func (dc *DataCategoryType) RunAnalyzer(runContext context.Context,analysisChanSize int) (err error) {
 	funcName := "DataCategoryType.RunAnalyzer"

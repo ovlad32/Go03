@@ -492,3 +492,17 @@ func (t TableInfoType) ReadAstraDump(
 	}
 	return lineNumber,nil
 }
+
+func(c*ColumnInfoType) IsNumericDataType() bool {
+	realType := c.RealDataType.Value();
+	result :=
+	        realType == "java.lang.Byte" ||
+			realType == "java.lang.Short" ||
+			realType == "java.lang.Integer" ||
+			realType == "java.lang.Long" ||
+			realType == "java.lang.Double" ||
+			realType == "java.lang.Float" ||
+			realType == "java.math.BigDecimal" ||
+			realType == "java.math.BigInteger";
+	return result
+}
