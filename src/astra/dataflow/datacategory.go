@@ -490,11 +490,73 @@ func NewDataCategory(rawData []byte, source dataTypeAware) (result *DataCategory
 	var parseError error
 	result.FloatValue, parseError = strconv.ParseFloat(result.StringValue,64)
 	result.IsNumeric = parseError == nil
+	result.IsNegative = result.FloatValue < float64(0)
 
 	if result.IsNumeric {
-		var expIndex int = -1
-		var pointIndex int = -1
+	//	var scientific []string
+	//	var pointIndex int = -1
 		if !source.IsNumericDataType() {
+			processedStringValue := strings.ToUpper(result.StringValue)
+			if strings.HasPrefix(processedStringValue,"+") {
+				processedStringValue = processedStringValue[1:]
+			} else if strings.HasPrefix(processedStringValue,"-") {
+				processedStringValue = processedStringValue[1:]
+			}
+			processedStringValue = strings.TrimLeft(processedStringValue,"0")
+			var pointPosition, exponentPosition int;
+			pointPosition = strings.Index(processedStringValue, ".")
+			exponentPosition  = strings.Index(processedStringValue,"E")
+			if pointPosition == -1 && exponentPosition == -1 {
+			} else if pointPosition == -1 && exponentPosition >= 0 {
+				result.IsNumeric = false
+			} else if pointPosition >= 0 && exponentPosition == -1 {
+
+			if exponentPosition == -1 {
+					result.IsNumeric = false
+				} else {
+
+				}
+			}
+
+			/*
+			scientific = strings.Split(processedStringValue,"E")
+			if len(scientific) != 2 {
+				result.IsNumeric = false
+			} else {
+				parts := strings.Split(scientific, ".")
+				if len(parts) != 2 {
+					result.IsNumeric = false;
+				} else {
+				   if len(parts[0]) == 1 {
+						intValue,parseError := strconv.ParseInt(parts[0],10,64)
+					    if parseError != nil {
+						    result.IsNumeric = false;
+					    } else {
+
+					    }
+				   }
+				}else
+			}
+
+
+			var mantissa float64
+				var exponent int64
+				mantissa, parseError = strconv.ParseFloat(scientific[0], 64)
+
+				if parseError != nil {
+					result.IsNumeric = false
+				}
+				if result.IsNumeric {
+					exponent, parseError = strconv.ParseInt(scientific[1], 10, 64)
+					if parseError != nil {
+						result.IsNumeric = false
+					}
+				}
+				if result.IsNumeric {
+
+					math.Abs(mantissa)
+				}
+			}
 			expIndex = strings.Index(result.StringValue, "E")
 			if expIndex == -1 {
 				expIndex = strings.Index(result.StringValue, "e")
@@ -504,8 +566,9 @@ func NewDataCategory(rawData []byte, source dataTypeAware) (result *DataCategory
 				if pointIndex == -1 || pointIndex > expIndex {
 					result.IsNumeric = false;
 				}
-			}
+			}*/
 		}
+		fmt.Printf("\n\nLog10,%v\n",math.Log10(result.FloatValue))
 		if result.IsNumeric {
 			parseFloatingPointScale := func(stringValue string) int {
 				parts := strings.SplitAfter(stringValue,".")
@@ -515,10 +578,11 @@ func NewDataCategory(rawData []byte, source dataTypeAware) (result *DataCategory
 				fmt.Printf("index %v\n",parts[1])
 				return len(stringValue) - (strings.Index(stringValue, ".") + 1)
 			}
-			result.IsNegative = result.FloatValue < float64(0)
-			sval := fmt.Sprintf("%100.100f",result.FloatValue)
+			sval := strconv.FormatFloat(result.FloatValue,'E',-1,64)
+
 			fmt.Printf("%v,%v\n",result.StringValue,sval);
-			if expIndex >= 0 {
+			//if expIndex >= 0 {
+			if true {
 				result.FloatingPointScale  = parseFloatingPointScale(sval)
 			} else {
 				result.FloatingPointScale = parseFloatingPointScale(result.StringValue)

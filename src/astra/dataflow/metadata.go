@@ -4,20 +4,18 @@ import (
 	"astra/metadata"
 	"astra/nullable"
 	"bufio"
+	"bytes"
+	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/goinggo/tracelog"
+	"io"
 	"math"
 	"os"
 	"sparsebitset"
 	"sync"
-	"compress/gzip"
-	"io"
-	"bytes"
-	"context"
 )
-
-
 
 type TableDumpConfig struct {
 	Path            string
@@ -27,13 +25,13 @@ type TableDumpConfig struct {
 	BufferSize      int
 }
 
-func defaultTableDumpConfig () (*TableDumpConfig){
+func defaultTableDumpConfig() *TableDumpConfig {
 	return &TableDumpConfig{
-		Path:"./",
-		GZip:true,
-		ColumnSeparator:0x1F,
-		LineSeparator:0x0A,
-		BufferSize:4096,
+		Path:            "./",
+		GZip:            true,
+		ColumnSeparator: 0x1F,
+		LineSeparator:   0x0A,
+		BufferSize:      4096,
 	}
 }
 
@@ -182,8 +180,6 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 		ci.Categories = make(map[string]*DataCategoryType)
 	})
 
-
-
 	ci.categoryRLock.Lock()
 	if value, found := ci.Categories[key]; !found {
 		if callBack != nil {
@@ -212,8 +208,8 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	}
 
 	var prevValue uint64
-	var count uint64 = 0;
-	var countInDeviation uint64 = 0;
+	var count uint64 = 0
+	var countInDeviation uint64 = 0
 	var gotPrevValue bool
 	var meanValue, cumulativeDeviaton float64 = 0, 0
 	increasingOrder := context.WithValue(runContext, "sort", true)
@@ -265,7 +261,7 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 					prevValue = value
 					gotPrevValue = true
 				} else {
-					countInDeviation ++;
+					countInDeviation++
 					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
 					prevValue = value
 				}
@@ -279,7 +275,7 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 					prevValue = value
 					gotPrevValue = true
 				} else {
-					countInDeviation ++;
+					countInDeviation++
 					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
 					prevValue = value
 				}
@@ -357,75 +353,121 @@ func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoTy
 	}
 	return result
 }
+type tableBinaryType struct {
+    *bufio.Writer
+	dFile     *os.File
+	dFullFileName string
+}
+
+func (t *tableBinaryType) Close() (err error) {
+	funcName := "tableBinaryType.Close"
+
+	err = t.Flush()
+	if err != nil {
+		tracelog.Errorf(err,packageName,funcName,"Flushing data to %v ",t.dFullFileName)
+		return err
+	}
+
+	if t.dFile != nil {
+		err = t.dFile.Close()
+		if err != nil {
+			tracelog.Errorf(err,packageName,funcName,"Closing file %v ",t.dFullFileName)
+			return err
+		}
+	}
+	return nil
+}
+
 
 type TableInfoType struct {
 	*metadata.TableInfoType
 	Columns            []*ColumnInfoType
-	binaryDumpWriter   *bufio.Writer
-	binaryDumpFile     *os.File
-	binaryDumpFileLock sync.Mutex
+	DataDump  *tableBinaryType
+	HashDump  *tableBinaryType
 }
 
-func (ti *TableInfoType) OpenBinaryDump(closeContext context.Context, pathToTankDir string, flags int) (err error) {
-	funcName := "TableInfoType.OpenBinaryDump"
+func (ti *TableInfoType) openBinaryDump(
+		pathToBinaryDir, suffix string,
+		flags int,
+) 	(result *tableBinaryType, err error) {
+
+	funcName := "TableInfoType.openBinaryDump"
 	tracelog.Started(packageName, funcName)
 
-	if pathToTankDir == "" {
+	if pathToBinaryDir == "" {
 		err = errors.New("Given path to binary dump directory is empty")
 		tracelog.Error(err, packageName, funcName)
-		return err
+		return nil,err
 	}
 
-	err = os.MkdirAll(pathToTankDir, 700)
+	err = os.MkdirAll(pathToBinaryDir, 700)
 
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Making directories for path %v", pathToTankDir)
-		return err
+		tracelog.Errorf(err, packageName, funcName, "Making directories for path %v", pathToBinaryDir)
+		return nil, err
 	}
 
-	pathToTankFile := fmt.Sprintf("%v%v%v.bin.dump",
-		pathToTankDir,
+	pathToTankFile := fmt.Sprintf("%v%v%v.%v.dump",
+		pathToBinaryDir,
 		os.PathSeparator,
+		suffix,
 		ti.Id.String(),
 	)
 
-	if ti.binaryDumpFile == nil && ((flags & os.O_CREATE) == os.O_CREATE) {
-		ti.binaryDumpFileLock.Lock()
-		defer ti.binaryDumpFileLock.Unlock()
-		if ti.binaryDumpFile == nil && ((flags & os.O_CREATE) == os.O_CREATE) {
-			file, err := os.OpenFile(pathToTankFile, flags, 0666)
-			if err != nil {
-				tracelog.Errorf(err, packageName, funcName, "Opening file %v", pathToTankFile)
-				return err
-			}
-			ti.binaryDumpWriter = bufio.NewWriter(file)
-			ti.binaryDumpFile = file
-			go func() {
-				funcName := "TableInfoType.OpenBinaryDump.delayedClose"
-				tracelog.Started(packageName, funcName)
-				if ti.binaryDumpWriter != nil {
-					select {
-					case <-closeContext.Done():
-						ti.binaryDumpWriter.Flush()
-						ti.binaryDumpFile.Close()
-						return
-					}
-				}
-				tracelog.Completed(packageName, funcName)
-			}()
-		}
+	file, err := os.OpenFile(pathToTankFile, flags, 0666)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Opening file %v", pathToTankFile)
+		return nil,err
 	}
 
-	return
+	result = &tableBinaryType{
+		Writer: bufio.NewWriter(file),
+		dFile:file,
+		dFullFileName: pathToTankFile,
+	}
+
+	tracelog.Completed(packageName,funcName)
+
+	return result, nil
 }
+
+func (t *TableInfoType) NewDataDump(pathToBinaryDir string) (err error ){
+	result, err := t.openBinaryDump(
+		pathToBinaryDir,
+		"data",
+		os.O_CREATE,
+	)
+	if err == nil {
+		t.DataDump = result
+		return nil
+	}
+	return err
+}
+
+func (t *TableInfoType) NewHashDump(pathToBinaryDir string) (err error ){
+	result, err := t.openBinaryDump(
+		pathToBinaryDir,
+		"hash",
+		os.O_CREATE,
+	)
+	if err == nil {
+		t.HashDump = result
+		return nil
+	}
+	return err
+}
+
 
 func (t TableInfoType) ReadAstraDump(
 	ctx context.Context,
-	handler func(context.Context,uint64,[][]byte) (error),
+	rowProcessFunc func(context.Context, uint64, [][]byte) error,
 	cfg *TableDumpConfig,
 ) (uint64, error) {
 	funcName := "TableInfoType.ReadAstraDump"
 	var x0D = []byte{0x0D}
+	if rowProcessFunc == nil {
+		return 0,fmt.Errorf("Row processing function must be defined!")
+	}
 
 	gzFile, err := os.Open(cfg.Path + t.PathToFile.Value())
 
@@ -434,9 +476,11 @@ func (t TableInfoType) ReadAstraDump(
 		return 0, err
 	}
 	defer gzFile.Close()
+
 	if cfg == nil {
-		cfg = defaultTableDumpConfig();
+		cfg = defaultTableDumpConfig()
 	}
+
 	bf := bufio.NewReaderSize(gzFile, cfg.BufferSize)
 	file, err := gzip.NewReader(bf)
 	if err != nil {
@@ -444,6 +488,7 @@ func (t TableInfoType) ReadAstraDump(
 		return 0, err
 	}
 	defer file.Close()
+
 	bufferedFile := bufio.NewReaderSize(file, cfg.BufferSize)
 	lineNumber := uint64(0)
 	for {
@@ -460,11 +505,11 @@ func (t TableInfoType) ReadAstraDump(
 
 			lineLength := len(line)
 
-			if line[lineLength - 1] == cfg.LineSeparator {
-				line = line[:lineLength - 1]
+			if line[lineLength-1] == cfg.LineSeparator {
+				line = line[:lineLength-1]
 			}
-			if line[lineLength - 2] == x0D[0] {
-				line = line[:lineLength - 2]
+			if line[lineLength-2] == x0D[0] {
+				line = line[:lineLength-2]
 			}
 
 			metadataColumnCount := len(t.Columns)
@@ -482,27 +527,25 @@ func (t TableInfoType) ReadAstraDump(
 			}
 
 			lineNumber++
-			if handler != nil {
-				err = handler(ctx, lineNumber, lineColumns)
-				if err != nil {
-					return lineNumber, err
-				}
+			err = rowProcessFunc(ctx, lineNumber, lineColumns)
+			if err != nil {
+				return lineNumber, err
 			}
 		}
 	}
-	return lineNumber,nil
+	return lineNumber, nil
 }
 
-func(c*ColumnInfoType) IsNumericDataType() bool {
-	realType := c.RealDataType.Value();
+func (c *ColumnInfoType) IsNumericDataType() bool {
+	realType := c.RealDataType.Value()
 	result :=
-	        realType == "java.lang.Byte" ||
+		realType == "java.lang.Byte" ||
 			realType == "java.lang.Short" ||
 			realType == "java.lang.Integer" ||
 			realType == "java.lang.Long" ||
 			realType == "java.lang.Double" ||
 			realType == "java.lang.Float" ||
 			realType == "java.math.BigDecimal" ||
-			realType == "java.math.BigInteger";
+			realType == "java.math.BigInteger"
 	return result
 }

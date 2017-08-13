@@ -1,16 +1,15 @@
 package main
 
-
 import (
 	"astra/dataflow"
-	"flag"
-	"math"
 	"astra/metadata"
 	"astra/nullable"
 	"context"
 	"encoding/json"
+	"flag"
 	"github.com/goinggo/tracelog"
 	"log"
+	"math"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -18,12 +17,12 @@ import (
 	"strings"
 	"sync"
 	"time"
-//	 _ "net/http/pprof"
+	//	 _ "net/http/pprof"
 	"bufio"
-	"compress/gzip"
-	"io"
 	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -61,27 +60,34 @@ func readConfig() (*dataflow.DumpConfigType, error) {
 }
 
 func f1() {
-	i := 0;
+	i := 0
 	start := time.Now()
-	file, err := os.Open("C:/home/data.253.4/data/100020/86/ORCL.CRA.LIABILITIES.dat")
+	file, err := os.Open("F:/home/data.253.4/data/100020/86/ORCL.CRA.LIABILITIES.dat")
 	if err != nil {
-		panic (err)
+		panic(err)
 	}
 	defer file.Close()
-	bfile  := bufio.NewReaderSize(file,4096);
-	zfile,err := gzip.NewReader(bfile)
+	bfile := bufio.NewReaderSize(file, 4096)
+	zfile, err := gzip.NewReader(bfile)
 	if err != nil {
-		panic (err)
+		panic(err)
 	}
 	defer zfile.Close()
-	buf := bufio.NewReaderSize(zfile,4096*5);
+	buf := bufio.NewReaderSize(zfile, 4096*5)
 	for {
 		b, err := buf.ReadSlice(byte(10))
 		if err == nil {
 			s := string(bytes.Split(b, []byte{31})[0])
-			_,_= strconv.ParseFloat(s,64)
+			f, err := strconv.ParseFloat(s, 64)
+			if err == nil {
+				bi := math.Float64bits(f)
+				frac, exp := math.Frexp(f)
+				fmt.Printf("%v, %v  %v ^ %v\n", f, bi, frac, math.Pow(2, float64(exp)))
+			}
+
 			i += len(s)
-		}else if err == io.EOF {
+
+		} else if err == io.EOF {
 			break
 		} else {
 			if err != nil {
@@ -90,21 +96,30 @@ func f1() {
 		}
 	}
 	fmt.Println(i)
-	tracelog.Info(packageName,"f1","Elapsed time: %v", time.Since(start))
+	tracelog.Info(packageName, "f1", "Elapsed time: %v", time.Since(start))
 }
 
 func main() {
 	funcName := "main"
 	tracelog.Start(tracelog.LevelInfo)
 	/*
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()*/
+		go func() {
+			log.Println(http.ListenAndServe("localhost:6060", nil))
+		}()*/
 
+	for i := 1; i <= 10; i++ {
+		fmt.Printf("%v, %v, %v, %v \n", i,
+			math.Float64bits(float64(i-1)),
+			math.Float64bits(float64(i)),
+			math.Float64bits(float64(i-1))-math.Float64bits(float64(i)),
+		)
+		i1, i2 := math.Modf(32 + float64(i)*1000000000000)
+		fmt.Printf("%v, [%v, %v] \n", i, i1, i2)
 
-
-	//f1()
-	//return;
+	}
+	return
+	f1()
+	return
 	flag.Parse()
 
 	conf, err := readConfig()
@@ -112,12 +127,10 @@ func main() {
 		os.Exit(1)
 	}
 	conf.HashValueLength = 8
-	if len(conf.LogBaseFile)>0 {
-		tracelog.StartFile(tracelog.LogLevel(),conf.LogBaseFile,conf.LogBaseFileKeepDay )
+	if len(conf.LogBaseFile) > 0 {
+		tracelog.StartFile(tracelog.LogLevel(), conf.LogBaseFile, conf.LogBaseFileKeepDay)
 		defer tracelog.Stop()
 	}
-
-
 
 	metadataIds := make(map[int64]bool)
 	workflowIds := make(map[int64]bool)
@@ -196,7 +209,6 @@ func main() {
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-
 	for id, _ := range workflowIds {
 		metadataId1, metadataId2, err := repo.MetadataByWorkflowId(nullable.NewNullInt64(id))
 		if err != nil {
@@ -230,7 +242,7 @@ func main() {
 		}
 	}
 
-	var processTableChan chan *dataflow.TableInfoType;
+	var processTableChan chan *dataflow.TableInfoType
 
 	processTable := func(runContext context.Context) (err error) {
 		funcName := "processTable"
@@ -269,7 +281,7 @@ func main() {
 
 				select {
 				case <-runContext.Done():
-				case err,open = <-ec3:
+				case err, open = <-ec3:
 					if err != nil {
 						tracelog.Error(err, packageName, funcName)
 						return err
@@ -323,6 +335,6 @@ func main() {
 		tracelog.Info(packageName, funcName, "All tables processed")
 		dr.CloseStores()
 	}
-	tracelog.Info(packageName,funcName,"Elapsed time: %v", time.Since(start))
+	tracelog.Info(packageName, funcName, "Elapsed time: %v", time.Since(start))
 	tracelog.Completed(packageName, funcName)
 }

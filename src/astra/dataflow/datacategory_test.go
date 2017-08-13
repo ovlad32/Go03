@@ -58,7 +58,7 @@ func TestNewDataCategory(t *testing.T) {
 		},
 		testCaseType{
 			Scenario:5,
-			Data: []byte("1.1E3"),
+			Data: []byte("1.1E-3"),
 			Column: nonNumeric,
 			Expected: &DataCategorySimpleType{
 				IsNumeric: true,

@@ -73,17 +73,17 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 	writeToTank := func(rowData [][]byte) (result int) {
 		columnCount := len(rowData)
-		if table.binaryDumpWriter != nil {
-			binary.Write(table.binaryDumpWriter, binary.LittleEndian, uint16(columnCount)) //
+		if table.DataDump != nil {
+			binary.Write(table.DataDump, binary.LittleEndian, uint16(columnCount)) //
 		}
 		result = 2
 		for _, colData := range rowData {
 			colDataLength := len(colData)
 			result = result + 2
 			result = result + colDataLength
-			if table.binaryDumpWriter != nil {
-				binary.Write(table.binaryDumpWriter, binary.LittleEndian, uint16(colDataLength))
-				table.binaryDumpWriter.Write(colData)
+			if table.DataDump != nil {
+				binary.Write(table.DataDump, binary.LittleEndian, uint16(colDataLength))
+				table.DataDump.Write(colData)
 			}
 		}
 		return
@@ -143,7 +143,8 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 
 
-		processDump1 := func (ctx context.Context, lineNumber uint64, data[][] byte) (error) {
+		processRowContent := func (ctx context.Context,
+			lineNumber uint64, data[][] byte) (error) {
 
 			for columnNumber := range table.Columns {
 				dataLength := len(data[columnNumber]);
@@ -165,7 +166,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 		table.ReadAstraDump(
 			runContext,
-			processDump1,
+			processRowContent,
 			&TableDumpConfig{
 				Path:dr.Config.AstraDumpPath,
 				GZip:dr.Config.AstraDataGZip,
