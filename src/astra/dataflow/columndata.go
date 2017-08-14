@@ -6,7 +6,7 @@ type ColumnDataType struct {
 	dataCategoryKey  string
 	LineNumber   uint64
 	LineOffset   uint64
-	RawData      *[]byte
+	RawData      []byte
 	RawDataLength int
 	HashValue    []byte
 	HashInt      uint64

@@ -65,94 +65,97 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 	funcName := "DataReaderType.ReadSource"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
+	var lineOffset uint64 = 0;
+
 	outChans = make([]chan *ColumnDataType, len(table.Columns))
 	for index := range (table.Columns) {
 		outChans[index] = make(chan *ColumnDataType, dr.Config.RawDataChannelSize)
 	}
 	errChan = make(chan error, 1)
 
-	writeToTank := func(rowData [][]byte) (result int) {
+	writeDataBinary := func(rowData [][]byte) (offset uint64,err error) {
+		offset = 0;
 		columnCount := len(rowData)
+		// persisting count of columns per a line
 		if table.DataDump != nil {
 			binary.Write(table.DataDump, binary.LittleEndian, uint16(columnCount)) //
 		}
-		result = 2
-		for _, colData := range rowData {
+		// 2 bytes of columnCount
+		offset = 2
+		for colNumber, colData := range rowData {
 			colDataLength := len(colData)
-			result = result + 2
-			result = result + colDataLength
-			if table.DataDump != nil {
-				binary.Write(table.DataDump, binary.LittleEndian, uint16(colDataLength))
-				table.DataDump.Write(colData)
+			if colDataLength > 0xFFFF {
+				colData = colData[:int(0xFFFFF)]
 			}
+
+			if table.DataDump != nil {
+				err = binary.Write(table.DataDump, binary.LittleEndian, uint16(colDataLength))
+				if err != nil {
+					tracelog.Errorf(err,packageName,funcName,"Error while writing column length for column %v",colNumber)
+					return 0,err
+				}
+			}
+			offset = offset + 2
+
+			if table.DataDump != nil {
+				_, err = table.DataDump.Write(colData)
+				tracelog.Errorf(err,packageName,funcName,"Error while writing column data for column %v",colNumber)
+				return 0,err
+			}
+			offset = offset + uint64(colDataLength)
 		}
-		return
+		return offset, nil
 	}
-	_ = writeToTank
+
 
 
 	readFromDump := func() (err error) {
 		funcName := "DataReaderType.ReadSource.readFromDump"
 		_ = funcName
-		var wg sync.WaitGroup
 
-		splitToColumns := func(LineNumber, LineOffset uint64, columnIndex int, columnBytes *[]byte)  {
-			var hashMethod = fnv.New64()
-			defer wg.Done()
+		processRowContent := func (
+			ctx context.Context,
+			lineNumber uint64,
+			rowData[][] byte,
+		) (err error) {
 
-			byteLength := len(*columnBytes)
-			if byteLength == 0 {
-				return
+			offset, err := writeDataBinary(rowData)
+			if err != nil {
+				//TODO:
 			}
+			lineOffset += offset
 
-			columnData := &ColumnDataType {}
-			columnData.RawData = columnBytes
+			for columnNumber, column := range table.Columns {
+
+				columnData := &ColumnDataType {
+					LineNumber : lineNumber,
+					RawData: rowData[columnNumber],
+					RawDataLength : len(rowData[columnNumber]),
+					LineOffset : lineOffset,
+					Column : column,
+				}
 
 
-
-			columnData.RawDataLength = byteLength
-			columnData.LineNumber = LineNumber
-			columnData.LineOffset = LineOffset
-			columnData.Column = table.Columns[columnIndex]
-
-			if  dr.Config.EmitHashValues {
-				if columnData.HashValue == nil || cap(columnData.HashValue) < 8 {
+				if  dr.Config.EmitHashValues {
 					columnData.HashValue = make([]byte, 8, 8)
-				} else {
-					columnData.HashValue = append(columnData.HashValue[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
+					if columnData.RawDataLength > 0 {
+						if columnData.RawDataLength > dr.Config.HashValueLength {
+							var hashMethod= fnv.New64()
+							hashMethod.Write(columnData.RawData)
+							columnData.HashInt = hashMethod.Sum64()
+							B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
+						} else {
+							copy(columnData.HashValue[dr.Config.HashValueLength-columnData.RawDataLength:], columnData.RawData)
+							columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
+						}
+					}
+
+					//TODO:table.HashDump.write
 				}
 
-				if columnData.RawDataLength > dr.Config.HashValueLength {
-					hashMethod.Reset()
-					hashMethod.Write(*columnData.RawData)
-					columnData.HashInt = hashMethod.Sum64()
-					B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
-				} else {
-					copy(columnData.HashValue[dr.Config.HashValueLength - byteLength:], *columnBytes)
-					columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
-				}
-			}
-
-			select {
-				case <-runContext.Done():
-					return
-				case outChans[columnIndex] <- columnData:
-			}
-		}
-		_ = splitToColumns
-
-
-
-		processRowContent := func (ctx context.Context,
-			lineNumber uint64, data[][] byte) (error) {
-
-			for columnNumber := range table.Columns {
-				dataLength := len(data[columnNumber]);
-				if dataLength == 0 {
-					continue
-				}
 
 			}
+
 
 
 
