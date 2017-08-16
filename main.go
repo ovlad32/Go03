@@ -107,7 +107,7 @@ func main() {
 			log.Println(http.ListenAndServe("localhost:6060", nil))
 		}()*/
 
-	for i := 1; i <= 10; i++ {
+	/*for i := 1; i <= 10; i++ {
 		fmt.Printf("%v, %v, %v, %v \n", i,
 			math.Float64bits(float64(i-1)),
 			math.Float64bits(float64(i)),
@@ -119,14 +119,16 @@ func main() {
 	}
 	return
 	f1()
-	return
+	return*/
 	flag.Parse()
 
 	conf, err := readConfig()
 	if err != nil {
 		os.Exit(1)
 	}
+
 	conf.HashValueLength = 8
+
 	if len(conf.LogBaseFile) > 0 {
 		tracelog.StartFile(tracelog.LogLevel(), conf.LogBaseFile, conf.LogBaseFileKeepDay)
 		defer tracelog.Stop()
@@ -238,7 +240,9 @@ func main() {
 		}
 
 		for _, table := range tables {
-			tablesToProcess = append(tablesToProcess, dataflow.ExpandFromMetadataTable(table))
+			if table.String() == "CRA.LIABILITIES" {
+				tablesToProcess = append(tablesToProcess, dataflow.ExpandFromMetadataTable(table))
+			}
 		}
 	}
 
@@ -262,23 +266,29 @@ func main() {
 					runContext,
 					inTable,
 				)
-
-				ec3 := dr.StoreByDataCategory(
+				tracelog.Info(packageName, funcName, "1 %v", inTable)
+				_= colChans1
+				var ec3 chan error;
+				/*ec3 = dr.StoreByDataCategory(
 					runContext,
 					colChans1,
 					dr.Config.CategoryWorkersPerTable,
 				)
-
-				go func() {
+				*/
+				func() {
 					select {
 					case <-runContext.Done():
+						tracelog.Info(packageName, funcName, "2* %v", inTable)
 					case err, open = <-ec1:
+						tracelog.Info(packageName, funcName, "2 %v", inTable)
 						if err != nil {
 							ec3 <- err
 						}
 					}
 				}()
+				tracelog.Info(packageName, funcName, "3 %v", inTable)
 
+				/*
 				select {
 				case <-runContext.Done():
 				case err, open = <-ec3:
@@ -286,7 +296,7 @@ func main() {
 						tracelog.Error(err, packageName, funcName)
 						return err
 					}
-				}
+				}*/
 
 				for _, col := range inTable.Columns {
 					err = col.CloseStorage(runContext)
@@ -304,7 +314,6 @@ func main() {
 				if err == nil {
 					tracelog.Info(packageName, funcName, "Table processing %v has been done", inTable)
 				}
-
 			}
 		}
 		tracelog.Completed(packageName, funcName)
@@ -313,7 +322,8 @@ func main() {
 
 	var wg sync.WaitGroup
 	if len(tablesToProcess) > 0 {
-		processTableChan = make(chan *dataflow.TableInfoType, dr.Config.TableWorkers)
+		//dr.Config.TableWorkers
+		processTableChan = make(chan *dataflow.TableInfoType, 0)
 		processTableContext, processTableContextCancelFunc := context.WithCancel(context.Background())
 		for index := 0; index < dr.Config.TableWorkers; index++ {
 			wg.Add(1)
@@ -321,8 +331,12 @@ func main() {
 				err = processTable(processTableContext)
 				wg.Done()
 				if err != nil {
-					//tracelog.Info(packageName,funcName,"Сancel сontext called ")
-					processTableContextCancelFunc()
+					tracelog.Errorf(err,packageName,funcName,"Сancel сontext called ")
+					if false {
+						processTableContextCancelFunc()
+
+					}
+
 				}
 				return
 			}()

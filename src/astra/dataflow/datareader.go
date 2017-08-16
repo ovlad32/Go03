@@ -53,7 +53,7 @@ type DataReaderType struct {
 
 
 
-
+var nullBuffer []byte = []byte{0,0,0,0,0,0,0}
 
 
 
@@ -99,8 +99,10 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 			if table.DataDump != nil {
 				_, err = table.DataDump.Write(colData)
-				tracelog.Errorf(err,packageName,funcName,"Error while writing column data for column %v",colNumber)
-				return 0,err
+				if err != nil {
+					tracelog.Errorf(err, packageName, funcName, "Error while writing column data for column %v", colNumber)
+					return 0, err
+				}
 			}
 			offset = offset + uint64(colDataLength)
 		}
@@ -119,11 +121,11 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 			rowData[][] byte,
 		) (err error) {
 
-			offset, err := writeDataBinary(rowData)
-			if err != nil {
-				//TODO:
+			if lineNumber == 1 {
+				table.NewDataDump(dr.Config.AstraDumpPath)
+				table.NewHashDump(dr.Config.AstraDumpPath)
 			}
-			lineOffset += offset
+
 
 			for columnNumber, column := range table.Columns {
 
@@ -140,7 +142,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 					columnData.HashValue = make([]byte, 8, 8)
 					if columnData.RawDataLength > 0 {
 						if columnData.RawDataLength > dr.Config.HashValueLength {
-							var hashMethod= fnv.New64()
+							var hashMethod = fnv.New64()
 							hashMethod.Write(columnData.RawData)
 							columnData.HashInt = hashMethod.Sum64()
 							B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
@@ -148,26 +150,35 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 							copy(columnData.HashValue[dr.Config.HashValueLength-columnData.RawDataLength:], columnData.RawData)
 							columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
 						}
+						_, err = table.HashDump.Write(columnData.HashValue)
+					} else {
+						_, err = table.HashDump.Write(nullBuffer)
 					}
-
-					//TODO:table.HashDump.write
+					if err != nil {
+						//TODO:
+						tracelog.Errorf(err,packageName,funcName,"")
+						return err
+					}
 				}
 
 
 			}
+			binary.Write(table.HashDump,binary.LittleEndian,lineOffset);
 
-
-
-
-
-
+			offset, err := writeDataBinary(rowData)
+			if err != nil {
+				//TODO:
+				tracelog.Errorf(err,packageName,funcName,"")
+				return err
+			}
+			lineOffset += offset
 
 			return nil;
 		}
 
 
 
-		table.ReadAstraDump(
+		linesRead, err := table.ReadAstraDump(
 			runContext,
 			processRowContent,
 			&TableDumpConfig{
@@ -175,8 +186,17 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				GZip:dr.Config.AstraDataGZip,
 				ColumnSeparator:dr.Config.AstraColumnSeparator,
 				LineSeparator:dr.Config.AstraLineSeparator,
+				BufferSize:dr.Config.AstraReaderBufferSize,
 			},
 		);
+		if err != nil {
+			tracelog.Errorf(err,packageName,funcName,"Error in %v on %v",table,linesRead)
+		} else {
+			tracelog.Info(packageName,funcName,"Table %v, read %v",table,linesRead)
+		}
+
+		table.HashDump.Close();
+		table.DataDump.Close();
 
 
 		/*gzFile, err := os.Open(dr.Config.AstraDumpPath + table.PathToFile.Value())
@@ -260,6 +280,8 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 	go func() {
 		err := readFromDump()
+		tracelog.Info(packageName, funcName, "4 %v", table)
+
 		if err != nil {
 			errChan <- err
 		}
@@ -268,8 +290,10 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				close(outChans[index])
 			}
 		}
+		tracelog.Info(packageName,funcName,"Table %v done",table)
 		close(errChan)
 	}()
+	tracelog.Info(packageName, funcName, "5 %v", table)
 
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
 	return outChans, errChan
@@ -354,7 +378,7 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 				if columnData == nil || columnData.RawDataLength == 0 {
 					continue
 				}
-				stringValue := string(*columnData.RawData)
+				stringValue := string(columnData.RawData)
 				var floatValue float64 = 0
 				var parseError error
 				floatValue, parseError = strconv.ParseFloat(strings.Trim(stringValue," "), 64)

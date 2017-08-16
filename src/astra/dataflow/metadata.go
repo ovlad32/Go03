@@ -362,6 +362,10 @@ type tableBinaryType struct {
 func (t *tableBinaryType) Close() (err error) {
 	funcName := "tableBinaryType.Close"
 
+	if t==nil {
+		return nil
+	}
+
 	err = t.Flush()
 	if err != nil {
 		tracelog.Errorf(err,packageName,funcName,"Flushing data to %v ",t.dFullFileName)
@@ -407,23 +411,23 @@ func (ti *TableInfoType) openBinaryDump(
 		return nil, err
 	}
 
-	pathToTankFile := fmt.Sprintf("%v%v%v.%v.dump",
+	pathToBinaryFile := fmt.Sprintf("%v%v.%v.%v.dump",
 		pathToBinaryDir,
 		os.PathSeparator,
 		suffix,
 		ti.Id.String(),
 	)
 
-	file, err := os.OpenFile(pathToTankFile, flags, 0666)
+	file, err := os.OpenFile(pathToBinaryFile, flags, 0666)
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Opening file %v", pathToTankFile)
+		tracelog.Errorf(err, packageName, funcName, "Opening file %v", pathToBinaryFile)
 		return nil,err
 	}
 
 	result = &tableBinaryType{
-		Writer: bufio.NewWriter(file),
-		dFile:file,
-		dFullFileName: pathToTankFile,
+		Writer:        bufio.NewWriter(file),
+		dFile:         file,
+		dFullFileName: pathToBinaryFile,
 	}
 
 	tracelog.Completed(packageName,funcName)
@@ -494,12 +498,15 @@ func (t TableInfoType) ReadAstraDump(
 	for {
 		select {
 		case <-ctx.Done():
+			tracelog.Info(packageName,funcName,"%v Done caught1",t)
 			return lineNumber, nil
 		default:
 			line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
 			if err == io.EOF {
+				tracelog.Info(packageName,funcName,"EOF for %v reached",cfg.Path + t.PathToFile.Value())
 				return lineNumber, nil
 			} else if err != nil {
+				tracelog.Errorf(err,packageName,funcName,"Error while reading slice of %v",cfg.Path + t.PathToFile.Value())
 				return lineNumber, err
 			}
 
@@ -523,16 +530,21 @@ func (t TableInfoType) ReadAstraDump(
 					metadataColumnCount,
 					lineColumnCount,
 				)
+				tracelog.Info(packageName,funcName,"%v Done caught2",t)
 				return lineNumber, err
 			}
 
 			lineNumber++
 			err = rowProcessFunc(ctx, lineNumber, lineColumns)
+			//
 			if err != nil {
+				tracelog.Errorf(err,packageName,funcName,"Error while processing %v",t)
+				tracelog.Info(packageName,funcName,"%v Done caught3",t)
 				return lineNumber, err
 			}
 		}
 	}
+	tracelog.Info(packageName,funcName,"%v Done caught4",t)
 	return lineNumber, nil
 }
 

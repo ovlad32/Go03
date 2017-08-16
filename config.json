@@ -21,7 +21,7 @@
   "speed-tick-time-sec": 60,
   "memory-usage-tick-time-sec": 0,
   "build-binary-dump": false,
-  "emit-hash-data": false,
+  "emit-hash-data": true,
   "emit-raw-data": true,
   "log-base-file": "./log",
   "log-base-file-keep-day": 1
