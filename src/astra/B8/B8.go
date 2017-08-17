@@ -2,7 +2,8 @@ package B8
 
 import "encoding/binary"
 
-type B8Type [8]byte
+const HashLength  = 8
+type B8Type [HashLength  ]byte
 
 func UInt64ToB8(value uint64) []byte {
 	var buff B8Type
@@ -14,8 +15,8 @@ func UInt64ToBuff(dst []byte, src uint64) {
 	binary.LittleEndian.PutUint64(dst, src)
 }
 func Clear(dst []byte) []byte {
-	if dst == nil || cap(dst) < 8 {
-		dst = make([]byte, 8)
+	if dst == nil || cap(dst) < HashLength   {
+		dst = make([]byte, HashLength )
 	} else {
 		dst = append(dst[0:0], ([]byte{0, 0, 0, 0, 0, 0, 0, 0})...)
 	}

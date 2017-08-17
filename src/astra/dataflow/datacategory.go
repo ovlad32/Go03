@@ -2,22 +2,114 @@ package dataflow
 
 import (
 	"astra/nullable"
-	"context"
 	"fmt"
-	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"math"
-	"os"
 	"sync"
-	"encoding/gob"
-	"bufio"
-	"path/filepath"
-	"sparsebitset"
-	"runtime"
-	"compress/gzip"
-	"strings"
-	"strconv"
 )
+
+
+
+
+type DataCategorySimpleType struct {
+	ByteLength         int
+	IsNumeric          bool
+	IsNegative         bool
+	IsInteger          bool
+
+}
+
+func (simple *DataCategorySimpleType) Key() (result string) {
+	if !simple.IsNumeric {
+		result = fmt.Sprintf("C%v", simple.ByteLength)
+	} else if simple.IsNegative {
+		if simple.IsInteger  {
+			result = "N"
+		} else {
+			result = "n"
+		}
+	} else {
+		if simple.IsInteger {
+			result = "P"
+		} else {
+			result = "p"
+		}
+	}
+	return result
+}
+
+
+func (simple *DataCategorySimpleType) CovertToNullable() (result *DataCategoryType) {
+	result = &DataCategoryType{
+		IsNumeric:  nullable.NewNullBool(simple.IsNumeric),
+		ByteLength: nullable.NewNullInt64(int64(simple.ByteLength)),
+
+	}
+	result.Stats.MinNumericValue = math.MaxFloat64;
+	result.Stats.MaxNumericValue = -math.MaxFloat64;
+	result.Stats.DataCount = 0
+
+	result.stringAnalysisChan = make(chan string,300)
+	result.numericAnalysisChan = make(chan float64,300)
+	return
+}
+
+
+
+
+
+func (simple *DataCategorySimpleType) BinKey() (result []byte) {
+	funcName := "DataCategorySimpleType.KeyBin"
+	tracelog.Started(packageName, funcName)
+
+	result = make([]byte, 2, 2)
+
+	if simple.IsNumeric {
+		result[0] = byte(1 << 7)
+		if simple.IsInteger {
+			result[0] = result[0] | byte(1 << 6)
+		}
+		if simple.IsNegative {
+			result[0] = result[0] | byte(1 << 5)
+		}
+	} else {
+		bl := uint16(simple.ByteLength)
+		result[1] = byte(bl & 0xFF)
+		result[0] = byte((bl >> 8) & 0x7F)
+	}
+	tracelog.Completed(packageName, funcName)
+	return result
+}
+
+
+
+type DataCategoryType struct {
+	//column *metadata.ColumnInfoType
+	ByteLength         nullable.NullInt64
+	IsNumeric          nullable.NullBool // if array of bytes represents a numeric value
+	IsNegative         nullable.NullBool
+	IsInteger   	   nullable.NullBool
+	HashUniqueCount    nullable.NullInt64
+	DataCount          nullable.NullInt64
+	Stats  struct {
+		MinStringValue  string
+		MaxStringValue  string
+		MinNumericValue float64
+		MaxNumericValue float64
+		DataCount    	uint64
+	}
+
+	stringAnalysisChan    chan string
+	numericAnalysisChan   chan float64
+	//analysisChannelsLock  sync.Mutex
+	initChans sync.Once
+	drainAnalysisChannels sync.WaitGroup
+
+}
+
+
+
+/*
 type OffsetsType map[uint64][]uint64;
 type H8BSType map[byte]*sparsebitset.BitSet;
 
@@ -222,16 +314,16 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 						break outer
 					}
 					workerChannels[columnData.HashValue[7]] <-columnData
-				/*	go func(index byte, data *ColumnDataType) {
-						workerChannels[index] <-data
-					}(columnData.HashValue[7],columnData)
-				*/
+				//	go func(index byte, data *ColumnDataType) {
+				//		workerChannels[index] <-data
+				//	}(columnData.HashValue[7],columnData)
+				//
 					//_=columnData
 
-				/*	columnBlock.Data = s.bucket.Get(columnData.RawData)
-					columnBlock.Append(columnData.Column.Id.Value(), columnData.LineOffset)
-					s.bucket.Put(columnData.RawData, columnBlock.Data)
-				*/
+				//	columnBlock.Data = s.bucket.Get(columnData.RawData)
+				//	columnBlock.Append(columnData.Column.Id.Value(), columnData.LineOffset)
+		  	    //	s.bucket.Put(columnData.RawData, columnBlock.Data)
+
 
 					//
 
@@ -278,7 +370,7 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 							os.Remove(pathToChunkRenamed)
 						}
 					}
-					/*l := len(columnBlock.Data)
+					/ *l := len(columnBlock.Data)
 
 					writtenValues++
 					if writtenValues >= 50000 {
@@ -298,7 +390,7 @@ func (s *DataCategoryStore) RunStore(runContext context.Context) (errChan chan e
 							return
 						}
 						s.OpenDefaultBucket()
-					}*/
+					}* /
 				}
 			}
 		for _,wc := range workerChannels {
@@ -357,240 +449,12 @@ func (s *DataCategoryStore) Close() (err error) {
 
 
 
-type DataCategorySimpleType struct {
-	ByteLength         int
-	IsNumeric          bool
-	IsNegative         bool
-	FloatingPointScale int
-	IsSubHash          bool
-	SubHash            uint
-	StringValue        string
-	FloatValue         float64
-}
-
-func (simple *DataCategorySimpleType) Key() (result string) {
-	if !simple.IsNumeric {
-		result = fmt.Sprintf("C%v", simple.ByteLength)
-	} else {
-		if simple.FloatingPointScale > 0 {
-			if simple.IsNegative {
-				result = "M"
-			} else {
-				result = "F"
-			}
-			result = result + fmt.Sprintf("%vP%v", simple.ByteLength, simple.FloatingPointScale)
-		} else {
-			if simple.IsNegative {
-				result = "I"
-			} else {
-				result = "N"
-			}
-			result = result + fmt.Sprintf("%v", simple.ByteLength)
-		}
-	}
-	if simple.IsSubHash {
-		result = result + fmt.Sprintf("H%v", simple.SubHash)
-	}
-	return
-}
-
-func (simple *DataCategorySimpleType) covert() (result *DataCategoryType) {
-	result = &DataCategoryType{
-		IsNumeric:  nullable.NewNullBool(simple.IsNumeric),
-		ByteLength: nullable.NewNullInt64(int64(simple.ByteLength)),
-	}
-	if simple.IsNumeric {
-		result.IsNegative = nullable.NewNullBool(simple.IsNegative)
-		result.FloatingPointScale = nullable.NewNullInt64(int64(simple.FloatingPointScale))
-	}
-
-	if simple.IsSubHash {
-		result.SubHash = nullable.NewNullInt64(int64(simple.SubHash))
-	}
-	result.stringAnalysisChan = make(chan string,300)
-	result.numericAnalysisChan = make(chan float64,300)
-	return
-}
-
-func (simple *DataCategorySimpleType) KeyBin() (result []byte) {
-	funcName := "DataCategorySimpleType.KeyBin"
-	tracelog.Started(packageName, funcName)
-
-	result = make([]byte, 2, 2)
-
-	if simple.IsNumeric {
-		result[0] = (1 << 7)
-		if simple.IsNegative {
-			result[0] = result[0] | (1 << 6)
-		}
-		if simple.FloatingPointScale > 0 {
-			fp := simple.FloatingPointScale
-			if fp > 0x3F {
-				fp = 0x3F
-			}
-			result[0] |= byte(fp)
-		}
-		bl := uint16(simple.ByteLength)
-		if bl > 0xFF {
-			bl = 0xFF
-		}
-		result[1] = byte(bl)
-	} else {
-		bl := uint16(simple.ByteLength)
-		result[1] = byte(bl & 0xFF)
-		result[0] = byte((bl >> 8) & 0x7F)
-	}
-	tracelog.Completed(packageName, funcName)
-	return result
-}
-
-type DataCategoryType struct {
-	//column *metadata.ColumnInfoType
-	ByteLength         nullable.NullInt64
-	IsNumeric          nullable.NullBool // if array of bytes represents a numeric value
-	IsNegative         nullable.NullBool
-	FloatingPointScale nullable.NullInt64
-	DataCount          nullable.NullInt64
-	HashUniqueCount    nullable.NullInt64
-	MinStringValue        nullable.NullString
-	MaxStringValue        nullable.NullString
-	MinNumericValue       nullable.NullFloat64
-	MaxNumericValue       nullable.NullFloat64
-	NonNullCount          nullable.NullInt64
-	SubHash               nullable.NullInt64
-	Stats                 struct {
-		MinStringValue  string
-		MaxStringValue  string
-		MinNumericValue float64
-		MaxNumericValue float64
-		NonNullCount    uint64
-	}
-	stringAnalysisChan    chan string
-	numericAnalysisChan   chan float64
-	//analysisChannelsLock  sync.Mutex
-	initChans sync.Once
-	drainAnalysisChannels sync.WaitGroup
-}
 
 type dataTypeAware interface {
 	IsNumericDataType() bool
 }
 
-func NewDataCategory(rawData []byte, source dataTypeAware) (result *DataCategorySimpleType) {
 
-	rawDataLength := len(rawData)
-
-	if rawDataLength == 0 {
-		return nil
-	}
-	result = new(DataCategorySimpleType)
-	result.ByteLength = rawDataLength
-	result.StringValue = strings.Trim(string(rawData)," ")
-
-	var parseError error
-	result.FloatValue, parseError = strconv.ParseFloat(result.StringValue,64)
-	result.IsNumeric = parseError == nil
-	result.IsNegative = result.FloatValue < float64(0)
-
-	if result.IsNumeric {
-	//	var scientific []string
-	//	var pointIndex int = -1
-		if !source.IsNumericDataType() {
-			processedStringValue := strings.ToUpper(result.StringValue)
-			if strings.HasPrefix(processedStringValue,"+") {
-				processedStringValue = processedStringValue[1:]
-			} else if strings.HasPrefix(processedStringValue,"-") {
-				processedStringValue = processedStringValue[1:]
-			}
-			processedStringValue = strings.TrimLeft(processedStringValue,"0")
-			var pointPosition, exponentPosition int;
-			pointPosition = strings.Index(processedStringValue, ".")
-			exponentPosition  = strings.Index(processedStringValue,"E")
-			if pointPosition == -1 && exponentPosition == -1 {
-			} else if pointPosition == -1 && exponentPosition >= 0 {
-				result.IsNumeric = false
-			} else if pointPosition >= 0 && exponentPosition == -1 {
-
-			if exponentPosition == -1 {
-					result.IsNumeric = false
-				} else {
-
-				}
-			}
-
-			/*
-			scientific = strings.Split(processedStringValue,"E")
-			if len(scientific) != 2 {
-				result.IsNumeric = false
-			} else {
-				parts := strings.Split(scientific, ".")
-				if len(parts) != 2 {
-					result.IsNumeric = false;
-				} else {
-				   if len(parts[0]) == 1 {
-						intValue,parseError := strconv.ParseInt(parts[0],10,64)
-					    if parseError != nil {
-						    result.IsNumeric = false;
-					    } else {
-
-					    }
-				   }
-				}else
-			}
-
-
-			var mantissa float64
-				var exponent int64
-				mantissa, parseError = strconv.ParseFloat(scientific[0], 64)
-
-				if parseError != nil {
-					result.IsNumeric = false
-				}
-				if result.IsNumeric {
-					exponent, parseError = strconv.ParseInt(scientific[1], 10, 64)
-					if parseError != nil {
-						result.IsNumeric = false
-					}
-				}
-				if result.IsNumeric {
-
-					math.Abs(mantissa)
-				}
-			}
-			expIndex = strings.Index(result.StringValue, "E")
-			if expIndex == -1 {
-				expIndex = strings.Index(result.StringValue, "e")
-			}
-			if expIndex != -1 {
-				pointIndex = strings.Index(result.StringValue, ".")
-				if pointIndex == -1 || pointIndex > expIndex {
-					result.IsNumeric = false;
-				}
-			}*/
-		}
-		fmt.Printf("\n\nLog10,%v\n",math.Log10(result.FloatValue))
-		if result.IsNumeric {
-			parseFloatingPointScale := func(stringValue string) int {
-				parts := strings.SplitAfter(stringValue,".")
-				if len(parts) <2 {
-					return 0
-				}
-				fmt.Printf("index %v\n",parts[1])
-				return len(stringValue) - (strings.Index(stringValue, ".") + 1)
-			}
-			sval := strconv.FormatFloat(result.FloatValue,'E',-1,64)
-
-			fmt.Printf("%v,%v\n",result.StringValue,sval);
-			//if expIndex >= 0 {
-			if true {
-				result.FloatingPointScale  = parseFloatingPointScale(sval)
-			} else {
-				result.FloatingPointScale = parseFloatingPointScale(result.StringValue)
-			}
-		}
-	}
-	return result
-}
 
 
 
@@ -602,12 +466,7 @@ func (dc *DataCategoryType) RunAnalyzer(runContext context.Context,analysisChanS
 		dc.numericAnalysisChan = make(chan float64,analysisChanSize)
 
 	})
-	/*if dc.stringAnalysisChan == nil{
-		dc.analysisChannelsLock.Lock()
-		if dc.stringAnalysisChan == nil {
-		}
-		dc.analysisChannelsLock.Unlock()
-	}*/
+
 
 	dc.drainAnalysisChannels.Add(2)
 	go func() {
@@ -745,3 +604,4 @@ func (cdc DataCategoryType) String() (result string) {
 	}
 	return
 }
+*/

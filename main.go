@@ -268,7 +268,7 @@ func main() {
 				)
 				tracelog.Info(packageName, funcName, "1 %v", inTable)
 				_= colChans1
-				var ec3 chan error;
+				//var ec3 chan error;
 				/*ec3 = dr.StoreByDataCategory(
 					runContext,
 					colChans1,
@@ -278,25 +278,15 @@ func main() {
 				func() {
 					select {
 					case <-runContext.Done():
-						tracelog.Info(packageName, funcName, "2* %v", inTable)
-					case err, open = <-ec1:
-						tracelog.Info(packageName, funcName, "2 %v", inTable)
-						if err != nil {
-							ec3 <- err
-						}
+						err = nil;
+					case err = <- ec1:
+					//case err = <- ec3:
 					}
 				}()
-				tracelog.Info(packageName, funcName, "3 %v", inTable)
 
-				/*
-				select {
-				case <-runContext.Done():
-				case err, open = <-ec3:
-					if err != nil {
-						tracelog.Error(err, packageName, funcName)
-						return err
-					}
-				}*/
+				if err != nil {
+					return err
+				}
 
 				for _, col := range inTable.Columns {
 					err = col.CloseStorage(runContext)
@@ -347,7 +337,7 @@ func main() {
 		close(processTableChan)
 		wg.Wait()
 		tracelog.Info(packageName, funcName, "All tables processed")
-		dr.CloseStores()
+		//dr.CloseStores()
 	}
 	tracelog.Info(packageName, funcName, "Elapsed time: %v", time.Since(start))
 	tracelog.Completed(packageName, funcName)

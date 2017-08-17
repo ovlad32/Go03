@@ -172,7 +172,7 @@ type ColumnInfoType struct {
 	drainBitsetChannels          sync.WaitGroup
 }
 
-func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *DataCategoryType, err error),
+func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *DataCategoryType, err error),
 ) (result *DataCategoryType, err error) {
 	funcName := "ColumnInfoType.CategoryByKey"
 	tracelog.Started(packageName, funcName)
@@ -182,8 +182,8 @@ func (ci *ColumnInfoType) CategoryByKey(key string, callBack func() (result *Dat
 
 	ci.categoryRLock.Lock()
 	if value, found := ci.Categories[key]; !found {
-		if callBack != nil {
-			result, err = callBack()
+		if initFunc != nil {
+			result, err = initFunc()
 			if err != nil {
 				ci.categoryRLock.Unlock()
 				tracelog.Error(err, packageName, funcName)

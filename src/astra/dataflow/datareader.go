@@ -2,20 +2,8 @@ package dataflow
 
 import (
 	"context"
-	"encoding/binary"
-	"fmt"
 	"github.com/goinggo/tracelog"
 	"sync"
-	"astra/B8"
-	"github.com/boltdb/bolt"
-	"hash/fnv"
-	"strings"
-	"sparsebitset"
-	"time"
-	"sync/atomic"
-	"github.com/shirou/gopsutil/mem"
-	"strconv"
-	"math"
 )
 
 type DumpConfigType struct {
@@ -40,23 +28,18 @@ type DumpConfigType struct {
 	EmitHashValues          bool   `json:"emit-hash-data"`
 	BuildBinaryDump         bool   `json:"build-binary-dump"`
 	SpeedTickTimeSec        int    `json:"speed-tick-time-sec"`
-	MemUsageTickTimeSec     int     `json:"memory-usage-tick-time-sec"`
-	LogBaseFile             string  `json:"log-base-file"`
-	LogBaseFileKeepDay      int  `json:"log-base-file-keep-day"`
+	MemUsageTickTimeSec     int    `json:"memory-usage-tick-time-sec"`
+	LogBaseFile             string `json:"log-base-file"`
+	LogBaseFileKeepDay      int    `json:"log-base-file-keep-day"`
 }
 
 type DataReaderType struct {
-	Config *DumpConfigType
+	Config         *DumpConfigType
 	blockStoreLock sync.RWMutex
-	blockStores map[string]*DataCategoryStore
+//	blockStores    map[string]*DataCategoryStore
 }
 
-
-
-var nullBuffer []byte = []byte{0,0,0,0,0,0,0}
-
-
-
+var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
 
 func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfoType) (
 	outChans []chan *ColumnDataType,
@@ -65,139 +48,72 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 	funcName := "DataReaderType.ReadSource"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
-	var lineOffset uint64 = 0;
+	var lineOffset uint64 = 0
 
 	outChans = make([]chan *ColumnDataType, len(table.Columns))
-	for index := range (table.Columns) {
+	for index := range table.Columns {
 		outChans[index] = make(chan *ColumnDataType, dr.Config.RawDataChannelSize)
 	}
 	errChan = make(chan error, 1)
-
-	writeDataBinary := func(rowData [][]byte) (offset uint64,err error) {
-		offset = 0;
-		columnCount := len(rowData)
-		// persisting count of columns per a line
-		if table.DataDump != nil {
-			binary.Write(table.DataDump, binary.LittleEndian, uint16(columnCount)) //
-		}
-		// 2 bytes of columnCount
-		offset = 2
-		for colNumber, colData := range rowData {
-			colDataLength := len(colData)
-			if colDataLength > 0xFFFF {
-				colData = colData[:int(0xFFFFF)]
-			}
-
-			if table.DataDump != nil {
-				err = binary.Write(table.DataDump, binary.LittleEndian, uint16(colDataLength))
-				if err != nil {
-					tracelog.Errorf(err,packageName,funcName,"Error while writing column length for column %v",colNumber)
-					return 0,err
-				}
-			}
-			offset = offset + 2
-
-			if table.DataDump != nil {
-				_, err = table.DataDump.Write(colData)
-				if err != nil {
-					tracelog.Errorf(err, packageName, funcName, "Error while writing column data for column %v", colNumber)
-					return 0, err
-				}
-			}
-			offset = offset + uint64(colDataLength)
-		}
-		return offset, nil
-	}
-
 
 
 	readFromDump := func() (err error) {
 		funcName := "DataReaderType.ReadSource.readFromDump"
 		_ = funcName
-
-		processRowContent := func (
+		processRowContent := func(
 			ctx context.Context,
 			lineNumber uint64,
-			rowData[][] byte,
+			rowData [][]byte,
 		) (err error) {
 
 			if lineNumber == 1 {
-				table.NewDataDump(dr.Config.AstraDumpPath)
-				table.NewHashDump(dr.Config.AstraDumpPath)
+				//table.NewDataDump(dr.Config.AstraDumpPath)
+				//table.NewHashDump(dr.Config.AstraDumpPath)
 			}
-
 
 			for columnNumber, column := range table.Columns {
 
-				columnData := &ColumnDataType {
-					LineNumber : lineNumber,
-					RawData: rowData[columnNumber],
-					RawDataLength : len(rowData[columnNumber]),
-					LineOffset : lineOffset,
-					Column : column,
+				columnData := NewColumnData(column,rowData[columnNumber])
+				if columnData  == nil {
+					continue;
 				}
 
+				columnData.LineNumber = lineNumber
+				columnData.LineOffset = lineOffset
 
-				if  dr.Config.EmitHashValues {
-					columnData.HashValue = make([]byte, 8, 8)
-					if columnData.RawDataLength > 0 {
-						if columnData.RawDataLength > dr.Config.HashValueLength {
-							var hashMethod = fnv.New64()
-							hashMethod.Write(columnData.RawData)
-							columnData.HashInt = hashMethod.Sum64()
-							B8.UInt64ToBuff(columnData.HashValue, columnData.HashInt)
-						} else {
-							copy(columnData.HashValue[dr.Config.HashValueLength-columnData.RawDataLength:], columnData.RawData)
-							columnData.HashInt, _ = B8.B8ToUInt64(columnData.HashValue)
-						}
-						_, err = table.HashDump.Write(columnData.HashValue)
-					} else {
-						_, err = table.HashDump.Write(nullBuffer)
-					}
-					if err != nil {
-						//TODO:
-						tracelog.Errorf(err,packageName,funcName,"")
-						return err
-					}
-				}
-
-
+				columnData.DefineDataCategory();
+				columnData.HashData();
 			}
-			binary.Write(table.HashDump,binary.LittleEndian,lineOffset);
-
-			offset, err := writeDataBinary(rowData)
+			/*offset, err := rowDataS.WriteToBinaryDump(table.DataDump)
 			if err != nil {
 				//TODO:
-				tracelog.Errorf(err,packageName,funcName,"")
+				tracelog.Errorf(err, packageName, funcName, "")
 				return err
 			}
-			lineOffset += offset
+			lineOffset += offset*/
 
-			return nil;
+			return nil
 		}
-
-
 
 		linesRead, err := table.ReadAstraDump(
 			runContext,
 			processRowContent,
 			&TableDumpConfig{
-				Path:dr.Config.AstraDumpPath,
-				GZip:dr.Config.AstraDataGZip,
-				ColumnSeparator:dr.Config.AstraColumnSeparator,
-				LineSeparator:dr.Config.AstraLineSeparator,
-				BufferSize:dr.Config.AstraReaderBufferSize,
+				Path:            dr.Config.AstraDumpPath,
+				GZip:            dr.Config.AstraDataGZip,
+				ColumnSeparator: dr.Config.AstraColumnSeparator,
+				LineSeparator:   dr.Config.AstraLineSeparator,
+				BufferSize:      dr.Config.AstraReaderBufferSize,
 			},
-		);
+		)
 		if err != nil {
-			tracelog.Errorf(err,packageName,funcName,"Error in %v on %v",table,linesRead)
+			tracelog.Errorf(err, packageName, funcName, "Error in %v on %v", table, linesRead)
 		} else {
-			tracelog.Info(packageName,funcName,"Table %v, read %v",table,linesRead)
+			tracelog.Info(packageName, funcName, "Table %v, read %v", table, linesRead)
 		}
 
-		table.HashDump.Close();
-		table.DataDump.Close();
-
+		//table.HashDump.Close()
+		//table.DataDump.Close()
 
 		/*gzFile, err := os.Open(dr.Config.AstraDumpPath + table.PathToFile.Value())
 		if err != nil {
@@ -285,12 +201,12 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 		if err != nil {
 			errChan <- err
 		}
-		for index:= range outChans{
+		for index := range outChans {
 			if outChans[index] != nil {
 				close(outChans[index])
 			}
 		}
-		tracelog.Info(packageName,funcName,"Table %v done",table)
+		tracelog.Info(packageName, funcName, "Table %v done", table)
 		close(errChan)
 	}()
 	tracelog.Info(packageName, funcName, "5 %v", table)
@@ -298,7 +214,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
 	return outChans, errChan
 }
-
+/*
 type StoreType struct {
 	db     *bolt.DB
 	tx     *bolt.Tx
@@ -309,10 +225,10 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 	errChan chan error,
 ) {
 	funcName := "DataReaderType.StoreByDataCategory"
-	tracelog.Started(packageName,funcName)
+	tracelog.Started(packageName, funcName)
 	errChan = make(chan error, 1)
-	var speedTickerChan <- chan time.Time
-	var memoryStatsTickerChan <- chan time.Time
+	var speedTickerChan <-chan time.Time
+	var memoryStatsTickerChan <-chan time.Time
 
 	var tickerByteCounter int64 = 0
 
@@ -329,41 +245,39 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 						return
 					}
 					if tickerByteCounter != 0 {
-						tracelog.Info(packageName, funcName, "Processing speed %.2f kb/sec",  float64(tickerByteCounter) / float64(1024*dr.Config.SpeedTickTimeSec))
-						atomic.AddInt64(&tickerByteCounter,-tickerByteCounter)
+						tracelog.Info(packageName, funcName, "Processing speed %.2f kb/sec", float64(tickerByteCounter)/float64(1024*dr.Config.SpeedTickTimeSec))
+						atomic.AddInt64(&tickerByteCounter, -tickerByteCounter)
 					}
 				}
 			}
-		} ()
+		}()
 
 	}
 
 	if dr.Config.MemUsageTickTimeSec > 0 {
-		memoryStatsTickerChan =  time.Tick(time.Duration(dr.Config.MemUsageTickTimeSec)*time.Second)
+		memoryStatsTickerChan = time.Tick(time.Duration(dr.Config.MemUsageTickTimeSec) * time.Second)
 		go func() {
 			for {
 				select {
-				case <- runContext.Done():
-				case _,open := <-memoryStatsTickerChan:
+				case <-runContext.Done():
+				case _, open := <-memoryStatsTickerChan:
 					if !open {
 						return
 					}
-				vmem,_:= mem.VirtualMemory()
-				fmt.Printf("Memory usage %%: %v\n",vmem.UsedPercent)
+					vmem, _ := mem.VirtualMemory()
+					fmt.Printf("Memory usage %%: %v\n", vmem.UsedPercent)
 				}
 			}
 		}()
 	}
 
-
-
-
-
 	//	threads := uint64(0)
 
 	var wg sync.WaitGroup
 
-	processColumnData := func(columnDataChan chan*ColumnDataType) {
+/*
+	processColumnData := func(columnDataChan chan *ColumnDataType) {
+	/
 		//threadNo := atomic.AddUint64(&threads,1) +fmt.Sprintf("%v",*threadNo)
 		funcName := "DataReaderType.StoreByDataCategory.goFunc1 "
 	outer:
@@ -381,14 +295,13 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 				stringValue := string(columnData.RawData)
 				var floatValue float64 = 0
 				var parseError error
-				floatValue, parseError = strconv.ParseFloat(strings.Trim(stringValue," "), 64)
+				floatValue, parseError = strconv.ParseFloat(strings.Trim(stringValue, " "), 64)
 
 				simple := &DataCategorySimpleType{
 					ByteLength: columnData.RawDataLength,
 					IsNumeric:  parseError == nil,
 					IsSubHash:  false, //byteLength > da.SubHashByteLengthThreshold
 				}
-
 
 				if simple.IsNumeric {
 					//var lengthChanged bool
@@ -413,8 +326,8 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 					//TODO:REDESIGN THIS!
 					//cd.Column.AnalyzeNumericValue(floatValue);
 				}
-			//TODO:REDESIGN THIS!
-			//cd.Column.AnalyzeStringValue(floatValue);
+				//TODO:REDESIGN THIS!
+				//cd.Column.AnalyzeStringValue(floatValue);
 				columnData.dataCategoryKey = simple.Key()
 				var store *DataCategoryStore
 
@@ -428,16 +341,16 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 						dr.blockStoreLock.Unlock()
 					}
 					dr.blockStoreLock.Lock()
-					if value, found := dr.blockStores[columnData.dataCategoryKey ]; !found {
+					if value, found := dr.blockStores[columnData.dataCategoryKey]; !found {
 						//tracelog.Info(packageName, funcName, "not found for %v", columnData.dataCategoryKey)
 						store = &DataCategoryStore{}
-						err := store.Open(columnData.dataCategoryKey, dr.Config.KVStorePath,dr.Config.RawDataChannelSize)
+						err := store.Open(columnData.dataCategoryKey, dr.Config.KVStorePath, dr.Config.RawDataChannelSize)
 						if err != nil {
 							errChan <- err
 							break outer
 						}
 
-						dr.blockStores[columnData.dataCategoryKey ] = store
+						dr.blockStores[columnData.dataCategoryKey] = store
 						dr.blockStoreLock.Unlock()
 						store.RunStore(runContext)
 						//tracelog.Info(packageName, funcName, "Opened Channel for %s/%v", columnData.Column, columnData.dataCategoryKey)
@@ -458,8 +371,6 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 					atomic.AddInt64(&tickerByteCounter, int64(columnData.RawDataLength))
 				}
 
-
-
 				dataCategory, err := columnData.Column.CategoryByKey(
 					columnData.dataCategoryKey,
 					func() (result *DataCategoryType, err error) {
@@ -472,16 +383,16 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 										columnData.Column.numericPositiveBitsetChannel = make(chan uint64, dr.Config.CategoryDataChannelSize)
 										columnData.Column.drainBitsetChannels.Add(1)
 										go func() {
-											outer:
+										outer:
 											for {
 												select {
 												case <-runContext.Done():
-													break outer;
+													break outer
 												case value, open := <-columnData.Column.numericPositiveBitsetChannel:
 													if !open {
 														break outer
 													}
-												//_=value
+													//_=value
 													columnData.Column.NumericPositiveBitset.Set(value)
 												}
 											}
@@ -494,16 +405,16 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 										columnData.Column.numericNegativeBitsetChannel = make(chan uint64, dr.Config.CategoryDataChannelSize)
 										columnData.Column.drainBitsetChannels.Add(1)
 										go func() {
-											outer:
+										outer:
 											for {
 												select {
 												case <-runContext.Done():
-													break outer;
+													break outer
 												case value, open := <-columnData.Column.numericNegativeBitsetChannel:
 													if !open {
 														break outer
 													}
-												//_=value
+													//_=value
 													columnData.Column.NumericNegativeBitset.Set(value)
 												}
 											}
@@ -513,11 +424,10 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 								}
 							}
 						}
-						err = result.RunAnalyzer(runContext,dr.Config.CategoryDataChannelSize)
+						err = result.RunAnalyzer(runContext, dr.Config.CategoryDataChannelSize)
 						return
 					},
 				)
-
 
 				if err != nil {
 					errChan <- err
@@ -530,7 +440,7 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 				case dataCategory.stringAnalysisChan <- stringValue:
 				}
 
-				if simple.IsNumeric && !math.IsInf(floatValue,-1) && !math.IsInf(floatValue,1) {
+				if simple.IsNumeric && !math.IsInf(floatValue, -1) && !math.IsInf(floatValue, 1) {
 					select {
 					case <-runContext.Done():
 						break outer
@@ -556,35 +466,32 @@ func (dr *DataReaderType) StoreByDataCategory(runContext context.Context, column
 					}
 				}
 
-
-
-
 			}
 		}
 
 		wg.Done()
-		tracelog.Completed(packageName,funcName)
+		tracelog.Completed(packageName, funcName)
 		return
 	}
 
 	//degree = 1
-	for index := range columnDataChans{
-			wg.Add(1)
-			go processColumnData(columnDataChans[index])
+	for index := range columnDataChans {
+		wg.Add(1)
+		go processColumnData(columnDataChans[index])
 	}
 
 	go func() {
 		funcName := "DataReaderType.StoreByDataCategory.goFunc2"
-		tracelog.Started(packageName,funcName)
+		tracelog.Started(packageName, funcName)
 		wg.Wait()
 		close(errChan)
-		tracelog.Completed(packageName,funcName)
+		tracelog.Completed(packageName, funcName)
 	}()
-	tracelog.Completed(packageName,funcName)
-	return  errChan
+	tracelog.Completed(packageName, funcName)
+	return errChan
 }
 
-func (dr*DataReaderType) CloseStores() {
+func (dr *DataReaderType) CloseStores() {
 	if dr.blockStores != nil {
 		for _, store := range dr.blockStores {
 			if store.columnDataChan != nil {
@@ -593,7 +500,7 @@ func (dr*DataReaderType) CloseStores() {
 		}
 	}
 }
-
+*/
 /*
 func(da *DataReaderType) WriteToTank( ctx context.Context, InRowDataChan  chan *RowDataType) (
 		outRowDataChan  chan *RowDataType,
