@@ -47,7 +47,7 @@ func (simple *DataCategorySimpleType) CovertToNullable() (result *DataCategoryTy
 	}
 	result.Stats.MinNumericValue = math.MaxFloat64;
 	result.Stats.MaxNumericValue = -math.MaxFloat64;
-	result.Stats.DataCount = 0
+	result.Stats.NonNullCount = 0
 
 	result.stringAnalysisChan = make(chan string,300)
 	result.numericAnalysisChan = make(chan float64,300)
@@ -90,13 +90,17 @@ type DataCategoryType struct {
 	IsNegative         nullable.NullBool
 	IsInteger   	   nullable.NullBool
 	HashUniqueCount    nullable.NullInt64
-	DataCount          nullable.NullInt64
+	NonNullCount       nullable.NullInt64
+	MinStringValue  nullable.NullString
+	MaxStringValue  nullable.NullString
+	MinNumericValue nullable.NullFloat64
+	MaxNumericValue nullable.NullFloat64
 	Stats  struct {
 		MinStringValue  string
 		MaxStringValue  string
 		MinNumericValue float64
 		MaxNumericValue float64
-		DataCount    	uint64
+		NonNullCount  	uint64
 	}
 
 	stringAnalysisChan    chan string
@@ -107,7 +111,15 @@ type DataCategoryType struct {
 
 }
 
-
+func (cdc DataCategoryType) Key() (result string) {
+	simple := DataCategorySimpleType{
+		ByteLength:         int(cdc.ByteLength.Value()),
+		IsNumeric:          cdc.IsNumeric.Value(),
+		IsNegative:         cdc.IsNegative.Value(),
+		IsInteger: 			cdc.IsInteger.Value(),
+	}
+	return simple.Key()
+}
 
 /*
 type OffsetsType map[uint64][]uint64;
@@ -565,17 +577,7 @@ func (dc *DataCategoryType) CloseAnalyzerChannels() {
 	}
 }
 
-func (cdc DataCategoryType) Key() (result string) {
-	simple := DataCategorySimpleType{
-		ByteLength:         int(cdc.ByteLength.Value()),
-		IsNumeric:          cdc.IsNumeric.Value(),
-		IsNegative:         cdc.IsNegative.Value(),
-		FloatingPointScale: int(cdc.FloatingPointScale.Value()),
-		IsSubHash:          cdc.SubHash.Valid(),
-		SubHash:            uint(cdc.SubHash.Value()),
-	}
-	return simple.Key()
-}
+
 
 func (cdc DataCategoryType) String() (result string) {
 	if !cdc.IsNumeric.Value() {

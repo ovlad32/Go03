@@ -28,7 +28,7 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 				", byte_length"+
 				", is_numeric"+
 				", is_negative"+
-				", fp_scale"+
+				", is_integer"+
 				", non_null_count"+
 				"/*, hash_unique_count*/"+
 				", min_sval"+
@@ -42,7 +42,7 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 				c.ByteLength.Value(),
 				c.IsNumeric.Value(),
 				c.IsNegative.Value(),
-				c.FloatingPointScale.Value(),
+				c.IsInteger.Value(),
 				c.NonNullCount.Value(),
 				c.HashUniqueCount,
 				c.MinStringValue.SQLString(),
@@ -102,15 +102,17 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		return
 	}
 	defer tx.Rollback()
-	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
+	_, err = tx.Exec("drop table if exists column_datacategory_stats")
 
 	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
 		" column_id bigint not null " +
 		", key varchar(30) " +
 		", byte_length int null " +
 		", is_numeric bool  null " +
+		", is_integer bool  null " +
 		", is_negative bool  null " +
-		", fp_scale int  null " +
+		", is_integer bool  null " +
+		//", fp_scale int  null " +
 		", non_null_count bigint" +
 		", hash_unique_count bigint" +
 		", min_sval varchar(4000)" +

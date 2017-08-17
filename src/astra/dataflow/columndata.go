@@ -8,7 +8,6 @@ import (
 	"sparsebitset"
 	"hash/fnv"
 	"astra/B8"
-	"encoding/binary"
 )
 
 type ColumnDataType struct {
@@ -63,7 +62,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 		},
 	)
 
-	columnData.DataCategory.Stats.DataCount ++;
+	columnData.DataCategory.Stats.NonNullCount ++;
 	if simpleCategory.IsNumeric {
 		if columnData.DataCategory.Stats.MaxNumericValue < floatValue {
 			columnData.DataCategory.Stats.MaxNumericValue = floatValue

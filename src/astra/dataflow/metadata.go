@@ -203,7 +203,8 @@ func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *Dat
 func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.Categories != nil {
 		for _, category := range ci.Categories {
-			category.CloseAnalyzerChannels()
+			_ =category
+			//category.CloseAnalyzerChannels()
 		}
 	}
 
