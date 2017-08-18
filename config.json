@@ -6,7 +6,7 @@
   "astra-h2-database": "./edm",
   "astra-h2-database2": "edm",
   "astra-dump-path2": "C:/home/data.151/",
-  "astra-dump-path": "F:/home/data.253.4/",
+  "astra-dump-path": "C:/home/data.253.4/",
   "astra-data-gzip": true,
   "astra-field-byte-separator": 31,
   "astra-column-byte-separator": 31,

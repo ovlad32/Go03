@@ -161,7 +161,7 @@ type ColumnInfoType struct {
 	stringAnalysisLock  sync.Mutex
 	numericAnalysisLock sync.Mutex
 
-	categoryRLock                sync.RWMutex
+	//categoryRLock                sync.RWMutex
 	Categories                   map[string]*DataCategoryType
 	CategoriesB                  []map[string]*DataCategoryType
 	initCategories               sync.Once
@@ -180,20 +180,20 @@ func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *Dat
 		ci.Categories = make(map[string]*DataCategoryType)
 	})
 
-	ci.categoryRLock.Lock()
+	//ci.categoryRLock.Lock()
 	if value, found := ci.Categories[key]; !found {
 		if initFunc != nil {
 			result, err = initFunc()
 			if err != nil {
-				ci.categoryRLock.Unlock()
+	//			ci.categoryRLock.Unlock()
 				tracelog.Error(err, packageName, funcName)
 				return nil, err
 			}
 		}
 		ci.Categories[key] = result
-		ci.categoryRLock.Unlock()
+	//	ci.categoryRLock.Unlock()
 	} else {
-		ci.categoryRLock.Unlock()
+	//	ci.categoryRLock.Unlock()
 		result = value
 	}
 
@@ -216,12 +216,12 @@ func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	increasingOrder := context.WithValue(runContext, "sort", true)
 	reversedOrder := context.WithValue(context.WithValue(runContext, "sort", true), "desc", true)
 
-	if ci.NumericNegativeBitset != nil {
+	/*if ci.NumericNegativeBitset != nil {
 		close(ci.numericNegativeBitsetChannel)
 	}
 	if ci.NumericPositiveBitset != nil {
 		close(ci.numericPositiveBitsetChannel)
-	}
+	}*/
 
 	ci.drainBitsetChannels.Wait()
 

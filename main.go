@@ -205,7 +205,11 @@ func main() {
 		os.Exit(2)
 	}
 	repo = &dataflow.Repository{Repository: astraRepo}
-	repo.CreateDataCategoryTable()
+	err = repo.CreateDataCategoryTable()
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		os.Exit(2)
+	}
 
 	tracelog.Started(packageName, funcName)
 	start := time.Now()
@@ -290,6 +294,12 @@ func main() {
 
 				for _, col := range inTable.Columns {
 					err = col.CloseStorage(runContext)
+					if err != nil {
+						tracelog.Error(err, packageName, funcName)
+						break
+					}
+
+					err = repo.CreateDataCategoryTable();
 					if err != nil {
 						tracelog.Error(err, packageName, funcName)
 						break

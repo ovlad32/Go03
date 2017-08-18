@@ -106,10 +106,9 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 
 	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
 		" column_id bigint not null " +
-		", key varchar(30) " +
+		", key varchar(30) not null " +
 		", byte_length int null " +
 		", is_numeric bool  null " +
-		", is_integer bool  null " +
 		", is_negative bool  null " +
 		", is_integer bool  null " +
 		//", fp_scale int  null " +
@@ -186,11 +185,12 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 	}
 
 
-	err = tx.Commit()
-	if err != nil {
+	 tx.Commit()
+	//if err != nil {
 		//tracelog.Errorf(err, packageName, funcName, "Commit transaction...")
 		//return
-	}
+	//}
+	//err = nil
 
 	/*	tx, err = h2.IDb.Begin()
 		if err != nil {

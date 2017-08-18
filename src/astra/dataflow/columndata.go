@@ -1,10 +1,7 @@
 package dataflow
 
 import (
-	"math"
 	"github.com/goinggo/tracelog"
-	"strconv"
-	"strings"
 	"sparsebitset"
 	"hash/fnv"
 	"astra/B8"
@@ -36,14 +33,14 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 	funcName := "ColumnDataType.DefineDataCategory"
 	tracelog.Completed(packageName, funcName)
 
-	stringValue := strings.Trim(string(columnData.RawData), " ")
+	//stringValue := strings.Trim(string(columnData.RawData), " ")
 
 	var floatValue, truncatedFloatValue float64 = 0, 0
-	var parseError error
-
+	//var parseError error
+	_ =truncatedFloatValue
 	simpleCategory = &DataCategorySimpleType{ByteLength: columnData.RawDataLength}
 
-	if len(stringValue) > 0 {
+	/*if len(stringValue) > 0 {
 		floatValue, parseError = strconv.ParseFloat(stringValue, 64)
 		if simpleCategory.IsNumeric = parseError == nil; simpleCategory.IsNumeric {
 			columnData.HashInt = math.Float64bits(floatValue);
@@ -51,7 +48,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 			simpleCategory.IsInteger = truncatedFloatValue == floatValue
 			simpleCategory.IsNegative = floatValue < float64(0)
 		}
-	}
+	}*/
 
 	dataCategoryKey := simpleCategory.Key()
 	columnData.DataCategory, err = columnData.Column.CategoryByKey(
@@ -61,7 +58,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 			return
 		},
 	)
-
+		//columnData.DataCategory = simpleCategory.CovertToNullable()
 	columnData.DataCategory.Stats.NonNullCount ++;
 	if simpleCategory.IsNumeric {
 		if columnData.DataCategory.Stats.MaxNumericValue < floatValue {
@@ -75,21 +72,21 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 				if columnData.Column.NumericPositiveBitset == nil {
 					columnData.Column.NumericPositiveBitset = sparsebitset.New(0)
 				}
-				columnData.Column.NumericPositiveBitset.Set(uint64(truncatedFloatValue));
+				//columnData.Column.NumericPositiveBitset.Set(uint64(truncatedFloatValue));
 			} else {
 				if columnData.Column.NumericNegativeBitset == nil {
 					columnData.Column.NumericNegativeBitset = sparsebitset.New(0)
 				}
-				columnData.Column.NumericNegativeBitset.Set(uint64(-truncatedFloatValue))
+				//columnData.Column.NumericNegativeBitset.Set(uint64(-truncatedFloatValue))
 			}
 		}
 	} else {
-		if columnData.DataCategory.Stats.MaxStringValue < stringValue {
+		/*if columnData.DataCategory.Stats.MaxStringValue < stringValue {
 			columnData.DataCategory.Stats.MaxStringValue = stringValue
 		}
 		if columnData.DataCategory.Stats.MinStringValue > stringValue {
 			columnData.DataCategory.Stats.MinStringValue = stringValue
-		}
+		}*/
 	}
 
 	tracelog.Completed(packageName, funcName)
