@@ -82,7 +82,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				columnData.LineOffset = lineOffset
 
 				columnData.DefineDataCategory();
-			//	columnData.HashData();
+				columnData.HashData();
 			}
 			/*offset, err := rowDataS.WriteToBinaryDump(table.DataDump)
 			if err != nil {

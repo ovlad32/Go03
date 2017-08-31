@@ -19,9 +19,21 @@ type DataCategorySimpleType struct {
 
 }
 
+var stringCategoryKeyCode = make(map[uint16]string)
+//var stringCategoryKeyCodeCache []string;
+
+
+
 func (simple *DataCategorySimpleType) Key() (result string) {
 	if !simple.IsNumeric {
-		result = fmt.Sprintf("C%v", simple.ByteLength)
+		vLen16 := uint16(simple.ByteLength)
+		if code,found := stringCategoryKeyCode[vLen16]; !found {
+			code = fmt.Sprintf("C%v", vLen16)
+			stringCategoryKeyCode[vLen16] = code
+			result = code
+		} else {
+			result = code
+		}
 	} else if simple.IsNegative {
 		if simple.IsInteger  {
 			result = "N"

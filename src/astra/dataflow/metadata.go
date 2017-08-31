@@ -175,11 +175,13 @@ type ColumnInfoType struct {
 func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *DataCategoryType, err error),
 ) (result *DataCategoryType, err error) {
 	funcName := "ColumnInfoType.CategoryByKey"
-	tracelog.Started(packageName, funcName)
-	ci.initCategories.Do(func() {
+	//tracelog.Started(packageName, funcName)
+	//ci.initCategories.Do(func() {
+//		ci.Categories = make(map[string]*DataCategoryType)
+	//})
+	if ci.Categories == nil {
 		ci.Categories = make(map[string]*DataCategoryType)
-	})
-
+	}
 	//ci.categoryRLock.Lock()
 	if value, found := ci.Categories[key]; !found {
 		if initFunc != nil {
@@ -197,7 +199,7 @@ func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *Dat
 		result = value
 	}
 
-	tracelog.Completed(packageName, funcName)
+	//tracelog.Completed(packageName, funcName)
 	return result, err
 }
 func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
@@ -545,7 +547,7 @@ func (t TableInfoType) ReadAstraDump(
 			}
 		}
 	}
-	tracelog.Info(packageName,funcName,"%v Done caught4",t)
+
 	return lineNumber, nil
 }
 
