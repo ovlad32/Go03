@@ -57,10 +57,10 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 		dataCategoryKey,
 		func() (result *DataCategoryType, err error) {
 			result = simpleCategory.CovertToNullable()
+			result.Key = dataCategoryKey;
 			return
 		},
 	)
-	//columnData.DataCategory = simpleCategory.CovertToNullable()
 
 	columnData.DataCategory.Stats.NonNullCount ++;
 

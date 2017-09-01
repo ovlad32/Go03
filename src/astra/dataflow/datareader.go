@@ -70,6 +70,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				//table.NewDataDump(dr.Config.AstraDumpPath)
 				//table.NewHashDump(dr.Config.AstraDumpPath)
 			}
+			table.NewBoltDb(dr.Config.AstraDumpPath);
 
 			for columnNumber, column := range table.Columns {
 
@@ -83,7 +84,10 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				columnData.DefineDataCategory();
 				columnData.HashData();
+				table.WriteHashData(columnData)
+
 			}
+
 			/*offset, err := rowDataS.WriteToBinaryDump(table.DataDump)
 			if err != nil {
 				//TODO:

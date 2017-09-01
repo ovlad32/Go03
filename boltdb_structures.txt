@@ -39,4 +39,10 @@
    stats
       key:"hashUniqueCount"
 
+<tableInfoId>.bolt.db
+    bucket:<dataCategoryKey>
+        bucket:<columnId>
+          key-value: bitsetData
+
+
 

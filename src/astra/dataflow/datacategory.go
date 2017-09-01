@@ -6,6 +6,7 @@ import (
 	"github.com/goinggo/tracelog"
 	"math"
 	"sync"
+	"github.com/boltdb/bolt"
 )
 
 
@@ -93,10 +94,12 @@ func (simple *DataCategorySimpleType) BinKey() (result []byte) {
 	return result
 }
 
-
+type dataCategoryStorageHandlerType struct {
+	categoryBucket *bolt.Bucket
+	columnBuckets map[uint64]*bolt.Bucket
+}
 
 type DataCategoryType struct {
-	//column *metadata.ColumnInfoType
 	ByteLength         nullable.NullInt64
 	IsNumeric          nullable.NullBool // if array of bytes represents a numeric value
 	IsNegative         nullable.NullBool
@@ -120,18 +123,12 @@ type DataCategoryType struct {
 	//analysisChannelsLock  sync.Mutex
 	initChans sync.Once
 	drainAnalysisChannels sync.WaitGroup
-
+	Key string
+	storageHandler dataCategoryStorageHandlerType
 }
 
-func (cdc DataCategoryType) Key() (result string) {
-	simple := DataCategorySimpleType{
-		ByteLength:         int(cdc.ByteLength.Value()),
-		IsNumeric:          cdc.IsNumeric.Value(),
-		IsNegative:         cdc.IsNegative.Value(),
-		IsInteger: 			cdc.IsInteger.Value(),
-	}
-	return simple.Key()
-}
+
+
 
 /*
 type OffsetsType map[uint64][]uint64;
