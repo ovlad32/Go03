@@ -293,7 +293,8 @@ func main() {
 				}
 
 				for _, col := range inTable.Columns {
-					err = col.CloseStorage(runContext)
+					//TODO: RECONCIDER IT
+					//err = col.CloseStorage(runContext)
 					if err != nil {
 						tracelog.Error(err, packageName, funcName)
 						break

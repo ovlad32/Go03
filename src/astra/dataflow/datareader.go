@@ -69,8 +69,8 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 			if lineNumber == 1 {
 				//table.NewDataDump(dr.Config.AstraDumpPath)
 				//table.NewHashDump(dr.Config.AstraDumpPath)
+				table.NewBoltDb(dr.Config.AstraDumpPath);
 			}
-			table.NewBoltDb(dr.Config.AstraDumpPath);
 
 			for columnNumber, column := range table.Columns {
 
@@ -84,10 +84,10 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				columnData.DefineDataCategory();
 				columnData.HashData();
-				table.WriteHashData(columnData)
+				column.WriteHashData(columnData)
 
 			}
-
+			//table.CloseBoltDb();
 			/*offset, err := rowDataS.WriteToBinaryDump(table.DataDump)
 			if err != nil {
 				//TODO:
@@ -115,7 +115,7 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 		} else {
 			tracelog.Info(packageName, funcName, "Table %v, read %v", table, linesRead)
 		}
-
+		table.CloseBoltDb();
 		//table.HashDump.Close()
 		//table.DataDump.Close()
 

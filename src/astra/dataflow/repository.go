@@ -38,7 +38,7 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 				" key(column_id, key) "+
 				" values(%v, '%v', %v, %v, %v, %v, %v, /*%v,*/ %v, %v, %v, %v) ",
 				column.Id,
-				c.Key(),
+				c.Key,
 				c.ByteLength.Value(),
 				c.IsNumeric.Value(),
 				c.IsNegative.Value(),
