@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/goinggo/tracelog"
 	"math"
-	"github.com/boltdb/bolt"
 	"sparsebitset"
 	"sync"
 )
@@ -65,15 +64,17 @@ func (simple *DataCategorySimpleType) Key() (result string) {
 func (simple *DataCategorySimpleType) CovertToNullable() (result *DataCategoryType) {
 	result = &DataCategoryType{
 		IsNumeric:  nullable.NewNullBool(simple.IsNumeric),
-		ByteLength: nullable.NewNullInt64(int64(simple.ByteLength)),
-
+	}
+	if simple.IsNumeric {
+		result.IsNegative = nullable.NewNullBool(simple.IsNegative)
+		result.IsInteger = nullable.NewNullBool(simple.IsInteger)
+	} else {
+		result.ByteLength = nullable.NewNullInt64(int64(simple.ByteLength))
 	}
 	result.Stats.MinNumericValue = math.MaxFloat64;
 	result.Stats.MaxNumericValue = -math.MaxFloat64;
 	result.Stats.NonNullCount = 0
 
-	//result.stringAnalysisChan = make(chan string,300)
-	//result.numericAnalysisChan = make(chan float64,300)
 	return
 }
 
@@ -116,16 +117,22 @@ type DataCategoryType struct {
 	MaxStringValue  nullable.NullString
 	MinNumericValue nullable.NullFloat64
 	MaxNumericValue nullable.NullFloat64
-	Stats  struct {
+	Stats struct {
 		MinStringValue  string
 		MaxStringValue  string
 		MinNumericValue float64
 		MaxNumericValue float64
 		NonNullCount  	uint64
+		IntegerUniqueCount uint64
+		MovingMean      float64
+		MovingStandardDeviation float64
+		IntegerBitset *sparsebitset.BitSet
+		HashBitset *sparsebitset.BitSet
 	}
 	Key string
-	Bitset *sparsebitset.BitSet
-	BitsetBucket *bolt.Bucket
+	IntegerUniqueCount      nullable.NullInt64
+	MovingMean              nullable.NullFloat64
+	MovingStandardDeviation nullable.NullFloat64
 }
 
 

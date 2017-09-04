@@ -62,6 +62,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 		func() (result *DataCategoryType, err error) {
 			result = simpleCategory.CovertToNullable()
 			result.Key = dataCategoryKey;
+			result.Stats.HashBitset = sparsebitset.New(0)
 			return
 		},
 	)
@@ -76,17 +77,14 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 			columnData.DataCategory.Stats.MinNumericValue = floatValue
 		}
 		if simpleCategory.IsInteger {
-			if !simpleCategory.IsNegative {
-				if columnData.Column.NumericPositiveBitset == nil {
-					columnData.Column.NumericPositiveBitset = sparsebitset.New(0)
+			if columnData.DataCategory.Stats.IntegerBitset == nil {
+				columnData.DataCategory.Stats.IntegerBitset = sparsebitset.New(0)
 				}
-				columnData.Column.NumericPositiveBitset.Set(uint64(truncatedFloatValue));
-			} else {
-				if columnData.Column.NumericNegativeBitset == nil {
-					columnData.Column.NumericNegativeBitset = sparsebitset.New(0)
+				if simpleCategory.IsNegative {
+					columnData.DataCategory.Stats.IntegerBitset.Set(uint64(-truncatedFloatValue));
+				} else {
+					columnData.DataCategory.Stats.IntegerBitset.Set(uint64(truncatedFloatValue));
 				}
-				columnData.Column.NumericNegativeBitset.Set(uint64(-truncatedFloatValue))
-			}
 		}
 	} else {
 		if columnData.DataCategory.Stats.MaxStringValue < stringValue {
@@ -96,7 +94,6 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 			columnData.DataCategory.Stats.MinStringValue = stringValue
 		}
 	}
-	columnData.DataCategory.Bitset = sparsebitset.New(0)
 	//tracelog.Completed(packageName, funcName)
 	return simpleCategory, nil
 
@@ -118,7 +115,7 @@ func (columnData *ColumnDataType) HashData() (err error) {
 		}
 	}
 
-	columnData.DataCategory.Bitset.Set(columnData.HashInt)
+	columnData.DataCategory.Stats.HashBitset.Set(columnData.HashInt)
 
 	return
 }
@@ -167,15 +164,17 @@ func (column *ColumnInfoType) FlushBitset(dataCategory *DataCategoryType) (err e
 		tracelog.Errorf(err,packageName,funcName,"Creating a BoltDB Bitset Bucket for table %v ",column.TableInfo.Id.Value())
 		return  err
 	}
-	bsKvChan := dataCategory.Bitset.KvChan(context.Background())
+
+	bsKvChan := dataCategory.Stats.HashBitset.KvChan(context.WithValue(context.Background(),"sort",true))
 	for tuple := range(bsKvChan) {
+		fval := math.Float64frombits(tuple[0])
+		tracelog.Info(packageName,funcName,"%v:%v,%v",tuple[0],tuple[1],fval )
 		keyBytes := make([]byte, binary.MaxVarintLen64)
 		actual := binary.PutUvarint(keyBytes, tuple[0])
 		keyBytes = keyBytes[:actual]
 
 		valueBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(valueBytes, tuple[1])
-
 		prevValueBytes := bucket.Get(keyBytes)
 		if prevValueBytes != nil {
 			for prevByteIndex, prevByteValue := range (prevValueBytes) {

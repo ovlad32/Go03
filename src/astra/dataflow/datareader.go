@@ -3,7 +3,6 @@ package dataflow
 import (
 	"context"
 	"github.com/goinggo/tracelog"
-	"sync"
 	"time"
 	"sparsebitset"
 )
@@ -37,7 +36,7 @@ type DumpConfigType struct {
 
 type DataReaderType struct {
 	Config         *DumpConfigType
-	blockStoreLock sync.RWMutex
+	//blockStoreLock sync.RWMutex
 //	blockStores    map[string]*DataCategoryStore
 }
 
@@ -88,14 +87,14 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				columnData.DefineDataCategory();
 				columnData.HashData();
-				if columnData.DataCategory.Bitset.BinarySize()>1024*1024*1024 {
+				if columnData.DataCategory.Stats.HashBitset.BinarySize()>1024*1024*1024 {
 					column.FlushBitset(columnData.DataCategory)
-					columnData.DataCategory.Bitset = sparsebitset.New(0)
+					columnData.DataCategory.Stats.HashBitset = sparsebitset.New(0)
 				}
 			}
 			processed ++;
 			if time.Since(started).Minutes() >= 1  {
-				tracelog.Info(packageName,funcName,"Processing speed %v lps",processed/60)
+				tracelog.Info(packageName,funcName,"Processing speed %v lps",processed/60.0)
 				processed = 0
 				started = time.Now()
 			}

@@ -244,9 +244,9 @@ func main() {
 		}
 
 		for _, table := range tables {
-			//if table.String() == "CRA.LIABILITIES" {
+			if table.String() == "CRA.LIABILITIES" {
 				tablesToProcess = append(tablesToProcess, dataflow.ExpandFromMetadataTable(table))
-			//}
+			}
 		}
 	}
 

@@ -75,7 +75,7 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 		return
 	}
 
-	_, err = tx.Exec(fmt.Sprintf("update column_info c set " +
+	/*_, err = tx.Exec(fmt.Sprintf("update column_info c set " +
 		"   integer_unique_count = %v" +
 		"   , moving_mean = %v" +
 		"   , moving_stddev = %v" +
@@ -83,7 +83,7 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 			column.IntegerUniqueCount,
 		column.MovingMean,
 		column.MovingStandardDeviation,
-		column.Id))
+		column.Id))*/
 
 	if err != nil {
 		tracelog.Error(err, packageName, funcName)
@@ -102,7 +102,7 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		return
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec("drop table if exists column_datacategory_stats")
+	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
 
 	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
 		" column_id bigint not null " +

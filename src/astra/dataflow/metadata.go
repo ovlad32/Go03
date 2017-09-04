@@ -2,7 +2,6 @@ package dataflow
 
 import (
 	"astra/metadata"
-	"astra/nullable"
 	"bufio"
 	"bytes"
 	"compress/gzip"
@@ -12,8 +11,6 @@ import (
 	"github.com/goinggo/tracelog"
 	"io"
 	"os"
-	"sparsebitset"
-	"sync"
 	"github.com/boltdb/bolt"
 )
 
@@ -38,22 +35,19 @@ func defaultTableDumpConfig() *TableDumpConfig {
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
 	TableInfo            *TableInfoType
-	IntegerUniqueCount      nullable.NullInt64
-	MovingMean              nullable.NullFloat64
-	MovingStandardDeviation nullable.NullFloat64
 
-	stringAnalysisLock  sync.Mutex
-	numericAnalysisLock sync.Mutex
+	//stringAnalysisLock  sync.Mutex
+	//numericAnalysisLock sync.Mutex
 
 	//categoryRLock                sync.RWMutex
 	Categories                   map[string]*DataCategoryType
-	CategoriesB                  []map[string]*DataCategoryType
-	initCategories               sync.Once
-	numericPositiveBitsetChannel chan uint64
-	numericNegativeBitsetChannel chan uint64
-	NumericPositiveBitset        *sparsebitset.BitSet
-	NumericNegativeBitset        *sparsebitset.BitSet
-	drainBitsetChannels          sync.WaitGroup
+	//CategoriesB                  []map[string]*DataCategoryType
+	//initCategories               sync.Once
+	//numericPositiveBitsetChannel chan uint64
+	//numericNegativeBitsetChannel chan uint64
+	//NumericPositiveBitset        *sparsebitset.BitSet
+	//NumericNegativeBitset        *sparsebitset.BitSet
+	//drainBitsetChannels          sync.WaitGroup
 }
 
 
@@ -364,7 +358,88 @@ func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoTy
 
 
 
+
+
 /*
+func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
+	var prevValue uint64
+	var count uint64 = 0
+	var countInDeviation uint64 = 0
+	var gotPrevValue bool
+	var meanValue, cumulativeDeviaton float64 = 0, 0
+
+	increasingOrder := context.WithValue(runContext, "sort", true)
+	reversedOrder := context.WithValue(context.WithValue(runContext, "sort", true), "desc", true)
+
+	if ci.NumericNegativeBitset != nil {
+		gotPrevValue = false
+		for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
+			if !gotPrevValue {
+				prevValue = value
+				gotPrevValue = true
+			} else {
+				count++
+				cumulativeDeviaton += float64(value) - float64(prevValue)
+				prevValue = value
+			}
+		}
+	}
+	if ci.NumericPositiveBitset != nil {
+		gotPrevValue = false
+		for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
+			if !gotPrevValue {
+				prevValue = value
+				gotPrevValue = true
+			} else {
+				count++
+				cumulativeDeviaton += float64(value) - float64(prevValue)
+				prevValue = value
+			}
+		}
+	}
+	if count > 0 {
+		meanValue = cumulativeDeviaton / float64(count)
+		totalDeviation := float64(0)
+
+		if ci.NumericNegativeBitset != nil {
+			gotPrevValue = false
+			for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
+				if !gotPrevValue {
+					prevValue = value
+					gotPrevValue = true
+				} else {
+					countInDeviation++
+					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
+					prevValue = value
+				}
+			}
+		}
+
+		if ci.NumericPositiveBitset != nil {
+			gotPrevValue = false
+			for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
+				if !gotPrevValue {
+					prevValue = value
+					gotPrevValue = true
+				} else {
+					countInDeviation++
+					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
+					prevValue = value
+				}
+			}
+		}
+		if countInDeviation > 1 {
+			stdDev := math.Sqrt(totalDeviation / float64(countInDeviation-1))
+			ci.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
+		}
+		ci.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
+		ci.MovingMean = nullable.NewNullFloat64(meanValue)
+	}
+
+	return err
+}
+
+
 
 func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
 	if ci.Categories != nil {
@@ -452,6 +527,7 @@ ci.MovingMean = nullable.NewNullFloat64(meanValue)
 
 return err
 }
+
 
 func (ci *ColumnInfoType) AnalyzeStringValue(stringValue string) {
 	ci.stringAnalysisLock.Lock()
