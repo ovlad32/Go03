@@ -40,9 +40,8 @@
       key:"hashUniqueCount"
 
 <tableInfoId>.bolt.db
-    bucket:<dataCategoryKey>
-        bucket:<columnId>
-          key-value: bitsetData
+    bucket:<columnId::variant+dataCategoryKey::string>
+            <bitsetData>key-value
 
 
 

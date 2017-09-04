@@ -4,6 +4,8 @@ import (
 	"context"
 	"github.com/goinggo/tracelog"
 	"sync"
+	"time"
+	"sparsebitset"
 )
 
 type DumpConfigType struct {
@@ -60,6 +62,8 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 	readFromDump := func() (err error) {
 		funcName := "DataReaderType.ReadSource.readFromDump"
 		_ = funcName
+		var started time.Time;
+		var processed uint64
 		processRowContent := func(
 			ctx context.Context,
 			lineNumber uint64,
@@ -70,12 +74,12 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 				//table.NewDataDump(dr.Config.AstraDumpPath)
 				//table.NewHashDump(dr.Config.AstraDumpPath)
 				table.NewBoltDb(dr.Config.AstraDumpPath);
+				started = time.Now()
 			}
-
 			for columnNumber, column := range table.Columns {
 
-				columnData := NewColumnData(column,rowData[columnNumber])
-				if columnData  == nil {
+				columnData := column.NewColumnData(rowData[columnNumber])
+				if columnData == nil {
 					continue;
 				}
 
@@ -84,9 +88,18 @@ func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfo
 
 				columnData.DefineDataCategory();
 				columnData.HashData();
-				column.WriteHashData(columnData)
-
+				if columnData.DataCategory.Bitset.BinarySize()>1024*1024*1024 {
+					column.FlushBitset(columnData.DataCategory)
+					columnData.DataCategory.Bitset = sparsebitset.New(0)
+				}
 			}
+			processed ++;
+			if time.Since(started).Minutes() >= 1  {
+				tracelog.Info(packageName,funcName,"Processing speed %v lps",processed/60)
+				processed = 0
+				started = time.Now()
+			}
+			//fmt.Println(lineNumber)
 			//table.CloseBoltDb();
 			/*offset, err := rowDataS.WriteToBinaryDump(table.DataDump)
 			if err != nil {

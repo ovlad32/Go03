@@ -437,6 +437,10 @@ func (b *BitSet) Cardinality() uint64 {
 	return popcountSet(&(*b).set)
 }
 
+func (b *BitSet) Len() int {
+	return b.set.Len()
+}
+
 // Equal answers `true` iff the two sets have the same bits set to
 // `1`.
 func (b *BitSet) Equal(c *BitSet) bool {
@@ -902,7 +906,7 @@ func (b *BitSet) IsStrictSuperSet(c *BitSet) bool {
 */
 // BinaryStorageSize answers the number of bytes that will be needed
 // to serialise this bitset.
-func (b *BitSet) BinaryStorageSize() int {
+func (b *BitSet) BinarySize() int {
 	return binary.Size(uint32(0)) + binary.Size((*b).set)
 }
 
@@ -935,7 +939,7 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 			}
 	}
 
-	return int64(b.BinaryStorageSize()), nil
+	return int64(b.BinarySize()), nil
 }
 
 // ReadFrom de-serialises the data from the given `io.Reader` stream
@@ -968,7 +972,7 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 		b.set[key] = val
 	}
 
-	return int64(b.BinaryStorageSize()), nil
+	return int64(b.BinarySize()), nil
 }
 
 
@@ -1068,6 +1072,57 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 	return out
 }
 
+
+func (b *BitSet) KvChan(ctx context.Context) (chan []uint64) {
+	var wg sync.WaitGroup;
+
+	out := make(chan []uint64)
+	wg.Add(1)
+	go func(){
+		wg.Wait()
+		close(out)
+	} ()
+
+	go func() {
+
+		if toSort,ok := ctx.Value("sort").(bool); ok && toSort {
+			byOrder := make(byOrder,0,len(b.set));
+			for key, _ := range b.set {
+				byOrder = append(byOrder,key)
+			}
+			if desc,ok := ctx.Value("desc").(bool); ok && desc {
+				sort.Reverse(byOrder)
+			} else {
+				sort.Sort(byOrder)
+			}
+		outerSorted:
+			for _,key := range byOrder {
+				result := make([]uint64,2)
+				result [0] = key
+				result [1] = b.set[key]
+				select {
+				case out <- result:
+				case <-ctx.Done():
+					break outerSorted;
+				}
+			}
+		} else {
+		outerNonSorted:
+			for key, val := range b.set {
+				result := make([]uint64,2)
+				result [0] = key
+				result [1] = val
+				select {
+				case out <- result:
+				case <-ctx.Done():
+					break outerNonSorted;
+				}
+			}
+		}
+		wg.Done()
+	}()
+	return out
+}
 /*
 func (b *BitSet) NextSet(n uint64) (uint64, bool) {
 	off, rsh := offsetBits(n)

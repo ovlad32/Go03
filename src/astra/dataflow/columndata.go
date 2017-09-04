@@ -7,6 +7,10 @@ import (
 	"strconv"
 	"math"
 	"strings"
+	"encoding/binary"
+	"github.com/goinggo/tracelog"
+	"fmt"
+	"context"
 )
 
 type ColumnDataType struct {
@@ -19,13 +23,13 @@ type ColumnDataType struct {
 	HashInt      uint64
 }
 
-func NewColumnData(column *ColumnInfoType,rawData []byte) (columnData *ColumnDataType) {
+func (c *ColumnInfoType) NewColumnData(rawData []byte) (columnData *ColumnDataType) {
 	rawDataLength := len(rawData)
 	if rawDataLength > 0 {
 		columnData = &ColumnDataType{
 			RawData:       rawData,
 			RawDataLength: rawDataLength,
-			Column:        column,
+			Column:        c,
 		}
 	}
 	return
@@ -92,7 +96,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 			columnData.DataCategory.Stats.MinStringValue = stringValue
 		}
 	}
-
+	columnData.DataCategory.Bitset = sparsebitset.New(0)
 	//tracelog.Completed(packageName, funcName)
 	return simpleCategory, nil
 
@@ -113,5 +117,82 @@ func (columnData *ColumnDataType) HashData() (err error) {
 			}
 		}
 	}
+
+	columnData.DataCategory.Bitset.Set(columnData.HashInt)
+
 	return
+}
+
+func(column ColumnInfoType) BucketNameBytes(dataCategoryKey string) (result []byte, err error){
+	if dataCategoryKey == "" {
+		err = fmt.Errorf("Data category Key is empty!")
+		return
+	}
+	if !column.Id.Valid() {
+		err = fmt.Errorf("Column Id is empty!")
+		return
+	}
+	keyLength := len( dataCategoryKey)
+	result = make([]byte,binary.MaxVarintLen64 + keyLength)
+	actual := binary.PutUvarint(result,uint64(column.Id.Value()))
+	copy(result[actual:],[]byte( dataCategoryKey))
+	result = result[:actual+keyLength]
+	return
+}
+
+
+func (column *ColumnInfoType) FlushBitset(dataCategory *DataCategoryType) (err error) {
+	funcName := "ColumnDataType.WriteHashData"
+
+
+	bucketBytes,err  := column.BucketNameBytes(dataCategory.Key)
+	if err != nil{
+		tracelog.Errorf(err,packageName,funcName,
+			"Creating a BoltDB Bitset Bucket Name for table/category %v/%v ",
+			column.TableInfo.Id.Value(),
+			dataCategory.Key,
+		)
+		return  err
+	}
+
+
+	currentTx, err := column.TableInfo.bitSetStorage.Begin(true);
+	if err != nil {
+		tracelog.Errorf(err,packageName,funcName,"Opening a BoltDB transaction for table %v ",column.TableInfo.Id.Value())
+		return  err
+	}
+
+	bucket,err := currentTx.CreateBucketIfNotExists(bucketBytes)
+	if err != nil{
+		tracelog.Errorf(err,packageName,funcName,"Creating a BoltDB Bitset Bucket for table %v ",column.TableInfo.Id.Value())
+		return  err
+	}
+	bsKvChan := dataCategory.Bitset.KvChan(context.Background())
+	for tuple := range(bsKvChan) {
+		keyBytes := make([]byte, binary.MaxVarintLen64)
+		actual := binary.PutUvarint(keyBytes, tuple[0])
+		keyBytes = keyBytes[:actual]
+
+		valueBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(valueBytes, tuple[1])
+
+		prevValueBytes := bucket.Get(keyBytes)
+		if prevValueBytes != nil {
+			for prevByteIndex, prevByteValue := range (prevValueBytes) {
+				valueBytes[prevByteIndex] = valueBytes[prevByteIndex] | prevByteValue
+			}
+		}
+		err = bucket.Put(keyBytes, valueBytes)
+		if err != nil{
+			tracelog.Errorf(err,packageName,funcName,"Writing a hash code into BoltDB for table %v ",column.TableInfo.Id.Value())
+			return  err
+		}
+	}
+	err = currentTx.Commit();
+	if err != nil{
+		tracelog.Errorf(err,packageName,funcName,"Committing BS data into BoltDB for table %v ",column.TableInfo.Id.Value())
+		return  err
+	}
+	tracelog.Info(packageName,funcName,"BS data of column %v.%v.%v/%v has been persisted",column.TableInfo.SchemaName,column.TableInfo.TableName,column.ColumnName,dataCategory.Key)
+   return
 }

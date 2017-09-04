@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"github.com/goinggo/tracelog"
 	"math"
-	"sync"
 	"github.com/boltdb/bolt"
+	"sparsebitset"
+	"sync"
 )
 
 
@@ -20,7 +21,14 @@ type DataCategorySimpleType struct {
 
 }
 
-var stringCategoryKeyCode = make(map[uint16]string)
+type stringCategoryKeyStorageType  struct {
+	codes map[uint16]string
+	sync.Mutex
+}
+
+var stringCategoryKeyStorage = stringCategoryKeyStorageType {
+ codes:make(map[uint16]string),
+}
 //var stringCategoryKeyCodeCache []string;
 
 
@@ -28,13 +36,15 @@ var stringCategoryKeyCode = make(map[uint16]string)
 func (simple *DataCategorySimpleType) Key() (result string) {
 	if !simple.IsNumeric {
 		vLen16 := uint16(simple.ByteLength)
-		if code,found := stringCategoryKeyCode[vLen16]; !found {
+		stringCategoryKeyStorage.Lock()
+		if code,found := stringCategoryKeyStorage.codes[vLen16]; !found {
 			code = fmt.Sprintf("C%v", vLen16)
-			stringCategoryKeyCode[vLen16] = code
+			stringCategoryKeyStorage.codes[vLen16] = code
 			result = code
 		} else {
 			result = code
 		}
+		stringCategoryKeyStorage.Unlock()
 	} else if simple.IsNegative {
 		if simple.IsInteger  {
 			result = "N"
@@ -62,8 +72,8 @@ func (simple *DataCategorySimpleType) CovertToNullable() (result *DataCategoryTy
 	result.Stats.MaxNumericValue = -math.MaxFloat64;
 	result.Stats.NonNullCount = 0
 
-	result.stringAnalysisChan = make(chan string,300)
-	result.numericAnalysisChan = make(chan float64,300)
+	//result.stringAnalysisChan = make(chan string,300)
+	//result.numericAnalysisChan = make(chan float64,300)
 	return
 }
 
@@ -94,10 +104,6 @@ func (simple *DataCategorySimpleType) BinKey() (result []byte) {
 	return result
 }
 
-type dataCategoryStorageHandlerType struct {
-	categoryBucket *bolt.Bucket
-	columnBuckets map[uint64]*bolt.Bucket
-}
 
 type DataCategoryType struct {
 	ByteLength         nullable.NullInt64
@@ -117,17 +123,10 @@ type DataCategoryType struct {
 		MaxNumericValue float64
 		NonNullCount  	uint64
 	}
-
-	stringAnalysisChan    chan string
-	numericAnalysisChan   chan float64
-	//analysisChannelsLock  sync.Mutex
-	initChans sync.Once
-	drainAnalysisChannels sync.WaitGroup
 	Key string
-	storageHandler dataCategoryStorageHandlerType
+	Bitset *sparsebitset.BitSet
+	BitsetBucket *bolt.Bucket
 }
-
-
 
 
 /*

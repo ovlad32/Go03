@@ -15,7 +15,6 @@ import (
 	"sparsebitset"
 	"sync"
 	"github.com/boltdb/bolt"
-	"encoding/binary"
 )
 
 type TableDumpConfig struct {
@@ -82,7 +81,6 @@ func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *Dat
 
 
 
-
 type tableBinaryType struct {
     *bufio.Writer
 	dFile     *os.File
@@ -111,6 +109,8 @@ func (t *tableBinaryType) Close() (err error) {
 	}
 	return nil
 }
+
+
 
 
 type TableInfoType struct {
@@ -317,70 +317,19 @@ func (t *TableInfoType) NewBoltDb(pathToBinaryDir string) (err error){
 	return
 }
 
-func (c *ColumnInfoType) WriteHashData(columnData *ColumnDataType) (err error) {
-	funcName := "ColumnInfoType.WriteHashData"
-
-	if columnData.DataCategory.storageHandler.categoryBucket == nil{
-		columnData.DataCategory.storageHandler.columnBuckets = nil
-		if c.TableInfo.currentTx == nil {
-			c.TableInfo.currentTx, err = c.TableInfo.bitSetStorage.Begin(true);
-			if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Opening a BoltDB transaction for table %v ",c.TableInfo.Id.Value())
-				return  err
-			}
-		}
-
-		columnData.DataCategory.storageHandler.categoryBucket,err =  c.TableInfo.currentTx.CreateBucketIfNotExists([]byte(columnData.DataCategory.Key))
-		if err != nil{
-			tracelog.Errorf(err,packageName,funcName,"Creating a BoltDB Category Bucket for table %v ",c.TableInfo.Id.Value())
-			return  err
-		}
-
-	}
-	if columnData.DataCategory.storageHandler.columnBuckets == nil {
-		columnData.DataCategory.storageHandler.columnBuckets = make(map[uint64]*bolt.Bucket)
-	}
-	columnUId := uint64(c.Id.Value())
-
-
-	appendBitsetData := func(bucket *bolt.Bucket) (err error){
-		base,offset := sparsebitset.OffsetBits(columnData.HashInt)
-		baseBytes := make([]byte,10,10)
-		offsetBytes := make([]byte,8,8)
-		actual := binary.PutUvarint(baseBytes, base)
-		baseBytes = baseBytes[:actual]
-		binary.LittleEndian.PutUint64(offsetBytes, offset)
-		prevOffsetValues := bucket.Get(baseBytes)
-		if prevOffsetValues != nil {
-			for prevByteIndex, prevByteValue := range (prevOffsetValues ) {
-				offsetBytes[prevByteIndex] = offsetBytes[prevByteIndex] | prevByteValue
-			}
-		}
-		err = bucket.Put(baseBytes,offsetBytes)
-		return err
-	}
-
-	if bucket,found := columnData.DataCategory.storageHandler.columnBuckets[columnUId]; !found {
-		columnIdBytes := make([]byte, 10, 10);
-		actual := binary.PutUvarint(columnIdBytes, columnUId)
-		columnIdBytes = columnIdBytes[:actual]
-		bucket,err = columnData.DataCategory.storageHandler.categoryBucket.CreateBucketIfNotExists(columnIdBytes)
-		columnData.DataCategory.storageHandler.columnBuckets[columnUId] = bucket
-		err = appendBitsetData(bucket)
-	} else {
-		err = appendBitsetData(bucket)
-	}
-	if err != nil{
-		tracelog.Errorf(err,packageName,funcName,"Writing a hash code into BoltDB for table %v ",c.TableInfo.Id.Value())
-		return  err
-	}
-	return
-}
 
 func (t *TableInfoType) CloseBoltDb() (err error){
 
-	err = t.currentTx.Commit()
-	err = t.bitSetStorage.Close()
+	for _,column := range t.Columns {
+		for _, dataCategory := range column.Categories {
+			column.FlushBitset(dataCategory)
+		}
+	}
+
+
+	if t.bitSetStorage != nil {
+		err = t.bitSetStorage.Close()
+	}
 	return
 }
 
