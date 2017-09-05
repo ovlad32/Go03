@@ -30,7 +30,6 @@ import (
 	"encoding/binary"
 	"io"
 	"log"
-	//	"fmt"
 	"errors"
 	"context"
 	"sync"
@@ -928,12 +927,12 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 		return 0, err
 	}
 
-	for key, val := range b.set {
+	for key, value := range b.set {
 			err = binary.Write(w, binary.BigEndian, key)
 			if err != nil {
 				return int64(binary.Size(uint32(0))), err
 			}
-			err = binary.Write(w, binary.BigEndian, val)
+			err = binary.Write(w, binary.BigEndian, value)
 			if err != nil {
 				return int64(binary.Size(uint32(0))), err
 			}
@@ -960,21 +959,59 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 	n := int(lb) / (2 * binary.Size(uint64(0)))
 	b.set = make(blockAry)
 	for i := 0; i < n; i++ {
-		var key, val uint64
+		var key, value uint64
 		err = binary.Read(r, binary.BigEndian, &key)
 		if err != nil {
 			return int64(binary.Size(uint32(0))), err
 		}
-		err = binary.Read(r, binary.BigEndian, &val)
+		err = binary.Read(r, binary.BigEndian, &value)
 		if err != nil {
 			return int64(binary.Size(uint32(0))), err
 		}
-		b.set[key] = val
+		b.set[key] = value
 	}
 
 	return int64(b.BinarySize()), nil
 }
 
+
+
+func (b *BitSet) MergeFrom(r io.Reader) (int64, error) {
+	var err error
+
+	if b.set == nil || len(b.set) == 0 {
+		 return b.ReadFrom(r)
+	}
+
+	// Read length of the data that follows.
+	var lb uint32
+	err = binary.Read(r, binary.BigEndian, &lb)
+	if err != nil {
+		return 0, err
+	}
+
+	n := int(lb) / (2 * binary.Size(uint64(0)))
+	for i := 0; i < n; i++ {
+		var key, value uint64
+		err = binary.Read(r, binary.BigEndian, &key)
+		if err != nil {
+			return int64(binary.Size(uint32(0))), err
+		}
+		err = binary.Read(r, binary.BigEndian, &value)
+		if err != nil {
+			return int64(binary.Size(uint32(0))), err
+		}
+
+		if oldValue,found := b.set[key]; !found {
+			b.set[key] = value
+		} else {
+			b.set[key] = oldValue | value
+		}
+
+	}
+
+	return int64(b.BinarySize()), nil
+}
 
 func (b *BitSet) Test(n uint64) bool {
 	if n == 0 {

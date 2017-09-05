@@ -62,6 +62,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 		func() (result *DataCategoryType, err error) {
 			result = simpleCategory.CovertToNullable()
 			result.Key = dataCategoryKey;
+			result.Column = columnData.Column
 			result.Stats.HashBitset = sparsebitset.New(0)
 			return
 		},
@@ -120,24 +121,6 @@ func (columnData *ColumnDataType) HashData() (err error) {
 	return
 }
 
-func(column ColumnInfoType) BucketNameBytes(dataCategoryKey string) (result []byte, err error){
-	if dataCategoryKey == "" {
-		err = fmt.Errorf("Data category Key is empty!")
-		return
-	}
-	if !column.Id.Valid() {
-		err = fmt.Errorf("Column Id is empty!")
-		return
-	}
-	keyLength := len( dataCategoryKey)
-	result = make([]byte,binary.MaxVarintLen64 + keyLength)
-	actual := binary.PutUvarint(result,uint64(column.Id.Value()))
-	copy(result[actual:],[]byte( dataCategoryKey))
-	result = result[:actual+keyLength]
-	return
-}
-
-
 func (column *ColumnInfoType) FlushBitset(dataCategory *DataCategoryType) (err error) {
 	funcName := "ColumnDataType.WriteHashData"
 
@@ -159,26 +142,32 @@ func (column *ColumnInfoType) FlushBitset(dataCategory *DataCategoryType) (err e
 		return  err
 	}
 
-	bucket,err := currentTx.CreateBucketIfNotExists(bucketBytes)
-	if err != nil{
-		tracelog.Errorf(err,packageName,funcName,"Creating a BoltDB Bitset Bucket for table %v ",column.TableInfo.Id.Value())
-		return  err
+	bucket  := currentTx.Bucket(bucketBytes)
+
+	bucketAlreadyCreated := bucket != nil
+	if !bucketAlreadyCreated  {
+		bucket,err = currentTx.CreateBucketIfNotExists(bucketBytes)
+		if err != nil{
+			tracelog.Errorf(err,packageName,funcName,"Creating a BoltDB Bitset Bucket for table %v ",column.TableInfo.Id.Value())
+			return  err
+		}
 	}
+
 
 	bsKvChan := dataCategory.Stats.HashBitset.KvChan(context.WithValue(context.Background(),"sort",true))
 	for tuple := range(bsKvChan) {
-		fval := math.Float64frombits(tuple[0])
-		tracelog.Info(packageName,funcName,"%v:%v,%v",tuple[0],tuple[1],fval )
 		keyBytes := make([]byte, binary.MaxVarintLen64)
 		actual := binary.PutUvarint(keyBytes, tuple[0])
 		keyBytes = keyBytes[:actual]
 
 		valueBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(valueBytes, tuple[1])
-		prevValueBytes := bucket.Get(keyBytes)
-		if prevValueBytes != nil {
-			for prevByteIndex, prevByteValue := range (prevValueBytes) {
-				valueBytes[prevByteIndex] = valueBytes[prevByteIndex] | prevByteValue
+		if bucketAlreadyCreated {
+			prevValueBytes := bucket.Get(keyBytes)
+			if prevValueBytes != nil {
+				for prevByteIndex, prevByteValue := range (prevValueBytes) {
+					valueBytes[prevByteIndex] = valueBytes[prevByteIndex] | prevByteValue
+				}
 			}
 		}
 		err = bucket.Put(keyBytes, valueBytes)

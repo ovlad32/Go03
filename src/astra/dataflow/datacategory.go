@@ -7,6 +7,9 @@ import (
 	"math"
 	"sparsebitset"
 	"sync"
+	"encoding/binary"
+	"os"
+	"bufio"
 )
 
 
@@ -107,6 +110,7 @@ func (simple *DataCategorySimpleType) BinKey() (result []byte) {
 
 
 type DataCategoryType struct {
+	Column *ColumnInfoType
 	ByteLength         nullable.NullInt64
 	IsNumeric          nullable.NullBool // if array of bytes represents a numeric value
 	IsNegative         nullable.NullBool
@@ -128,12 +132,49 @@ type DataCategoryType struct {
 		MovingStandardDeviation float64
 		IntegerBitset *sparsebitset.BitSet
 		HashBitset *sparsebitset.BitSet
+		HashBitsetPartNumber uint64
 	}
 	Key string
 	IntegerUniqueCount      nullable.NullInt64
 	MovingMean              nullable.NullFloat64
 	MovingStandardDeviation nullable.NullFloat64
 }
+
+func (dataCategory DataCategoryType) HashBitsetFileName() (err error){
+	file,err := os.Open("./data",0x660)
+	if err != nil {
+
+	}
+	dest := bufio.NewWriterSize(file,4096);
+
+	_,err = dataCategory.Stats.HashBitset.WriteTo(dest);
+	err = dest.Flush()
+	if err != nil {
+
+	}
+
+
+
+}
+
+
+func(dataCategory DataCategoryType) HashBitsetBucketNameBytes() (result []byte, err error){
+	if dataCategory.Key == "" {
+		err = fmt.Errorf("Data category Key is empty!")
+		return
+	}
+	if !dataCategory.Column.Id.Valid() {
+		err = fmt.Errorf("Column Id is empty!")
+		return
+	}
+	keyLength := len(dataCategory.Key)
+	result = make([]byte,binary.MaxVarintLen64 + keyLength)
+	actual := binary.PutUvarint(result,uint64(dataCategory.Column.Id.Value()))
+	copy(result[actual:],[]byte(dataCategory.Key))
+	result = result[:actual+keyLength]
+	return
+}
+
 
 
 /*
