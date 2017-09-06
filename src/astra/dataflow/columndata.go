@@ -7,20 +7,15 @@ import (
 	"strconv"
 	"math"
 	"strings"
-	"encoding/binary"
-	"github.com/goinggo/tracelog"
-	"fmt"
-	"context"
 )
 
 type ColumnDataType struct {
 	Column       *ColumnInfoType
 	DataCategory *DataCategoryType
 	LineNumber   uint64
-	LineOffset   uint64
 	RawData      []byte
 	RawDataLength int
-	HashInt      uint64
+	HashData      uint64
 }
 
 func (c *ColumnInfoType) NewColumnData(rawData []byte) (columnData *ColumnDataType) {
@@ -35,9 +30,7 @@ func (c *ColumnInfoType) NewColumnData(rawData []byte) (columnData *ColumnDataTy
 	return
 }
 
-func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCategorySimpleType, err error) {
-	//funcName := "ColumnDataType.DefineDataCategory"
-//	tracelog.Completed(packageName, funcName)
+func (columnData *ColumnDataType) DiscoverDataCategory() (simpleCategory *DataCategorySimpleType, err error) {
 
 	stringValue := strings.Trim(string(columnData.RawData), " ")
 
@@ -48,7 +41,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 	if len(stringValue) > 0 {
 		floatValue, parseError = strconv.ParseFloat(stringValue, 64)
 		if simpleCategory.IsNumeric = parseError == nil; simpleCategory.IsNumeric {
-			columnData.HashInt = math.Float64bits(floatValue);
+			columnData.HashData = math.Float64bits(floatValue);
 			truncatedFloatValue = math.Trunc(floatValue)
 			simpleCategory.IsInteger = truncatedFloatValue == floatValue
 			simpleCategory.IsNegative = floatValue < float64(0)
@@ -60,7 +53,7 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 	columnData.DataCategory, err = columnData.Column.CategoryByKey(
 		dataCategoryKey,
 		func() (result *DataCategoryType, err error) {
-			result = simpleCategory.CovertToNullable()
+			result = simpleCategory.NewDataCategory()
 			result.Key = dataCategoryKey;
 			result.Column = columnData.Column
 			result.Stats.HashBitset = sparsebitset.New(0)
@@ -95,32 +88,31 @@ func (columnData *ColumnDataType) DefineDataCategory() (simpleCategory *DataCate
 			columnData.DataCategory.Stats.MinStringValue = stringValue
 		}
 	}
-	//tracelog.Completed(packageName, funcName)
 	return simpleCategory, nil
 
 }
 
-func (columnData *ColumnDataType) HashData() (err error) {
+func (columnData *ColumnDataType) Encode() (err error) {
 	if columnData.RawDataLength > 0 {
 		if !columnData.DataCategory.IsNumeric.Value() {
 			if columnData.RawDataLength > B8.HashLength {
 				var hashMethod = fnv.New64()
 				hashMethod.Write(columnData.RawData)
-				columnData.HashInt = hashMethod.Sum64()
+				columnData.HashData = hashMethod.Sum64()
 			} else {
-				columnData.HashInt = 0
+				columnData.HashData = 0
 				for dPos,dByte := range columnData.RawData {
-					columnData.HashInt  = columnData.HashInt | uint64(dByte << (uint64(dPos)))
+					columnData.HashData  = columnData.HashData | uint64(dByte << (uint64(dPos)))
 				}
 			}
 		}
 	}
 
-	columnData.DataCategory.Stats.HashBitset.Set(columnData.HashInt)
+	columnData.DataCategory.Stats.HashBitset.Set(columnData.HashData)
 
 	return
 }
-
+/*
 func (column *ColumnInfoType) FlushBitset(dataCategory *DataCategoryType) (err error) {
 	funcName := "ColumnDataType.WriteHashData"
 
@@ -183,4 +175,4 @@ func (column *ColumnInfoType) FlushBitset(dataCategory *DataCategoryType) (err e
 	}
 	tracelog.Info(packageName,funcName,"BS data of column %v.%v.%v/%v has been persisted",column.TableInfo.SchemaName,column.TableInfo.TableName,column.ColumnName,dataCategory.Key)
    return
-}
+}*/

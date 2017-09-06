@@ -265,53 +265,30 @@ func main() {
 					break outer
 				}
 				tracelog.Info(packageName, funcName, "Start processing table %v", inTable)
-				var colChans1 []chan *dataflow.ColumnDataType
-				colChans1, ec1 := dr.ReadSource(
-					runContext,
-					inTable,
-				)
-				tracelog.Info(packageName, funcName, "1 %v", inTable)
-				_= colChans1
-				//var ec3 chan error;
-				/*ec3 = dr.StoreByDataCategory(
-					runContext,
-					colChans1,
-					dr.Config.CategoryWorkersPerTable,
-				)
-				*/
-				func() {
-					select {
-					case <-runContext.Done():
-						err = nil;
-					case err = <- ec1:
-					//case err = <- ec3:
-					}
-				}()
 
+				err := dr.BuildHashBitset(runContext,inTable)
 				if err != nil {
 					return err
 				}
 
+
+
+				//repo.
+				/*
 				for _, col := range inTable.Columns {
-					//TODO: RECONCIDER IT
+					//TODO: RECONSIDER IT
 					//err = col.CloseStorage(runContext)
 					if err != nil {
 						tracelog.Error(err, packageName, funcName)
 						break
 					}
 
-					err = repo.CreateDataCategoryTable();
+					err = repo.PersistDataCategory(col.Categories)
 					if err != nil {
 						tracelog.Error(err, packageName, funcName)
 						break
 					}
-
-					err = repo.SaveColumnCategories(col)
-					if err != nil {
-						tracelog.Error(err, packageName, funcName)
-						break
-					}
-				}
+				}*/
 				if err == nil {
 					tracelog.Info(packageName, funcName, "Table processing %v has been done", inTable)
 				}
@@ -324,7 +301,7 @@ func main() {
 	var wg sync.WaitGroup
 	if len(tablesToProcess) > 0 {
 		//dr.Config.TableWorkers
-		processTableChan = make(chan *dataflow.TableInfoType, 0)
+		processTableChan = make(chan *dataflow.TableInfoType,	5)
 		processTableContext, processTableContextCancelFunc := context.WithCancel(context.Background())
 		for index := 0; index < dr.Config.TableWorkers; index++ {
 			wg.Add(1)

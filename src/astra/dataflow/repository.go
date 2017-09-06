@@ -10,7 +10,7 @@ type Repository struct {
 	*metadata.Repository
 }
 
-func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
+func (h2 Repository) PersistDataCategory(dataCategory *DataCategoryType) (err error) {
 	funcName := "Repository.SaveColumnCategories"
 
 	tx, err := h2.IDb.Begin()
@@ -20,7 +20,6 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 	}
 	defer tx.Rollback()
 
-	for _, c := range column.Categories {
 		_, err = tx.Exec(
 			fmt.Sprintf("merge into column_datacategory_stats("+
 				" column_id"+
@@ -37,53 +36,53 @@ func (h2 Repository) SaveColumnCategories(column *ColumnInfoType) (err error) {
 				", max_fval) "+
 				" key(column_id, key) "+
 				" values(%v, '%v', %v, %v, %v, %v, %v, /*%v,*/ %v, %v, %v, %v) ",
-				column.Id,
-				c.Key,
-				c.ByteLength.Value(),
-				c.IsNumeric.Value(),
-				c.IsNegative.Value(),
-				c.IsInteger.Value(),
-				c.NonNullCount.Value(),
-				c.HashUniqueCount,
-				c.MinStringValue.SQLString(),
-				c.MaxStringValue.SQLString(),
-				c.MinNumericValue,
-				c.MaxNumericValue,
+				dataCategory.Column.Id,
+				dataCategory.Key,
+				dataCategory.ByteLength.Value(),
+				dataCategory.IsNumeric.Value(),
+				dataCategory.IsNegative.Value(),
+				dataCategory.IsInteger.Value(),
+				dataCategory.NonNullCount,
+				dataCategory.HashUniqueCount,
+				dataCategory.MinStringValue.SQLString(),
+				dataCategory.MaxStringValue.SQLString(),
+				dataCategory.MinNumericValue,
+				dataCategory.MaxNumericValue,
 			),
 		)
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return
 		}
-	}
 
-	_, err = tx.Exec(fmt.Sprintf(
-		"update column_info c set "+
-			" (has_numeric_content, min_fval, max_fval, min_sval, max_sval) = ("+
-			" select max(is_numeric) as has_numeric_content "+
-			", min(min_fval)  as min_fval "+
-			", max(max_fval)  as max_fval"+
-			", min(min_sval)  as min_sval "+
-			", max(max_sval)  as max_sval "+
-			" from column_datacategory_stats s "+
-			"  where s.column_id = c.id " +
-			" ) where c.id = %v ", column.Id.Value(),
-	))
+	/*
+		_, err = tx.Exec(fmt.Sprintf(
+			"update column_info c set "+
+				" (has_numeric_content, min_fval, max_fval, min_sval, max_sval) = ("+
+				" select max(is_numeric) as has_numeric_content "+
+				", min(min_fval)  as min_fval "+
+				", max(max_fval)  as max_fval"+
+				", min(min_sval)  as min_sval "+
+				", max(max_sval)  as max_sval "+
+				" from column_datacategory_stats s "+
+				"  where s.column_id = c.id " +
+				" ) where c.id = %v ", dataCategory.Column.Id.Value(),
+		))
 
-	if err != nil {
-		tracelog.Error(err, packageName, funcName)
-		return
-	}
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return
+		}
 
-	/*_, err = tx.Exec(fmt.Sprintf("update column_info c set " +
-		"   integer_unique_count = %v" +
-		"   , moving_mean = %v" +
-		"   , moving_stddev = %v" +
-		"  where c.id = %v",
-			column.IntegerUniqueCount,
-		column.MovingMean,
-		column.MovingStandardDeviation,
-		column.Id))*/
+		_, err = tx.Exec(fmt.Sprintf("update column_info c set " +
+			"   integer_unique_count = %v" +
+			"   , moving_mean = %v" +
+			"   , moving_stddev = %v" +
+			"  where c.id = %v",
+				column.IntegerUniqueCount,
+			column.MovingMean,
+			column.MovingStandardDeviation,
+			column.Id))*/
 
 	if err != nil {
 		tracelog.Error(err, packageName, funcName)

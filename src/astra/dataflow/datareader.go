@@ -4,7 +4,13 @@ import (
 	"context"
 	"github.com/goinggo/tracelog"
 	"time"
-	"sparsebitset"
+	"bytes"
+	"fmt"
+	"os"
+	"bufio"
+	"compress/gzip"
+	"io"
+	"runtime"
 )
 
 type DumpConfigType struct {
@@ -42,194 +48,199 @@ type DataReaderType struct {
 
 var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
 
-func (dr DataReaderType) ReadSource(runContext context.Context, table *TableInfoType) (
-	outChans []chan *ColumnDataType,
-	errChan chan error,
-) {
-	funcName := "DataReaderType.ReadSource"
+
+
+func (dr DataReaderType) readAstraDump(
+		ctx context.Context,
+		table *TableInfoType,
+		rowProcessingFunc func(context.Context, uint64, [][]byte) error,
+		cfg *TableDumpConfig,
+) (uint64, error) {
+	funcName := "DataReaderType.readAstraDump"
+	var x0D = []byte{0x0D}
+
+	if rowProcessingFunc == nil {
+		return 0,fmt.Errorf("Row processing function must be defined!")
+	}
+
+	gzFile, err := os.Open(cfg.Path + table.PathToFile.Value())
+
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "for table %v", table)
+		return 0, err
+	}
+	defer gzFile.Close()
+
+	defaultConfig := defaultTableDumpConfig()
+
+	if cfg.BufferSize == 0 {
+		cfg.BufferSize = defaultConfig.BufferSize
+	}
+
+	if cfg.ColumnSeparator == 0 {
+		cfg.ColumnSeparator = defaultConfig.ColumnSeparator
+	}
+
+	if cfg.LineSeparator == 0 {
+		cfg.LineSeparator = defaultConfig.LineSeparator
+	}
+
+	if cfg.Path == "" {
+		cfg.Path = defaultConfig.Path
+	}
+
+
+
+	bf := bufio.NewReaderSize(gzFile, cfg.BufferSize)
+	file, err := gzip.NewReader(bf)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "for table %v", table)
+		return 0, err
+	}
+	defer file.Close()
+
+	bufferedFile := bufio.NewReaderSize(file, cfg.BufferSize)
+
+	lineNumber := uint64(0)
+	for {
+		select {
+		case <-ctx.Done():
+			tracelog.Info(packageName,funcName,"Context.Done signalled while processing table %v",table)
+			return lineNumber, nil
+		default:
+			line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
+			if err == io.EOF {
+				tracelog.Info(packageName,funcName,"EOF has been reached in %v ",cfg.Path + table.PathToFile.Value())
+				return lineNumber, nil
+			} else if err != nil {
+				tracelog.Errorf(err,packageName,funcName,"Error while reading slice from %v",cfg.Path + table.PathToFile.Value())
+				return lineNumber, err
+			}
+
+			lineLength := len(line)
+
+			if line[lineLength-1] == cfg.LineSeparator {
+				line = line[:lineLength-1]
+			}
+			if line[lineLength-2] == x0D[0] {
+				line = line[:lineLength-2]
+			}
+
+			metadataColumnCount := len(table.Columns)
+
+			lineColumns := bytes.Split(line, []byte{cfg.ColumnSeparator})
+			lineColumnCount := len(lineColumns)
+
+			if metadataColumnCount != lineColumnCount {
+				err = fmt.Errorf("Number of column mismatch in dump file for table %v in line %v. Expected #%v; Actual #%v",
+					table,
+					lineNumber,
+					metadataColumnCount,
+					lineColumnCount,
+				)
+				return lineNumber, err
+			}
+
+			lineNumber++
+			err = rowProcessingFunc(ctx, lineNumber, lineColumns)
+
+			if err != nil {
+				tracelog.Errorf(err,packageName,funcName,"Error while processing %v",table)
+				return lineNumber, err
+			}
+		}
+	}
+
+	return lineNumber, nil
+}
+
+
+
+func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoType) (err error) {
+	funcName := "DataReaderType.BuildHashBitset"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
-	var lineOffset uint64 = 0
+	var started time.Time;
+	var lineProcessed uint64
 
-	outChans = make([]chan *ColumnDataType, len(table.Columns))
-	for index := range table.Columns {
-		outChans[index] = make(chan *ColumnDataType, dr.Config.RawDataChannelSize)
-	}
-	errChan = make(chan error, 1)
+	started = time.Now()
+	processRowContent := func(ctx context.Context, lineNumber uint64,rowData [][]byte) (err error) {
+		for columnNumber, column := range table.Columns {
+			columnData := column.NewColumnData(rowData[columnNumber])
+			if columnData == nil {
+				continue;
+			}
 
+			columnData.LineNumber = lineNumber
 
-	readFromDump := func() (err error) {
-		funcName := "DataReaderType.ReadSource.readFromDump"
-		_ = funcName
-		var started time.Time;
-		var processed uint64
-		processRowContent := func(
-			ctx context.Context,
-			lineNumber uint64,
-			rowData [][]byte,
-		) (err error) {
-
-			if lineNumber == 1 {
-				//table.NewDataDump(dr.Config.AstraDumpPath)
-				//table.NewHashDump(dr.Config.AstraDumpPath)
-				table.NewBoltDb(dr.Config.AstraDumpPath);
+			columnData.DiscoverDataCategory();
+			columnData.Encode();
+			/*
+			if false && columnData.DataCategory.Stats.HashBitset.BinarySize() > 1024*1024*1024 {
+				err = columnData.DataCategory.WriteHashBitsetToDisk(runContext,dr.Config.BinaryDumpPath)
+				if err == nil {
+					//TODO:
+				}
+				columnData.DataCategory.Stats.HashBitset = sparsebitset.New(0)
+			}*/
+			lineProcessed ++;
+			if time.Since(started).Seconds() >= 10 {
+				tracelog.Info(packageName, funcName, "Processing speed %.0f lps", float64(lineProcessed)/60.0)
+				lineProcessed = 0
 				started = time.Now()
+				stats := new(runtime.MemStats)
+				runtime.ReadMemStats(stats)
+				fmt.Println(stats.HeapAlloc,stats.HeapSys,stats.HeapInuse)
 			}
-			for columnNumber, column := range table.Columns {
-
-				columnData := column.NewColumnData(rowData[columnNumber])
-				if columnData == nil {
-					continue;
-				}
-
-				columnData.LineNumber = lineNumber
-				columnData.LineOffset = lineOffset
-
-				columnData.DefineDataCategory();
-				columnData.HashData();
-				if columnData.DataCategory.Stats.HashBitset.BinarySize()>1024*1024*1024 {
-					column.FlushBitset(columnData.DataCategory)
-					columnData.DataCategory.Stats.HashBitset = sparsebitset.New(0)
-				}
-			}
-			processed ++;
-			if time.Since(started).Minutes() >= 1  {
-				tracelog.Info(packageName,funcName,"Processing speed %v lps",processed/60.0)
-				processed = 0
-				started = time.Now()
-			}
-			//fmt.Println(lineNumber)
-			//table.CloseBoltDb();
-			/*offset, err := rowDataS.WriteToBinaryDump(table.DataDump)
-			if err != nil {
-				//TODO:
-				tracelog.Errorf(err, packageName, funcName, "")
-				return err
-			}
-			lineOffset += offset*/
-
-			return nil
 		}
-
-		linesRead, err := table.ReadAstraDump(
-			runContext,
-			processRowContent,
-			&TableDumpConfig{
-				Path:            dr.Config.AstraDumpPath,
-				GZip:            dr.Config.AstraDataGZip,
-				ColumnSeparator: dr.Config.AstraColumnSeparator,
-				LineSeparator:   dr.Config.AstraLineSeparator,
-				BufferSize:      dr.Config.AstraReaderBufferSize,
-			},
-		)
-		if err != nil {
-			tracelog.Errorf(err, packageName, funcName, "Error in %v on %v", table, linesRead)
-		} else {
-			tracelog.Info(packageName, funcName, "Table %v, read %v", table, linesRead)
-		}
-		table.CloseBoltDb();
-		//table.HashDump.Close()
-		//table.DataDump.Close()
-
-		/*gzFile, err := os.Open(dr.Config.AstraDumpPath + table.PathToFile.Value())
-		if err != nil {
-			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
-			return
-		}
-		defer gzFile.Close()
-
-		bf := bufio.NewReaderSize(gzFile, dr.Config.AstraReaderBufferSize)
-		file, err := gzip.NewReader(bf)
-		if err != nil {
-			tracelog.Errorf(err, packageName, funcName, "for table %v", table)
-			return
-		}
-		defer file.Close()
-		bufferedFile := bufio.NewReaderSize(file, dr.Config.AstraReaderBufferSize)
-
-		lineNumber := uint64(0)
-		lineOffset := uint64(0)
-		for {
-				line, err := bufferedFile.ReadSlice(dr.Config.AstraLineSeparator)
-				if err == io.EOF {
-					return nil
-				} else if err != nil {
-					return err
-				}
-
-				lineLength := len(line)
-
-				if line[lineLength-1] == dr.Config.AstraLineSeparator {
-					line = line[:lineLength-1]
-				}
-				if line[lineLength-2] == x0D[0]{
-					line = line[:lineLength-2]
-				}
-
-				image := make([]byte,len(line))
-
-				copy(image,line)
-
-
-
-				metadataColumnCount := len(table.Columns)
-
-				lineColumns := bytes.Split(image, []byte{dr.Config.AstraColumnSeparator})
-				lineColumnCount := len(lineColumns)
-
-				if metadataColumnCount != lineColumnCount {
-					err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
-						lineNumber,
-						metadataColumnCount,
-						lineColumnCount,
-					)
-					return err
-				}
-
-				lineNumber++
-				if lineNumber == 1 && dr.Config.BuildBinaryDump {
-					closeContext, closeContextCancelFunc := context.WithCancel(context.Background())
-					err = table.OpenBinaryDump(closeContext, dr.Config.BinaryDumpPath, os.O_CREATE)
-					if err != nil {
-						return err
-					}
-					defer closeContextCancelFunc()
-				}
-
-				if dr.Config.EmitRawData {
-					wg.Add(len(lineColumns))
-					for columnIndex := range  lineColumns{
-						go splitToColumns(lineNumber, lineOffset, columnIndex, &lineColumns[columnIndex])
-					}
-					wg.Wait()
-				}
-
-				lineOffset = lineOffset + uint64(writeToTank(lineColumns))
-		//	}
-		}*/
 		return nil
 	}
 
-	go func() {
-		err := readFromDump()
-		tracelog.Info(packageName, funcName, "4 %v", table)
+	linesRead, err := dr.readAstraDump(
+		ctx,
+		table,
+		processRowContent,
+		&TableDumpConfig{
+			Path:            dr.Config.AstraDumpPath,
+			GZip:            dr.Config.AstraDataGZip,
+			ColumnSeparator: dr.Config.AstraColumnSeparator,
+			LineSeparator:   dr.Config.AstraLineSeparator,
+			BufferSize:      dr.Config.AstraReaderBufferSize,
+		},
+	)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Error while reading table %v in line #%v ", table, linesRead)
+	} else {
+		tracelog.Info(packageName, funcName, "Table %v processed. %v have been read", table, linesRead)
+	}
 
-		if err != nil {
-			errChan <- err
-		}
-		for index := range outChans {
-			if outChans[index] != nil {
-				close(outChans[index])
+	for _,column := range table.Columns {
+		for _, dataCategory := range column.Categories {
+			err = dataCategory.UpdateStatistics(ctx)
+			if err != nil {
+				return err
+			}
+			err = dataCategory.WriteHashBitsetToDisk(ctx,dr.Config.AstraDumpPath)
+			if err != nil {
+				return err
 			}
 		}
-		tracelog.Info(packageName, funcName, "Table %v done", table)
-		close(errChan)
-	}()
-	tracelog.Info(packageName, funcName, "5 %v", table)
+	}
+	tracelog.Info(packageName, funcName, "Table %v bitsets have been written to disk", table)
 
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
-	return outChans, errChan
+	return err
 }
+
+func (dr DataReaderType) PersistDataCategoryStatistics(ctx context.Context, table *TableInfoType) (err error) {
+
+
+
+	return
+}
+
+
+
 /*
 type StoreType struct {
 	db     *bolt.DB

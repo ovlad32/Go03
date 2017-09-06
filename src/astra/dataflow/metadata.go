@@ -3,13 +3,9 @@ package dataflow
 import (
 	"astra/metadata"
 	"bufio"
-	"bytes"
-	"compress/gzip"
-	"context"
 	"errors"
 	"fmt"
 	"github.com/goinggo/tracelog"
-	"io"
 	"os"
 	"github.com/boltdb/bolt"
 )
@@ -35,6 +31,7 @@ func defaultTableDumpConfig() *TableDumpConfig {
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
 	TableInfo            *TableInfoType
+
 
 	//stringAnalysisLock  sync.Mutex
 	//numericAnalysisLock sync.Mutex
@@ -192,91 +189,6 @@ func (t *TableInfoType) NewHashDump(pathToBinaryDir string) (err error ){
 
 
 
-func (t TableInfoType) ReadAstraDump(
-	ctx context.Context,
-	rowProcessFunc func(context.Context, uint64, [][]byte) error,
-	cfg *TableDumpConfig,
-) (uint64, error) {
-	funcName := "TableInfoType.ReadAstraDump"
-	var x0D = []byte{0x0D}
-	if rowProcessFunc == nil {
-		return 0,fmt.Errorf("Row processing function must be defined!")
-	}
-
-	gzFile, err := os.Open(cfg.Path + t.PathToFile.Value())
-
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "for table %v", t)
-		return 0, err
-	}
-	defer gzFile.Close()
-
-	if cfg == nil {
-		cfg = defaultTableDumpConfig()
-	}
-
-	bf := bufio.NewReaderSize(gzFile, cfg.BufferSize)
-	file, err := gzip.NewReader(bf)
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "for table %v", t)
-		return 0, err
-	}
-	defer file.Close()
-
-	bufferedFile := bufio.NewReaderSize(file, cfg.BufferSize)
-	lineNumber := uint64(0)
-	for {
-		select {
-		case <-ctx.Done():
-			tracelog.Info(packageName,funcName,"%v Done caught1",t)
-			return lineNumber, nil
-		default:
-			line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
-			if err == io.EOF {
-				tracelog.Info(packageName,funcName,"EOF for %v reached",cfg.Path + t.PathToFile.Value())
-				return lineNumber, nil
-			} else if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Error while reading slice of %v",cfg.Path + t.PathToFile.Value())
-				return lineNumber, err
-			}
-
-			lineLength := len(line)
-
-			if line[lineLength-1] == cfg.LineSeparator {
-				line = line[:lineLength-1]
-			}
-			if line[lineLength-2] == x0D[0] {
-				line = line[:lineLength-2]
-			}
-
-			metadataColumnCount := len(t.Columns)
-
-			lineColumns := bytes.Split(line, []byte{cfg.ColumnSeparator})
-			lineColumnCount := len(lineColumns)
-
-			if metadataColumnCount != lineColumnCount {
-				err = fmt.Errorf("Number of column mismatch in line %v. Expected #%v; Actual #%v",
-					lineNumber,
-					metadataColumnCount,
-					lineColumnCount,
-				)
-				tracelog.Info(packageName,funcName,"%v Done caught2",t)
-				return lineNumber, err
-			}
-
-			lineNumber++
-			err = rowProcessFunc(ctx, lineNumber, lineColumns)
-			//
-			if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Error while processing %v",t)
-				tracelog.Info(packageName,funcName,"%v Done caught3",t)
-				return lineNumber, err
-			}
-		}
-	}
-
-	return lineNumber, nil
-}
 
 func (t *TableInfoType) NewBoltDb(pathToBinaryDir string) (err error){
 
@@ -313,12 +225,6 @@ func (t *TableInfoType) NewBoltDb(pathToBinaryDir string) (err error){
 
 
 func (t *TableInfoType) CloseBoltDb() (err error){
-
-	for _,column := range t.Columns {
-		for _, dataCategory := range column.Categories {
-			column.FlushBitset(dataCategory)
-		}
-	}
 
 
 	if t.bitSetStorage != nil {
@@ -361,83 +267,6 @@ func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoTy
 
 
 /*
-func (ci *ColumnInfoType) CloseStorage(runContext context.Context) (err error) {
-	var prevValue uint64
-	var count uint64 = 0
-	var countInDeviation uint64 = 0
-	var gotPrevValue bool
-	var meanValue, cumulativeDeviaton float64 = 0, 0
-
-	increasingOrder := context.WithValue(runContext, "sort", true)
-	reversedOrder := context.WithValue(context.WithValue(runContext, "sort", true), "desc", true)
-
-	if ci.NumericNegativeBitset != nil {
-		gotPrevValue = false
-		for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
-			if !gotPrevValue {
-				prevValue = value
-				gotPrevValue = true
-			} else {
-				count++
-				cumulativeDeviaton += float64(value) - float64(prevValue)
-				prevValue = value
-			}
-		}
-	}
-	if ci.NumericPositiveBitset != nil {
-		gotPrevValue = false
-		for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
-			if !gotPrevValue {
-				prevValue = value
-				gotPrevValue = true
-			} else {
-				count++
-				cumulativeDeviaton += float64(value) - float64(prevValue)
-				prevValue = value
-			}
-		}
-	}
-	if count > 0 {
-		meanValue = cumulativeDeviaton / float64(count)
-		totalDeviation := float64(0)
-
-		if ci.NumericNegativeBitset != nil {
-			gotPrevValue = false
-			for value := range ci.NumericNegativeBitset.BitChan(reversedOrder) {
-				if !gotPrevValue {
-					prevValue = value
-					gotPrevValue = true
-				} else {
-					countInDeviation++
-					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
-					prevValue = value
-				}
-			}
-		}
-
-		if ci.NumericPositiveBitset != nil {
-			gotPrevValue = false
-			for value := range ci.NumericPositiveBitset.BitChan(increasingOrder) {
-				if !gotPrevValue {
-					prevValue = value
-					gotPrevValue = true
-				} else {
-					countInDeviation++
-					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
-					prevValue = value
-				}
-			}
-		}
-		if countInDeviation > 1 {
-			stdDev := math.Sqrt(totalDeviation / float64(countInDeviation-1))
-			ci.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
-		}
-		ci.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
-		ci.MovingMean = nullable.NewNullFloat64(meanValue)
-	}
-
-	return err
-}
 
 
 

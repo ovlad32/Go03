@@ -7,9 +7,10 @@ import (
 	"math"
 	"sparsebitset"
 	"sync"
-	"encoding/binary"
 	"os"
 	"bufio"
+	"errors"
+	"context"
 )
 
 
@@ -64,7 +65,7 @@ func (simple *DataCategorySimpleType) Key() (result string) {
 }
 
 
-func (simple *DataCategorySimpleType) CovertToNullable() (result *DataCategoryType) {
+func (simple *DataCategorySimpleType) NewDataCategory() (result *DataCategoryType) {
 	result = &DataCategoryType{
 		IsNumeric:  nullable.NewNullBool(simple.IsNumeric),
 	}
@@ -140,23 +141,149 @@ type DataCategoryType struct {
 	MovingStandardDeviation nullable.NullFloat64
 }
 
-func (dataCategory DataCategoryType) HashBitsetFileName() (err error){
-	file,err := os.Open("./data",0x660)
-	if err != nil {
+func (dataCategory DataCategoryType) HashBitsetFileName() (fileName string,err error) {
+	funcName := "DataCategoryType.HashBitsetFileName"
 
-	}
-	dest := bufio.NewWriterSize(file,4096);
+	tracelog.Started(packageName, funcName)
+	fileName = fmt.Sprintf("%v.%v.hash.bitset",
+		dataCategory.Column.Id.String(),
+		dataCategory.Key,
+	)
 
-	_,err = dataCategory.Stats.HashBitset.WriteTo(dest);
-	err = dest.Flush()
-	if err != nil {
+	tracelog.Completed(packageName, funcName)
 
-	}
-
-
-
+	return fileName,nil
 }
 
+func (dataCategory DataCategoryType) WriteHashBitsetToDisk(ctx context.Context, pathToDir string) (err error) {
+	funcName := "DataCategoryType.WriteHashBitsetToDisk"
+
+	tracelog.Started(packageName, funcName)
+
+	if pathToDir == "" {
+		err = errors.New("Given path to binary dump directory is empty")
+		tracelog.Error(err, packageName, funcName)
+		return err
+	}
+
+	err = os.MkdirAll(pathToDir, 700)
+
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Making directories for path %v", pathToDir)
+		return err
+	}
+
+	fileName,err := dataCategory.HashBitsetFileName()
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Creating filename for hash bitset", pathToDir)
+		return err
+	}
+
+
+	fullPathFileName := fmt.Sprintf("%v%v%v",pathToDir,os.PathSeparator,fileName)
+	file,err := os.OpenFile(fullPathFileName, os.O_CREATE,0x660)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Creating file for hash bitset", fullPathFileName)
+		return err
+	}
+
+	defer file.Close()
+
+	buffered := bufio.NewWriterSize(file,4096);
+
+	defer buffered.Flush()
+
+	_,err = dataCategory.Stats.HashBitset.WriteTo(ctx,buffered);
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Writing bitset data to file ", fullPathFileName)
+		return err
+	}
+
+	tracelog.Completed(packageName, funcName)
+
+	return err
+}
+
+
+
+
+
+
+
+func (dataCategory *DataCategoryType) UpdateStatistics(runContext context.Context) (err error) {
+
+	dataCategory.MaxStringValue = nullable.NewNullString(dataCategory.Stats.MaxStringValue)
+	dataCategory.MinStringValue = nullable.NewNullString(dataCategory.Stats.MinStringValue)
+	dataCategory.MaxNumericValue = nullable.NewNullFloat64(dataCategory.Stats.MaxNumericValue)
+	dataCategory.MinNumericValue = nullable.NewNullFloat64(dataCategory.Stats.MinNumericValue)
+	dataCategory.NonNullCount = nullable.NewNullInt64(int64(dataCategory.Stats.NonNullCount))
+
+
+	if dataCategory.Stats.HashBitset != nil {
+		dataCategory.HashUniqueCount = nullable.NewNullInt64(int64(dataCategory.Stats.HashBitset.Cardinality()))
+	}
+	if dataCategory.Stats.IntegerBitset != nil {
+		dataCategory.IntegerUniqueCount = nullable.NewNullInt64(int64(dataCategory.Stats.IntegerBitset.Cardinality()))
+	}
+
+
+
+	var count uint64 = 0
+	var meanValue, cumulativeDeviation float64 = 0, 0
+
+	increasingOrder := context.WithValue(runContext, "sort", true)
+
+	bitset := dataCategory.Stats.IntegerBitset
+
+
+	if bitset != nil {
+		var prevValue = uint64(0);
+		var gotPrevValue = false
+		for value := range bitset.BitChan(increasingOrder) {
+			if !gotPrevValue {
+				prevValue = value
+				gotPrevValue = true
+			} else {
+				count++
+				cumulativeDeviation += float64(value) - float64(prevValue)
+				prevValue = value
+			}
+		}
+	}
+	if count > 0 {
+		var countInDeviation uint64 = 0
+		meanValue = cumulativeDeviation / float64(count)
+		var totalDeviation = float64(0)
+
+		var prevValue = uint64(0);
+		var gotPrevValue = false
+		for value := range bitset.BitChan(increasingOrder) {
+			if !gotPrevValue {
+				prevValue = value
+				gotPrevValue = true
+			} else {
+				countInDeviation++
+				totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
+				prevValue = value
+			}
+		}
+		if countInDeviation > 1 {
+			stdDev := math.Sqrt(totalDeviation / float64(countInDeviation-1))
+			dataCategory.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
+		}
+		dataCategory.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
+		dataCategory.MovingMean = nullable.NewNullFloat64(meanValue)
+	}
+
+	return err
+}
+
+
+
+
+
+
+/*
 
 func(dataCategory DataCategoryType) HashBitsetBucketNameBytes() (result []byte, err error){
 	if dataCategory.Key == "" {
@@ -175,9 +302,6 @@ func(dataCategory DataCategoryType) HashBitsetBucketNameBytes() (result []byte, 
 	return
 }
 
-
-
-/*
 type OffsetsType map[uint64][]uint64;
 type H8BSType map[byte]*sparsebitset.BitSet;
 

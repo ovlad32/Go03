@@ -910,7 +910,7 @@ func (b *BitSet) BinarySize() int {
 }
 
 // WriteTo serialises this bitset to the given `io.Writer`.
-func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
+func (b *BitSet) WriteTo(ctx context.Context,w io.Writer) (int64, error) {
 	var err error
 
 	// Write length of the data to follow.
@@ -928,6 +928,11 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 	}
 
 	for key, value := range b.set {
+		select {
+			case <-ctx.Done():{
+				return 0, nil
+			}
+		default:
 			err = binary.Write(w, binary.BigEndian, key)
 			if err != nil {
 				return int64(binary.Size(uint32(0))), err
@@ -936,6 +941,7 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 			if err != nil {
 				return int64(binary.Size(uint32(0))), err
 			}
+		}
 	}
 
 	return int64(b.BinarySize()), nil
@@ -946,7 +952,7 @@ func (b *BitSet) WriteTo(w io.Writer) (int64, error) {
 //
 // N.B. This method overwrites the data currently in this bitset.
 
-func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
+func (b *BitSet) ReadFrom(ctx context.Context, r io.Reader) (int64, error) {
 	var err error
 
 	// Read length of the data that follows.
@@ -960,15 +966,21 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 	b.set = make(blockAry)
 	for i := 0; i < n; i++ {
 		var key, value uint64
-		err = binary.Read(r, binary.BigEndian, &key)
-		if err != nil {
-			return int64(binary.Size(uint32(0))), err
+		select {
+		case <-ctx.Done():{
+			return 0, nil
 		}
-		err = binary.Read(r, binary.BigEndian, &value)
-		if err != nil {
-			return int64(binary.Size(uint32(0))), err
+		default:
+			err = binary.Read(r, binary.BigEndian, &key)
+			if err != nil {
+				return int64(binary.Size(uint32(0))), err
+			}
+			err = binary.Read(r, binary.BigEndian, &value)
+			if err != nil {
+				return int64(binary.Size(uint32(0))), err
+			}
+			b.set[key] = value
 		}
-		b.set[key] = value
 	}
 
 	return int64(b.BinarySize()), nil
@@ -976,11 +988,11 @@ func (b *BitSet) ReadFrom(r io.Reader) (int64, error) {
 
 
 
-func (b *BitSet) MergeFrom(r io.Reader) (int64, error) {
+func (b *BitSet) MergeFrom(ctx context.Context,r io.Reader) (int64, error) {
 	var err error
 
 	if b.set == nil || len(b.set) == 0 {
-		 return b.ReadFrom(r)
+		 return b.ReadFrom(ctx,r)
 	}
 
 	// Read length of the data that follows.
@@ -993,21 +1005,27 @@ func (b *BitSet) MergeFrom(r io.Reader) (int64, error) {
 	n := int(lb) / (2 * binary.Size(uint64(0)))
 	for i := 0; i < n; i++ {
 		var key, value uint64
-		err = binary.Read(r, binary.BigEndian, &key)
-		if err != nil {
-			return int64(binary.Size(uint32(0))), err
-		}
-		err = binary.Read(r, binary.BigEndian, &value)
-		if err != nil {
-			return int64(binary.Size(uint32(0))), err
-		}
+		select {
+		case <-ctx.Done():
+			{
+				return 0, nil
+			}
+		default:
+			err = binary.Read(r, binary.BigEndian, &key)
+			if err != nil {
+				return int64(binary.Size(uint32(0))), err
+			}
+			err = binary.Read(r, binary.BigEndian, &value)
+			if err != nil {
+				return int64(binary.Size(uint32(0))), err
+			}
 
-		if oldValue,found := b.set[key]; !found {
-			b.set[key] = value
-		} else {
-			b.set[key] = oldValue | value
+			if oldValue, found := b.set[key]; !found {
+				b.set[key] = value
+			} else {
+				b.set[key] = oldValue | value
+			}
 		}
-
 	}
 
 	return int64(b.BinarySize()), nil
@@ -1050,7 +1068,7 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 		if toSort,ok := ctx.Value("sort").(bool); ok && toSort {
 			byOrder := make(byOrder,0,len(b.set));
 			for key, _ := range b.set {
-				byOrder = append(byOrder,key)
+				byOrder = append(byOrder, key)
 			}
 			if desc,ok := ctx.Value("desc").(bool); ok && desc {
 				sort.Reverse(byOrder)
