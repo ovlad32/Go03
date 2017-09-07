@@ -1,30 +1,30 @@
 package metadata
 
 import (
-	"fmt"
+	"astra/nullable"
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/goinggo/tracelog"
-	"astra/nullable"
 	_ "github.com/lib/pq"
 )
 
 type RepositoryConfig struct {
-	Login          string
-	Password       string
-	DatabaseName   string
-	Host           string
-	Port           string
+	Login        string
+	Password     string
+	DatabaseName string
+	Host         string
+	Port         string
 }
 
 type Repository struct {
-	config        *RepositoryConfig
-	IDb           *sql.DB
+	config *RepositoryConfig
+	IDb    *sql.DB
 }
 
 func ConnectToAstraDB(conf *RepositoryConfig) (result *Repository, err error) {
 	var funcName = "ConnectToAstraDB"
-	tracelog.Started(packageName,funcName)
+	tracelog.Started(packageName, funcName)
 	result = new(Repository)
 
 	idb, err := sql.Open(
@@ -35,23 +35,23 @@ func ConnectToAstraDB(conf *RepositoryConfig) (result *Repository, err error) {
 		),
 	)
 	if err != nil {
-		tracelog.Error(err,packageName,funcName)
+		tracelog.Error(err, packageName, funcName)
 		return
 	}
 	result.IDb = idb
-	result.config = conf;
+	result.config = conf
 
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 	return
 }
 
 func (rps Repository) databaseConfig(whereFunc func() string) (result []DatabaseConfigType, err error) {
 	var funcName = "Repository.databaseConfig"
-	tracelog.Started(packageName,funcName)
+	tracelog.Started(packageName, funcName)
 
 	tx, err := rps.IDb.Begin()
 	if err != nil {
-		tracelog.Error(err,packageName,funcName)
+		tracelog.Error(err, packageName, funcName)
 		return
 	}
 	defer tx.Rollback()
@@ -77,7 +77,7 @@ func (rps Repository) databaseConfig(whereFunc func() string) (result []Database
 
 	rws, err := tx.Query(query)
 	if err != nil {
-		tracelog.Error(err,packageName,funcName)
+		tracelog.Error(err, packageName, funcName)
 		return
 	}
 
@@ -96,13 +96,13 @@ func (rps Repository) databaseConfig(whereFunc func() string) (result []Database
 			&row.Password,
 		)
 		if err != nil {
-			tracelog.Error(err,packageName,funcName)
+			tracelog.Error(err, packageName, funcName)
 			return
 		}
 		result = append(result, row)
 	}
 
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 	return
 }
 
@@ -397,19 +397,18 @@ func (h2 Repository) ColumnInfoById(Id nullable.NullInt64) (result *ColumnInfoTy
 	return
 }
 
-
-func (h Repository) MetadataByWorkflowId(workflowId nullable.NullInt64)(metadataId1,metadataId2 nullable.NullInt64, err error){
+func (h Repository) MetadataByWorkflowId(workflowId nullable.NullInt64) (metadataId1, metadataId2 nullable.NullInt64, err error) {
 	queryText := fmt.Sprintf("select distinct t.metadata_id from link l "+
 		" inner join column_info  c on c.id in (l.parent_column_info_id,l.child_column_info_id) "+
-		" inner join table_info t on t.id = c.table_info_id " +
-		" where l.workflow_id = %v ",workflowId.Value());
+		" inner join table_info t on t.id = c.table_info_id "+
+		" where l.workflow_id = %v ", workflowId.Value())
 
-	tx,err := h.IDb.Begin()
+	tx, err := h.IDb.Begin()
 	if err != nil {
 		return
 	}
 
-	result,err := tx.Query(queryText)
+	result, err := tx.Query(queryText)
 	if err != nil {
 		return
 	}
@@ -417,16 +416,51 @@ func (h Repository) MetadataByWorkflowId(workflowId nullable.NullInt64)(metadata
 	if result.Next() {
 		result.Scan(&metadataId1)
 	} else {
-		err = fmt.Errorf("There is no the first metadata id for workflow_id = %v",workflowId.Value());
+		err = fmt.Errorf("There is no the first metadata id for workflow_id = %v", workflowId.Value())
 		return
 	}
 	if result.Next() {
 		result.Scan(&metadataId2)
 	} else {
 		var clean nullable.NullInt64
-		metadataId1 = clean;
-		err = fmt.Errorf("There is no the second metadata id for workflow_id = %v",workflowId.Value());
+		metadataId1 = clean
+		err = fmt.Errorf("There is no the second metadata id for workflow_id = %v", workflowId.Value())
 		return
 	}
+	return
+}
+
+func (h2 *Repository) PutMetadata(m *MetadataType) (err error) {
+	tx, err := h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+
+	if !m.Id.Valid() {
+		row := tx.QueryRow("select nextval('META_DATA_SEQ')")
+		var id int64
+		err = row.Scan(&id)
+		if err != nil {
+			return
+		}
+		m.Id = nullable.NewNullInt64(id)
+	}
+
+	statement := "merge into metadata (id, index, version, database_config) " +
+		" key(id) values(%v,%v,%v,%v,%v,%v,%v,%v)"
+
+	statement = fmt.Sprintf(
+		statement,
+		m.Id,
+		m.Index,
+		m.Version,
+		m.DatabaseConfigId,
+	)
+	_,err = tx.Exec(statement)
+	if err != nil {
+		return
+	}
+
+	tx.Commit()
 	return
 }

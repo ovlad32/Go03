@@ -1,19 +1,23 @@
 package dataflow
 
 import (
-	"sparsebitset"
-	"hash/fnv"
 	"astra/B8"
-	"strconv"
+	"hash/fnv"
 	"math"
+	"sparsebitset"
+	"strconv"
 	"strings"
+	"os"
+	"io/ioutil"
+	"fmt"
+	"github.com/goinggo/tracelog"
 )
 
 type ColumnDataType struct {
-	Column       *ColumnInfoType
-	DataCategory *DataCategoryType
-	LineNumber   uint64
-	RawData      []byte
+	Column        *ColumnInfoType
+	DataCategory  *DataCategoryType
+	LineNumber    uint64
+	RawData       []byte
 	RawDataLength int
 	HashData      uint64
 }
@@ -41,7 +45,7 @@ func (columnData *ColumnDataType) DiscoverDataCategory() (simpleCategory *DataCa
 	if len(stringValue) > 0 {
 		floatValue, parseError = strconv.ParseFloat(stringValue, 64)
 		if simpleCategory.IsNumeric = parseError == nil; simpleCategory.IsNumeric {
-			columnData.HashData = math.Float64bits(floatValue);
+			columnData.HashData = math.Float64bits(floatValue)
 			truncatedFloatValue = math.Trunc(floatValue)
 			simpleCategory.IsInteger = truncatedFloatValue == floatValue
 			simpleCategory.IsNegative = floatValue < float64(0)
@@ -54,14 +58,14 @@ func (columnData *ColumnDataType) DiscoverDataCategory() (simpleCategory *DataCa
 		dataCategoryKey,
 		func() (result *DataCategoryType, err error) {
 			result = simpleCategory.NewDataCategory()
-			result.Key = dataCategoryKey;
+			result.Key = dataCategoryKey
 			result.Column = columnData.Column
 			result.Stats.HashBitset = sparsebitset.New(0)
 			return
 		},
 	)
 
-	columnData.DataCategory.Stats.NonNullCount ++;
+	columnData.DataCategory.Stats.NonNullCount++
 
 	if simpleCategory.IsNumeric {
 		if columnData.DataCategory.Stats.MaxNumericValue < floatValue {
@@ -73,18 +77,20 @@ func (columnData *ColumnDataType) DiscoverDataCategory() (simpleCategory *DataCa
 		if simpleCategory.IsInteger {
 			if columnData.DataCategory.Stats.IntegerBitset == nil {
 				columnData.DataCategory.Stats.IntegerBitset = sparsebitset.New(0)
-				}
-				if simpleCategory.IsNegative {
-					columnData.DataCategory.Stats.IntegerBitset.Set(uint64(-truncatedFloatValue));
-				} else {
-					columnData.DataCategory.Stats.IntegerBitset.Set(uint64(truncatedFloatValue));
-				}
+			}
+			if simpleCategory.IsNegative {
+				columnData.DataCategory.Stats.IntegerBitset.Set(uint64(-truncatedFloatValue))
+			} else {
+				columnData.DataCategory.Stats.IntegerBitset.Set(uint64(truncatedFloatValue))
+			}
 		}
 	} else {
-		if columnData.DataCategory.Stats.MaxStringValue < stringValue {
+		if columnData.DataCategory.Stats.MaxStringValue == "" ||
+			columnData.DataCategory.Stats.MaxStringValue < stringValue {
 			columnData.DataCategory.Stats.MaxStringValue = stringValue
 		}
-		if columnData.DataCategory.Stats.MinStringValue > stringValue {
+		if columnData.DataCategory.Stats.MinStringValue == "" ||
+			columnData.DataCategory.Stats.MinStringValue > stringValue {
 			columnData.DataCategory.Stats.MinStringValue = stringValue
 		}
 	}
@@ -101,8 +107,8 @@ func (columnData *ColumnDataType) Encode() (err error) {
 				columnData.HashData = hashMethod.Sum64()
 			} else {
 				columnData.HashData = 0
-				for dPos,dByte := range columnData.RawData {
-					columnData.HashData  = columnData.HashData | uint64(dByte << (uint64(dPos)))
+				for dPos, dByte := range columnData.RawData {
+					columnData.HashData = columnData.HashData | uint64(dByte<<(uint64(dPos)))
 				}
 			}
 		}
@@ -112,6 +118,28 @@ func (columnData *ColumnDataType) Encode() (err error) {
 
 	return
 }
+
+func(c ColumnInfoType) IndexFileExists(baseDir string) (result bool, err error){
+	funcName := "ColumnInfoType.IndexFileExists"
+	tracelog.Started(packageName,funcName)
+
+	fileMask := fmt.Sprintf("%v%v%v.*.bitset",baseDir,os.PathSeparator,c.Id.Value())
+
+	files, err :=  ioutil.ReadDir(fileMask )
+	if err != nil {
+		tracelog.Errorf(err,packageName,funcName,"Cannot list files with mask %v",fileMask)
+		return false,err
+	}
+
+	for _, f := range files {
+		if !f.IsDir() {
+			return true,nil
+		}
+	}
+	tracelog.Completed(packageName,funcName)
+	return false,nil
+}
+
 /*
 func (column *ColumnInfoType) FlushBitset(dataCategory *DataCategoryType) (err error) {
 	funcName := "ColumnDataType.WriteHashData"

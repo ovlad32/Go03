@@ -2,45 +2,40 @@ package dataflow
 
 import (
 	"astra/nullable"
+	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"github.com/goinggo/tracelog"
 	"math"
+	"os"
 	"sparsebitset"
 	"sync"
-	"os"
-	"bufio"
-	"errors"
-	"context"
 )
 
-
-
-
 type DataCategorySimpleType struct {
-	ByteLength         int
-	IsNumeric          bool
-	IsNegative         bool
-	IsInteger          bool
-
+	ByteLength int
+	IsNumeric  bool
+	IsNegative bool
+	IsInteger  bool
 }
 
-type stringCategoryKeyStorageType  struct {
+type stringCategoryKeyStorageType struct {
 	codes map[uint16]string
 	sync.Mutex
 }
 
-var stringCategoryKeyStorage = stringCategoryKeyStorageType {
- codes:make(map[uint16]string),
+var stringCategoryKeyStorage = stringCategoryKeyStorageType{
+	codes: make(map[uint16]string),
 }
+
 //var stringCategoryKeyCodeCache []string;
-
-
 
 func (simple *DataCategorySimpleType) Key() (result string) {
 	if !simple.IsNumeric {
 		vLen16 := uint16(simple.ByteLength)
 		stringCategoryKeyStorage.Lock()
-		if code,found := stringCategoryKeyStorage.codes[vLen16]; !found {
+		if code, found := stringCategoryKeyStorage.codes[vLen16]; !found {
 			code = fmt.Sprintf("C%v", vLen16)
 			stringCategoryKeyStorage.codes[vLen16] = code
 			result = code
@@ -49,7 +44,7 @@ func (simple *DataCategorySimpleType) Key() (result string) {
 		}
 		stringCategoryKeyStorage.Unlock()
 	} else if simple.IsNegative {
-		if simple.IsInteger  {
+		if simple.IsInteger {
 			result = "N"
 		} else {
 			result = "n"
@@ -64,10 +59,9 @@ func (simple *DataCategorySimpleType) Key() (result string) {
 	return result
 }
 
-
 func (simple *DataCategorySimpleType) NewDataCategory() (result *DataCategoryType) {
 	result = &DataCategoryType{
-		IsNumeric:  nullable.NewNullBool(simple.IsNumeric),
+		IsNumeric: nullable.NewNullBool(simple.IsNumeric),
 	}
 	if simple.IsNumeric {
 		result.IsNegative = nullable.NewNullBool(simple.IsNegative)
@@ -75,16 +69,12 @@ func (simple *DataCategorySimpleType) NewDataCategory() (result *DataCategoryTyp
 	} else {
 		result.ByteLength = nullable.NewNullInt64(int64(simple.ByteLength))
 	}
-	result.Stats.MinNumericValue = math.MaxFloat64;
-	result.Stats.MaxNumericValue = -math.MaxFloat64;
+	result.Stats.MinNumericValue = math.MaxFloat64
+	result.Stats.MaxNumericValue = -math.MaxFloat64
 	result.Stats.NonNullCount = 0
 
 	return
 }
-
-
-
-
 
 func (simple *DataCategorySimpleType) BinKey() (result []byte) {
 	funcName := "DataCategorySimpleType.KeyBin"
@@ -95,10 +85,10 @@ func (simple *DataCategorySimpleType) BinKey() (result []byte) {
 	if simple.IsNumeric {
 		result[0] = byte(1 << 7)
 		if simple.IsInteger {
-			result[0] = result[0] | byte(1 << 6)
+			result[0] = result[0] | byte(1<<6)
 		}
 		if simple.IsNegative {
-			result[0] = result[0] | byte(1 << 5)
+			result[0] = result[0] | byte(1<<5)
 		}
 	} else {
 		bl := uint16(simple.ByteLength)
@@ -109,53 +99,59 @@ func (simple *DataCategorySimpleType) BinKey() (result []byte) {
 	return result
 }
 
-
 type DataCategoryType struct {
-	Column *ColumnInfoType
-	ByteLength         nullable.NullInt64
-	IsNumeric          nullable.NullBool // if array of bytes represents a numeric value
-	IsNegative         nullable.NullBool
-	IsInteger   	   nullable.NullBool
-	HashUniqueCount    nullable.NullInt64
-	NonNullCount       nullable.NullInt64
+	Column          *ColumnInfoType
+	ByteLength      nullable.NullInt64
+	IsNumeric       nullable.NullBool // if array of bytes represents a numeric value
+	IsNegative      nullable.NullBool
+	IsInteger       nullable.NullBool
+	HashUniqueCount nullable.NullInt64
+	NonNullCount    nullable.NullInt64
 	MinStringValue  nullable.NullString
 	MaxStringValue  nullable.NullString
 	MinNumericValue nullable.NullFloat64
 	MaxNumericValue nullable.NullFloat64
-	Stats struct {
-		MinStringValue  string
-		MaxStringValue  string
-		MinNumericValue float64
-		MaxNumericValue float64
-		NonNullCount  	uint64
-		IntegerUniqueCount uint64
-		MovingMean      float64
+	Stats           struct {
+		MinStringValue          string
+		MaxStringValue          string
+		MinNumericValue         float64
+		MaxNumericValue         float64
+		NonNullCount            uint64
+		IntegerUniqueCount      uint64
+		MovingMean              float64
 		MovingStandardDeviation float64
-		IntegerBitset *sparsebitset.BitSet
-		HashBitset *sparsebitset.BitSet
-		HashBitsetPartNumber uint64
+		IntegerBitset           *sparsebitset.BitSet
+		HashBitset              *sparsebitset.BitSet
+		HashBitsetPartNumber    uint64
 	}
-	Key string
+	Key                     string
 	IntegerUniqueCount      nullable.NullInt64
 	MovingMean              nullable.NullFloat64
 	MovingStandardDeviation nullable.NullFloat64
 }
+type BitsetFileSuffixType string
 
-func (dataCategory DataCategoryType) HashBitsetFileName() (fileName string,err error) {
+var (
+	Hash  BitsetFileSuffixType = "hash"
+	Int BitsetFileSuffixType = "int"
+)
+
+func (dataCategory DataCategoryType) BitsetFileName(suffix BitsetFileSuffixType) (fileName string, err error) {
 	funcName := "DataCategoryType.HashBitsetFileName"
 
 	tracelog.Started(packageName, funcName)
-	fileName = fmt.Sprintf("%v.%v.hash.bitset",
+	fileName = fmt.Sprintf("%v.%v.%v.bitset",
 		dataCategory.Column.Id.String(),
 		dataCategory.Key,
+		suffix,
 	)
 
 	tracelog.Completed(packageName, funcName)
 
-	return fileName,nil
+	return fileName, nil
 }
 
-func (dataCategory DataCategoryType) WriteHashBitsetToDisk(ctx context.Context, pathToDir string) (err error) {
+func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
 	funcName := "DataCategoryType.WriteHashBitsetToDisk"
 
 	tracelog.Started(packageName, funcName)
@@ -173,29 +169,31 @@ func (dataCategory DataCategoryType) WriteHashBitsetToDisk(ctx context.Context, 
 		return err
 	}
 
-	fileName,err := dataCategory.HashBitsetFileName()
+	fileName, err := dataCategory.BitsetFileName(suffix)
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Creating filename for hash bitset", pathToDir)
+		tracelog.Errorf(err, packageName, funcName, "Creating filename for %v bitset %v", suffix, pathToDir)
 		return err
 	}
 
-
-	fullPathFileName := fmt.Sprintf("%v%v%v",pathToDir,os.PathSeparator,fileName)
-	file,err := os.OpenFile(fullPathFileName, os.O_CREATE,0x660)
+	fullPathFileName := fmt.Sprintf("%v%v%v", pathToDir, os.PathSeparator, fileName)
+	file, err := os.OpenFile(fullPathFileName, os.O_CREATE, 0x660)
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Creating file for hash bitset", fullPathFileName)
+		tracelog.Errorf(err, packageName, funcName, "Creating file for %v bitset %v", suffix, fullPathFileName)
 		return err
 	}
 
 	defer file.Close()
 
-	buffered := bufio.NewWriterSize(file,4096);
+	buffered := bufio.NewWriter(file)
 
 	defer buffered.Flush()
-
-	_,err = dataCategory.Stats.HashBitset.WriteTo(ctx,buffered);
+	if suffix  == Hash {
+		_, err = dataCategory.Stats.HashBitset.WriteTo(ctx, buffered)
+	} else {
+		_, err = dataCategory.Stats.IntegerBitset.WriteTo(ctx, buffered)
+	}
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Writing bitset data to file ", fullPathFileName)
+		tracelog.Errorf(err, packageName, funcName, "Writing %v bitset data to file %v", suffix, fullPathFileName)
 		return err
 	}
 
@@ -204,40 +202,38 @@ func (dataCategory DataCategoryType) WriteHashBitsetToDisk(ctx context.Context, 
 	return err
 }
 
-
-
-
-
-
-
 func (dataCategory *DataCategoryType) UpdateStatistics(runContext context.Context) (err error) {
-
+	if len(dataCategory.Stats.MaxStringValue) > VarcharMax {
+		dataCategory.Stats.MaxStringValue = dataCategory.Stats.MaxStringValue[:VarcharMax]
+	}
 	dataCategory.MaxStringValue = nullable.NewNullString(dataCategory.Stats.MaxStringValue)
-	dataCategory.MinStringValue = nullable.NewNullString(dataCategory.Stats.MinStringValue)
-	dataCategory.MaxNumericValue = nullable.NewNullFloat64(dataCategory.Stats.MaxNumericValue)
-	dataCategory.MinNumericValue = nullable.NewNullFloat64(dataCategory.Stats.MinNumericValue)
-	dataCategory.NonNullCount = nullable.NewNullInt64(int64(dataCategory.Stats.NonNullCount))
 
+	if len(dataCategory.Stats.MinStringValue) > VarcharMax {
+		dataCategory.Stats.MinStringValue = dataCategory.Stats.MinStringValue[:VarcharMax]
+	}
+	dataCategory.MinStringValue = nullable.NewNullString(dataCategory.Stats.MinStringValue)
+
+	if dataCategory.IsNumeric.Value() {
+		dataCategory.MaxNumericValue = nullable.NewNullFloat64(dataCategory.Stats.MaxNumericValue)
+		dataCategory.MinNumericValue = nullable.NewNullFloat64(dataCategory.Stats.MinNumericValue)
+	}
+	dataCategory.NonNullCount = nullable.NewNullInt64(int64(dataCategory.Stats.NonNullCount))
 
 	if dataCategory.Stats.HashBitset != nil {
 		dataCategory.HashUniqueCount = nullable.NewNullInt64(int64(dataCategory.Stats.HashBitset.Cardinality()))
 	}
-	if dataCategory.Stats.IntegerBitset != nil {
-		dataCategory.IntegerUniqueCount = nullable.NewNullInt64(int64(dataCategory.Stats.IntegerBitset.Cardinality()))
-	}
-
-
-
-	var count uint64 = 0
-	var meanValue, cumulativeDeviation float64 = 0, 0
-
-	increasingOrder := context.WithValue(runContext, "sort", true)
 
 	bitset := dataCategory.Stats.IntegerBitset
 
+	if dataCategory.IsNumeric.Value() && bitset != nil {
+		dataCategory.IntegerUniqueCount = nullable.NewNullInt64(int64(dataCategory.Stats.IntegerBitset.Cardinality()))
 
-	if bitset != nil {
-		var prevValue = uint64(0);
+		var count uint64 = 0
+		var meanValue, cumulativeDeviation float64 = 0, 0
+
+		increasingOrder := context.WithValue(runContext, "sort", true)
+
+		var prevValue = uint64(0)
 		var gotPrevValue = false
 		for value := range bitset.BitChan(increasingOrder) {
 			if !gotPrevValue {
@@ -249,39 +245,34 @@ func (dataCategory *DataCategoryType) UpdateStatistics(runContext context.Contex
 				prevValue = value
 			}
 		}
-	}
-	if count > 0 {
-		var countInDeviation uint64 = 0
-		meanValue = cumulativeDeviation / float64(count)
-		var totalDeviation = float64(0)
+		if count > 0 {
+			var countInDeviation uint64 = 0
+			meanValue = cumulativeDeviation / float64(count)
+			var totalDeviation = float64(0)
 
-		var prevValue = uint64(0);
-		var gotPrevValue = false
-		for value := range bitset.BitChan(increasingOrder) {
-			if !gotPrevValue {
-				prevValue = value
-				gotPrevValue = true
-			} else {
-				countInDeviation++
-				totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
-				prevValue = value
+			var prevValue = uint64(0)
+			var gotPrevValue = false
+			for value := range bitset.BitChan(increasingOrder) {
+				if !gotPrevValue {
+					prevValue = value
+					gotPrevValue = true
+				} else {
+					countInDeviation++
+					totalDeviation = totalDeviation + math.Pow(meanValue-(float64(value)-float64(prevValue)), 2)
+					prevValue = value
+				}
 			}
+			if countInDeviation > 1 {
+				stdDev := math.Sqrt(totalDeviation / float64(countInDeviation-1))
+				dataCategory.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
+			}
+			dataCategory.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
+			dataCategory.MovingMean = nullable.NewNullFloat64(meanValue)
 		}
-		if countInDeviation > 1 {
-			stdDev := math.Sqrt(totalDeviation / float64(countInDeviation-1))
-			dataCategory.MovingStandardDeviation = nullable.NewNullFloat64(stdDev)
-		}
-		dataCategory.IntegerUniqueCount = nullable.NewNullInt64(int64(count))
-		dataCategory.MovingMean = nullable.NewNullFloat64(meanValue)
 	}
 
 	return err
 }
-
-
-
-
-
 
 /*
 

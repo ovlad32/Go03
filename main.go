@@ -36,7 +36,7 @@ var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 var pathToConfigFile = flag.String("configfile", "./config.json", "path to config file")
 var argMetadataIds = flag.String("metadata_id", string(-math.MaxInt64), "")
 var argWorkflowIds = flag.String("workflow_id", string(-math.MaxInt64), "")
-
+/*
 func readConfig() (*dataflow.DumpConfigType, error) {
 	funcName := "readConfig"
 	if _, err := os.Stat(*pathToConfigFile); os.IsNotExist(err) {
@@ -58,7 +58,7 @@ func readConfig() (*dataflow.DumpConfigType, error) {
 	}
 	return &result, nil
 }
-
+*/
 func f1() {
 	i := 0
 	start := time.Now()
@@ -99,41 +99,10 @@ func f1() {
 	tracelog.Info(packageName, "f1", "Elapsed time: %v", time.Since(start))
 }
 
-func main() {
-	funcName := "main"
-	tracelog.Start(tracelog.LevelInfo)
-	/*
-		go func() {
-			log.Println(http.ListenAndServe("localhost:6060", nil))
-		}()*/
 
-	/*for i := 1; i <= 10; i++ {
-		fmt.Printf("%v, %v, %v, %v \n", i,
-			math.Float64bits(float64(i-1)),
-			math.Float64bits(float64(i)),
-			math.Float64bits(float64(i-1))-math.Float64bits(float64(i)),
-		)
-		i1, i2 := math.Modf(32 + float64(i)*1000000000000)
-		fmt.Printf("%v, [%v, %v] \n", i, i1, i2)
 
-	}
-	return
-	f1()
-	return*/
-	flag.Parse()
-
-	conf, err := readConfig()
-	if err != nil {
-		os.Exit(1)
-	}
-
-	conf.HashValueLength = 8
-
-	if len(conf.LogBaseFile) > 0 {
-		tracelog.StartFile(tracelog.LogLevel(), conf.LogBaseFile, conf.LogBaseFileKeepDay)
-		defer tracelog.Stop()
-	}
-
+func testBitsetBuilding() (err error){
+	funcName := "testBitsetBuilding"
 	metadataIds := make(map[int64]bool)
 	workflowIds := make(map[int64]bool)
 
@@ -162,54 +131,14 @@ func main() {
 			}
 		}
 	}
-
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal("could not create CPU profile: ", err)
-		}
-		if err := pprof.StartCPUProfile(f); err != nil {
-			log.Fatal("could not start CPU profile: ", err)
-		}
-		defer pprof.StopCPUProfile()
-	}
-
-	if *memprofile != "" {
-		f, err := os.Create(*memprofile)
-		if err != nil {
-			log.Fatal("could not create memory profile: ", err)
-		}
-		runtime.GC() // get up-to-date statistics
-		if err := pprof.WriteHeapProfile(f); err != nil {
-			log.Fatal("could not write memory profile: ", err)
-		}
-		f.Close()
-	}
+	tracelog.Started(packageName, funcName)
 
 	dr := dataflow.DataReaderType{
 		Config: conf,
+		Repository: repo,
 	}
 
-	tracelog.Started(packageName, funcName)
-	astraRepo, err := metadata.ConnectToAstraDB(
-		&metadata.RepositoryConfig{
-			Login:        conf.AstraH2Login,
-			DatabaseName: conf.AstraH2Database,
-			Host:         conf.AstraH2Host,
-			Password:     conf.AstraH2Password,
-			Port:         conf.AstraH2Port,
-		},
-	)
-	if err != nil {
-		tracelog.Error(err, packageName, funcName)
-		os.Exit(2)
-	}
-	repo = &dataflow.Repository{Repository: astraRepo}
-	err = repo.CreateDataCategoryTable()
-	if err != nil {
-		tracelog.Error(err, packageName, funcName)
-		os.Exit(2)
-	}
+
 
 	tracelog.Started(packageName, funcName)
 	start := time.Now()
@@ -244,9 +173,9 @@ func main() {
 		}
 
 		for _, table := range tables {
-			if table.String() == "CRA.LIABILITIES" {
-				tablesToProcess = append(tablesToProcess, dataflow.ExpandFromMetadataTable(table))
-			}
+			//if table.String() == "CRA.LIABILITIES" {
+			tablesToProcess = append(tablesToProcess, dataflow.ExpandFromMetadataTable(table))
+			//}
 		}
 	}
 
@@ -270,25 +199,6 @@ func main() {
 				if err != nil {
 					return err
 				}
-
-
-
-				//repo.
-				/*
-				for _, col := range inTable.Columns {
-					//TODO: RECONSIDER IT
-					//err = col.CloseStorage(runContext)
-					if err != nil {
-						tracelog.Error(err, packageName, funcName)
-						break
-					}
-
-					err = repo.PersistDataCategory(col.Categories)
-					if err != nil {
-						tracelog.Error(err, packageName, funcName)
-						break
-					}
-				}*/
 				if err == nil {
 					tracelog.Info(packageName, funcName, "Table processing %v has been done", inTable)
 				}
@@ -300,8 +210,8 @@ func main() {
 
 	var wg sync.WaitGroup
 	if len(tablesToProcess) > 0 {
-		//dr.Config.TableWorkers
-		processTableChan = make(chan *dataflow.TableInfoType,	5)
+
+		processTableChan = make(chan *dataflow.TableInfoType,	dr.Config.TableWorkers)
 		processTableContext, processTableContextCancelFunc := context.WithCancel(context.Background())
 		for index := 0; index < dr.Config.TableWorkers; index++ {
 			wg.Add(1)
@@ -329,4 +239,50 @@ func main() {
 	}
 	tracelog.Info(packageName, funcName, "Elapsed time: %v", time.Since(start))
 	tracelog.Completed(packageName, funcName)
+
 }
+func main() {
+	funcName := "main"
+	flag.Parse()
+	tracelog.Start(tracelog.LevelInfo)
+	defer tracelog.Stop()
+
+
+
+	err := dataflow.Init()
+	if err != nil {
+		os.Exit(1)
+	}
+
+
+
+
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+		f.Close()
+	}
+
+
+
+}
+
+

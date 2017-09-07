@@ -3,6 +3,7 @@ package dataflow
 import (
 	"context"
 	"github.com/goinggo/tracelog"
+	"encoding/json"
 	"time"
 	"bytes"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 	"bufio"
 	"compress/gzip"
 	"io"
-	"runtime"
+	"path/filepath"
+	"astra/B8"
+	"astra/metadata"
 )
 
 type DumpConfigType struct {
@@ -30,7 +33,6 @@ type DumpConfigType struct {
 	CategoryWorkersPerTable int    `json:"category-worker-per-table"`
 	CategoryDataChannelSize int    `json:"category-data-channel-size"`
 	RawDataChannelSize      int    `json:"raw-data-channel-size"`
-	HashValueLength         int
 	EmitRawData             bool   `json:"emit-raw-data"`
 	EmitHashValues          bool   `json:"emit-hash-data"`
 	BuildBinaryDump         bool   `json:"build-binary-dump"`
@@ -42,6 +44,7 @@ type DumpConfigType struct {
 
 type DataReaderType struct {
 	Config         *DumpConfigType
+	Repository *Repository
 	//blockStoreLock sync.RWMutex
 //	blockStores    map[string]*DataCategoryStore
 }
@@ -132,7 +135,7 @@ func (dr DataReaderType) readAstraDump(
 			lineColumnCount := len(lineColumns)
 
 			if metadataColumnCount != lineColumnCount {
-				err = fmt.Errorf("Number of column mismatch in dump file for table %v in line %v. Expected #%v; Actual #%v",
+				err = fmt.Errorf("Number of column mismatch! Table %v, line %v. Expected #%v, actual #%v",
 					table,
 					lineNumber,
 					metadataColumnCount,
@@ -184,13 +187,13 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 				columnData.DataCategory.Stats.HashBitset = sparsebitset.New(0)
 			}*/
 			lineProcessed ++;
-			if time.Since(started).Seconds() >= 10 {
+			if time.Since(started).Minutes() >= 1 {
 				tracelog.Info(packageName, funcName, "Processing speed %.0f lps", float64(lineProcessed)/60.0)
 				lineProcessed = 0
 				started = time.Now()
-				stats := new(runtime.MemStats)
-				runtime.ReadMemStats(stats)
-				fmt.Println(stats.HeapAlloc,stats.HeapSys,stats.HeapInuse)
+				//stats := new(runtime.MemStats)
+				//runtime.ReadMemStats(stats)
+				//fmt.Println(stats.HeapAlloc,stats.HeapSys,stats.HeapInuse)
 			}
 		}
 		return nil
@@ -218,27 +221,115 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 		for _, dataCategory := range column.Categories {
 			err = dataCategory.UpdateStatistics(ctx)
 			if err != nil {
+				tracelog.Errorf(err,packageName,funcName,"Error while update statistics for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
 				return err
 			}
-			err = dataCategory.WriteHashBitsetToDisk(ctx,dr.Config.AstraDumpPath)
+
+			err = dr.Repository.PersistDataCategory(ctx, dataCategory)
 			if err != nil {
+				tracelog.Errorf(err,packageName,funcName,"Error while persisting statistics for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
 				return err
+			}
+
+			err = dataCategory.WriteBitsetToDisk(ctx,dr.Config.AstraDumpPath,Hash)
+			if err != nil {
+				tracelog.Errorf(err,packageName,funcName,"Error while writting hash bitset data for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
+				return err
+			}
+
+			if dataCategory.IsNumeric.Value() && dataCategory.IsInteger.Value() {
+				err = dataCategory.WriteBitsetToDisk(ctx,dr.Config.AstraDumpPath,Int)
+				if err != nil {
+					tracelog.Errorf(err,packageName,funcName,"Error while writting integer bitset data for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
+					return err
+				}
 			}
 		}
 	}
+
+
 	tracelog.Info(packageName, funcName, "Table %v bitsets have been written to disk", table)
 
 	tracelog.Completedf(packageName, funcName, "for table %v", table)
 	return err
 }
 
-func (dr DataReaderType) PersistDataCategoryStatistics(ctx context.Context, table *TableInfoType) (err error) {
+var config *DumpConfigType
+var repository *Repository
+
+func readConfig() (result *DumpConfigType, err error) {
+	funcName := "dataflow::readConfig"
+	ex, err := os.Executable()
+	exPath := filepath.Dir(ex)
+
+	pathToConfigFile := fmt.Sprintf("%v%v%v",exPath,os.PathSeparator,"config.json")
+	if _, err := os.Stat(pathToConfigFile); os.IsNotExist(err) {
+		tracelog.Error(err, funcName, "Specify correct path to config.json")
+		return nil, err
+	}
+
+	conf, err := os.Open(pathToConfigFile)
+	if err != nil {
+		tracelog.Errorf(err, funcName, "Opening config file %v", pathToConfigFile)
+		return nil, err
+	}
+	jd := json.NewDecoder(conf)
+	result = new(DumpConfigType)
+	err = jd.Decode(result)
+	if err != nil {
+		tracelog.Errorf(err, funcName, "Decoding config file %v", pathToConfigFile)
+		return nil, err
+	}
+
+	return result, nil
+}
 
 
-
+func connectToRepository() (result *Repository, err error) {
+	astraRepo, err := metadata.ConnectToAstraDB(
+		&metadata.RepositoryConfig{
+			Login:        config.AstraH2Login,
+			DatabaseName: config.AstraH2Database,
+			Host:         config.AstraH2Host,
+			Password:     config.AstraH2Password,
+			Port:         config.AstraH2Port,
+		},
+	)
+	result = &Repository{Repository: astraRepo}
 	return
 }
 
+
+func Init() (err error){
+	funcName := "dataflow::Init"
+
+	config, err = readConfig()
+	if err != nil {
+		return err
+	}
+	if len(config.LogBaseFile) > 0 {
+		tracelog.StartFile(tracelog.LogLevel(), config.LogBaseFile, config.LogBaseFileKeepDay)
+	}
+	repository,err = connectToRepository()
+	if err != nil {
+		return err
+	}
+
+	err = repository.CreateDataCategoryTable()
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+	}
+	return
+}
+
+
+func NewInstance() (result *DataReaderType, err error ) {
+	return &DataReaderType{
+		Repository: repository,
+		Config:config,
+	},nil
+
+}
 
 
 /*
