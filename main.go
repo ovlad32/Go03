@@ -21,6 +21,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"sort"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -298,7 +299,13 @@ type keyColumnPairArrayType []*keyColumnPairType
 
 func(a keyColumnPairArrayType) Len() int {return len(a) }
 func (a keyColumnPairArrayType) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a keyColumnPairArrayType) Less(i, j int) bool { return a[i].PK.HashUniqueCount.Value()< a[j].PK.HashUniqueCount.Value() }
+func (a keyColumnPairArrayType) Less(i, j int) bool {
+	if a[i].PK.HashUniqueCount.Value() == a[j].PK.HashUniqueCount.Value() {
+		return a[i].FK.HashUniqueCount.Value() < a[j].FK.HashUniqueCount.Value()
+	} else {
+		return a[i].PK.HashUniqueCount.Value() < a[j].PK.HashUniqueCount.Value()
+	}
+}
 
 
 func testBitsetCompare() (err error){
@@ -352,38 +359,54 @@ func testBitsetCompare() (err error){
 			for _, column := range exTable.Columns {
 				column.Categories,err = dr.Repository.DataCategoryByColumnId(column)
 				column.HashUniqueCount = nullable.NullInt64{}
+				column.NonNullCount = nullable.NullInt64{}
 				columnToProcess = append(columnToProcess, column)
 			}
 		}
 	}
 
-	PopulateHashUniqueCount := func(col *dataflow.ColumnInfoType) (err error){
-			var PKHashUniqueCount int64 = 0
-			for _,category := range col.Categories {
-				if !category.HashUniqueCount.Valid() {
-					err = fmt.Errorf("HashUniqueCount statistics is empty in %v", category)
-					tracelog.Error(err, packageName, funcName)
-					return err
-				}
-				PKHashUniqueCount  += category.HashUniqueCount.Value()
+	PopulateAggregatedStatistics := func(col *dataflow.ColumnInfoType) (err error){
+		var hashUniqueCount, nonNullCount int64 = 0,0
+		for _,category := range col.Categories {
+			if !category.HashUniqueCount.Valid() {
+				err = fmt.Errorf("HashUniqueCount statistics is empty in %v", category)
+				tracelog.Error(err, packageName, funcName)
+				return err
 			}
+			if !category.NonNullCount.Valid() {
+				err = fmt.Errorf("NonNullCount statistics is empty in %v", category)
+				tracelog.Error(err, packageName, funcName)
+				return err
+			}
+			hashUniqueCount += category.HashUniqueCount.Value()
+			nonNullCount += category.NonNullCount.Value()
+		}
 
-			col.HashUniqueCount = nullable.NewNullInt64(int64(PKHashUniqueCount))
-			return nil
+		col.HashUniqueCount = nullable.NewNullInt64(int64(hashUniqueCount))
+		col.NonNullCount = nullable.NewNullInt64(int64(nonNullCount))
+		return nil
 	}
 
 	CheckIfNonFK := func (colFK,colPK *dataflow.ColumnInfoType) (nonFK bool, err error){
-		nonFK = len(colFK.Categories)>len(colPK.Categories)
+		if !colFK.TableInfo.RowCount.Valid() {
+			err = fmt.Errorf("RowCount statistics is empty in %v",colFK.TableInfo)
+			tracelog.Error(err,packageName,funcName)
+			return false,err
+		}
+
+		nonFK  = colFK.TableInfo.RowCount.Value() < 2
+		if nonFK {
+			return
+		}
+
+		categoryCount := len(colFK.Categories)
+
+		nonFK = categoryCount==0 || categoryCount > len(colPK.Categories)
 		if nonFK {
 			return
 		}
 
 		for categoryKey,categoryFK := range colFK.Categories {
-			if !categoryFK.HashUniqueCount.Valid() {
-				err = fmt.Errorf("HashUniqueCount statistics is empty in %v",categoryFK)
-				tracelog.Error(err,packageName,funcName)
-				return false, err
-			}
 			if categoryPK,found := colPK.Categories[categoryKey]; !found {
 				return true, nil
 			} else {
@@ -408,6 +431,11 @@ func testBitsetCompare() (err error){
 					nonFK =
 						categoryFK.MaxNumericValue.Value() > categoryPK.MaxNumericValue.Value() ||
 							categoryFK.MinNumericValue.Value() < categoryPK.MinNumericValue.Value()
+					if nonFK {
+						return
+					}
+				default:
+					nonFK = float64(categoryFK.HashUniqueCount.Value()) > float64(categoryPK.HashUniqueCount.Value())*1.2
 					if nonFK {
 						return
 					}
@@ -454,8 +482,8 @@ func testBitsetCompare() (err error){
 	pairs := make(keyColumnPairArrayType,0,1000)
 
 	for leftIndex,leftColumn := range columnToProcess{
-		if !leftColumn.HashUniqueCount.Valid() {
-			err = PopulateHashUniqueCount(leftColumn)
+		if !leftColumn.NonNullCount.Valid() {
+			err = PopulateAggregatedStatistics(leftColumn)
 			if err != nil{
 				return
 			}
@@ -475,10 +503,11 @@ func testBitsetCompare() (err error){
 
 			rightColumn := columnToProcess[rightIndex]
 			if !rightColumn.HashUniqueCount.Valid() {
-				err = PopulateHashUniqueCount(rightColumn)
+				err = PopulateAggregatedStatistics(rightColumn)
 				if err!=nil {
 					return err
 				}
+
 			}
 
 			rightNonPK,err := CheckIfNonPK(rightColumn)
@@ -488,20 +517,6 @@ func testBitsetCompare() (err error){
 
 			if rightNonPK  && leftNonPK {
 				continue;
-			}
-
-			if !rightNonPK{
-				leftNonFK,err := CheckIfNonFK(leftColumn,rightColumn)
-				if err != nil {
-					return  err
-				}
-				if !leftNonFK {
-					pair := &keyColumnPairType{
-						PK:rightColumn,
-						FK:leftColumn,
-					};
-					pairs = append(pairs,pair)
-				}
 			}
 			if !leftNonPK {
 				rightNonFK,err := CheckIfNonFK(rightColumn,leftColumn)
@@ -516,13 +531,29 @@ func testBitsetCompare() (err error){
 					pairs = append(pairs,pair)
 				}
 			}
+			if !rightNonPK{
+				leftNonFK,err := CheckIfNonFK(leftColumn,rightColumn)
+				if err != nil {
+					return  err
+				}
+				if !leftNonFK {
+					pair := &keyColumnPairType{
+						PK:rightColumn,
+						FK:leftColumn,
+					};
+					pairs = append(pairs,pair)
+				}
+			}
+
 		}
 
 	}
-
+	fmt.Println(len(pairs))
+	sort.Sort(sort.Reverse(pairs))
 	for _, pair := range pairs {
-		fmt.Printf("PK:%v.%v - FK:%v.%v\n",pair.PK.TableInfo,pair.PK,pair.FK.TableInfo,pair.FK);
+		fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n",pair.PK,pair.PK.HashUniqueCount,pair.FK,pair.FK.HashUniqueCount,pair.FK.Id);
 	}
+	//TODO: LOAD BITSETs here
 
 	/*processTable := func(runContext context.Context) (err error) {
 		funcName := "processTable"

@@ -1071,7 +1071,7 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 				byOrder = append(byOrder, key)
 			}
 			if desc,ok := ctx.Value("desc").(bool); ok && desc {
-				sort.Reverse(byOrder)
+				sort.Sort(sort.Reverse(byOrder))
 			} else {
 				sort.Sort(byOrder)
 			}
