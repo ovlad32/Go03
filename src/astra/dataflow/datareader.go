@@ -12,7 +12,6 @@ import (
 	"compress/gzip"
 	"io"
 	"path/filepath"
-	"astra/B8"
 	"astra/metadata"
 )
 
@@ -262,7 +261,7 @@ func readConfig() (result *DumpConfigType, err error) {
 	ex, err := os.Executable()
 	exPath := filepath.Dir(ex)
 
-	pathToConfigFile := fmt.Sprintf("%v%v%v",exPath,os.PathSeparator,"config.json")
+	pathToConfigFile := fmt.Sprintf("%v%c%v",exPath,os.PathSeparator,"config.json")
 	if _, err := os.Stat(pathToConfigFile); os.IsNotExist(err) {
 		tracelog.Error(err, funcName, "Specify correct path to config.json")
 		return nil, err

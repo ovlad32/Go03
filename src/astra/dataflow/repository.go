@@ -228,7 +228,7 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 
 
 
-func (h2 Repository) dataCategory(whereFunc func() string) (result []*DataCategoryType, err error) {
+func (h2 Repository) dataCategory(whereFunc func() string) (result map[string]*DataCategoryType, err error) {
 
 	tx, err := h2.IDb.Begin()
 	if err != nil {
@@ -236,7 +236,7 @@ func (h2 Repository) dataCategory(whereFunc func() string) (result []*DataCatego
 	}
 	defer tx.Rollback()
 
-	result = make([]*DataCategoryType, 0)
+	result = make(map[string]*DataCategoryType, 0)
 
 	query := "SELECT " +
 		" KEY "+
@@ -284,12 +284,12 @@ func (h2 Repository) dataCategory(whereFunc func() string) (result []*DataCatego
 		if err != nil {
 			return
 		}
-		result = append(result, &row)
+		result[row.Key] = &row;
 	}
 	return
 }
 
-func (h2 Repository) DataCategoryByColumnId(column *ColumnInfoType) (result []*DataCategoryType, err error) {
+func (h2 Repository) DataCategoryByColumnId(column *ColumnInfoType) (result map[string]*DataCategoryType, err error) {
 	whereFunc := func() string {
 		if column != nil && column.Id.Valid() {
 			return fmt.Sprintf(" WHERE COLUMN_ID = %v ", column.Id)

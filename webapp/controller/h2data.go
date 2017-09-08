@@ -4,7 +4,6 @@ import (
 	"../../metadata"
 	"net/http"
 	"encoding/json"
-	"astra/dataflow"
 )
 
 func GetDC(w http.ResponseWriter, r *http.Request){
@@ -16,11 +15,3 @@ func GetDC(w http.ResponseWriter, r *http.Request){
 }
 
 
-func TableBuildBitset(w http.ResponseWriter, r *http.Request) {
-	dr, err := dataflow.NewInstance()
-
-	dr.BuildHashBitset()
-
-
-
-}

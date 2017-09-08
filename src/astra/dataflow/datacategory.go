@@ -135,6 +135,10 @@ var (
 	Hash  BitsetFileSuffixType = "hash"
 	Int BitsetFileSuffixType = "int"
 )
+func (dataCategory DataCategoryType) String() (result string) {
+	result = fmt.Sprintf("DataCategory(Key:%v) on %v.%v.",dataCategory.Column.TableInfo,dataCategory.Column,dataCategory.Key)
+	return
+}
 
 func (dataCategory DataCategoryType) BitsetFileName(suffix BitsetFileSuffixType) (fileName string, err error) {
 	funcName := "DataCategoryType.HashBitsetFileName"
