@@ -1,18 +1,18 @@
 package dataflow
 
 import (
-	"context"
-	"github.com/goinggo/tracelog"
-	"encoding/json"
-	"time"
-	"bytes"
-	"fmt"
-	"os"
-	"bufio"
-	"compress/gzip"
-	"io"
-	"path/filepath"
 	"astra/metadata"
+	"bufio"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/goinggo/tracelog"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
 )
 
 type DumpConfigType struct {
@@ -42,27 +42,25 @@ type DumpConfigType struct {
 }
 
 type DataReaderType struct {
-	Config         *DumpConfigType
+	Config     *DumpConfigType
 	Repository *Repository
 	//blockStoreLock sync.RWMutex
-//	blockStores    map[string]*DataCategoryStore
+	//	blockStores    map[string]*DataCategoryStore
 }
 
 var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
 
-
-
 func (dr DataReaderType) readAstraDump(
-		ctx context.Context,
-		table *TableInfoType,
-		rowProcessingFunc func(context.Context, uint64, [][]byte) error,
-		cfg *TableDumpConfig,
+	ctx context.Context,
+	table *TableInfoType,
+	rowProcessingFunc func(context.Context, uint64, [][]byte) error,
+	cfg *TableDumpConfig,
 ) (uint64, error) {
 	funcName := "DataReaderType.readAstraDump"
 	var x0D = []byte{0x0D}
 
 	if rowProcessingFunc == nil {
-		return 0,fmt.Errorf("Row processing function must be defined!")
+		return 0, fmt.Errorf("Row processing function must be defined!")
 	}
 
 	gzFile, err := os.Open(cfg.Path + table.PathToFile.Value())
@@ -91,8 +89,6 @@ func (dr DataReaderType) readAstraDump(
 		cfg.Path = defaultConfig.Path
 	}
 
-
-
 	bf := bufio.NewReaderSize(gzFile, cfg.BufferSize)
 	file, err := gzip.NewReader(bf)
 	if err != nil {
@@ -107,15 +103,15 @@ func (dr DataReaderType) readAstraDump(
 	for {
 		select {
 		case <-ctx.Done():
-			tracelog.Info(packageName,funcName,"Context.Done signalled while processing table %v",table)
+			tracelog.Info(packageName, funcName, "Context.Done signalled while processing table %v", table)
 			return lineNumber, nil
 		default:
 			line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
 			if err == io.EOF {
-				tracelog.Info(packageName,funcName,"EOF has been reached in %v ",cfg.Path + table.PathToFile.Value())
+				tracelog.Info(packageName, funcName, "EOF has been reached in %v ", cfg.Path+table.PathToFile.Value())
 				return lineNumber, nil
 			} else if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Error while reading slice from %v",cfg.Path + table.PathToFile.Value())
+				tracelog.Errorf(err, packageName, funcName, "Error while reading slice from %v", cfg.Path+table.PathToFile.Value())
 				return lineNumber, err
 			}
 
@@ -147,7 +143,7 @@ func (dr DataReaderType) readAstraDump(
 			err = rowProcessingFunc(ctx, lineNumber, lineColumns)
 
 			if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Error while processing %v",table)
+				tracelog.Errorf(err, packageName, funcName, "Error while processing %v", table)
 				return lineNumber, err
 			}
 		}
@@ -156,36 +152,34 @@ func (dr DataReaderType) readAstraDump(
 	return lineNumber, nil
 }
 
-
-
 func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoType) (err error) {
 	funcName := "DataReaderType.BuildHashBitset"
 	tracelog.Startedf(packageName, funcName, "for table %v", table)
 
-	var started time.Time;
+	var started time.Time
 	var lineProcessed uint64
 
 	started = time.Now()
-	processRowContent := func(ctx context.Context, lineNumber uint64,rowData [][]byte) (err error) {
+	processRowContent := func(ctx context.Context, lineNumber uint64, rowData [][]byte) (err error) {
 		for columnNumber, column := range table.Columns {
 			columnData := column.NewColumnData(rowData[columnNumber])
 			if columnData == nil {
-				continue;
+				continue
 			}
 
 			columnData.LineNumber = lineNumber
 
-			columnData.DiscoverDataCategory();
-			columnData.Encode();
+			columnData.DiscoverDataCategory()
+			columnData.Encode()
 			/*
-			if false && columnData.DataCategory.Stats.HashBitset.BinarySize() > 1024*1024*1024 {
-				err = columnData.DataCategory.WriteHashBitsetToDisk(runContext,dr.Config.BinaryDumpPath)
-				if err == nil {
-					//TODO:
-				}
-				columnData.DataCategory.Stats.HashBitset = sparsebitset.New(0)
-			}*/
-			lineProcessed ++;
+				if false && columnData.DataCategory.Stats.HashBitset.BinarySize() > 1024*1024*1024 {
+					err = columnData.DataCategory.WriteHashBitsetToDisk(runContext,dr.Config.BinaryDumpPath)
+					if err == nil {
+						//TODO:
+					}
+					columnData.DataCategory.Stats.HashBitset = sparsebitset.New(0)
+				}*/
+			lineProcessed++
 			if time.Since(started).Minutes() >= 1 {
 				tracelog.Info(packageName, funcName, "Processing speed %.0f lps", float64(lineProcessed)/60.0)
 				lineProcessed = 0
@@ -216,36 +210,39 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 		tracelog.Info(packageName, funcName, "Table %v processed. %v have been read", table, linesRead)
 	}
 
-	for _,column := range table.Columns {
+	for _, column := range table.Columns {
 		for _, dataCategory := range column.Categories {
 			err = dataCategory.UpdateStatistics(ctx)
 			if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Error while update statistics for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
+				tracelog.Errorf(err, packageName, funcName, "Error while update statistics for %v.%v (%v)", table, column.ColumnName, dataCategory.Key)
 				return err
 			}
 
 			err = dr.Repository.PersistDataCategory(ctx, dataCategory)
 			if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Error while persisting statistics for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
+				tracelog.Errorf(err, packageName, funcName, "Error while persisting statistics for %v.%v (%v)", table, column.ColumnName, dataCategory.Key)
 				return err
 			}
 
-			err = dataCategory.WriteBitsetToDisk(ctx,dr.Config.AstraDumpPath,Hash)
+			err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.AstraDumpPath, Hash)
 			if err != nil {
-				tracelog.Errorf(err,packageName,funcName,"Error while writting hash bitset data for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
+				tracelog.Errorf(err, packageName, funcName, "Error while writting hash bitset data for %v.%v (%v)", table, column.ColumnName, dataCategory.Key)
 				return err
 			}
 
-			if dataCategory.IsNumeric.Value() && dataCategory.IsInteger.Value() {
-				err = dataCategory.WriteBitsetToDisk(ctx,dr.Config.AstraDumpPath,Int)
-				if err != nil {
-					tracelog.Errorf(err,packageName,funcName,"Error while writting integer bitset data for %v.%v (%v)",table,column.ColumnName,dataCategory.Key)
-					return err
+			if dataCategory.IsNumeric.Value() {
+				if dataCategory.IsInteger.Value() {
+					err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.AstraDumpPath, Cont)
 				}
+			} else {
+				err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.AstraDumpPath, Cont)
+			}
+			if err != nil {
+				tracelog.Errorf(err, packageName, funcName, "Error while writting integer bitset data for %v.%v (%v)", table, column.ColumnName, dataCategory.Key)
+				return err
 			}
 		}
 	}
-
 
 	tracelog.Info(packageName, funcName, "Table %v bitsets have been written to disk", table)
 
@@ -261,7 +258,7 @@ func readConfig() (result *DumpConfigType, err error) {
 	ex, err := os.Executable()
 	exPath := filepath.Dir(ex)
 
-	pathToConfigFile := fmt.Sprintf("%v%c%v",exPath,os.PathSeparator,"config.json")
+	pathToConfigFile := fmt.Sprintf("%v%c%v", exPath, os.PathSeparator, "config.json")
 	if _, err := os.Stat(pathToConfigFile); os.IsNotExist(err) {
 		tracelog.Error(err, funcName, "Specify correct path to config.json")
 		return nil, err
@@ -283,7 +280,6 @@ func readConfig() (result *DumpConfigType, err error) {
 	return result, nil
 }
 
-
 func connectToRepository() (result *Repository, err error) {
 	astraRepo, err := metadata.ConnectToAstraDB(
 		&metadata.RepositoryConfig{
@@ -298,8 +294,7 @@ func connectToRepository() (result *Repository, err error) {
 	return
 }
 
-
-func Init() (err error){
+func Init() (err error) {
 	funcName := "dataflow::Init"
 
 	config, err = readConfig()
@@ -309,7 +304,7 @@ func Init() (err error){
 	if len(config.LogBaseFile) > 0 {
 		tracelog.StartFile(tracelog.LogLevel(), config.LogBaseFile, config.LogBaseFileKeepDay)
 	}
-	repository,err = connectToRepository()
+	repository, err = connectToRepository()
 	if err != nil {
 		return err
 	}
@@ -321,15 +316,13 @@ func Init() (err error){
 	return
 }
 
-
-func NewInstance() (result *DataReaderType, err error ) {
+func NewInstance() (result *DataReaderType, err error) {
 	return &DataReaderType{
 		Repository: repository,
-		Config:config,
-	},nil
+		Config:     config,
+	}, nil
 
 }
-
 
 /*
 type StoreType struct {

@@ -5,9 +5,9 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
-	"github.com/boltdb/bolt"
 )
 
 type TableDumpConfig struct {
@@ -30,14 +30,13 @@ func defaultTableDumpConfig() *TableDumpConfig {
 
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
-	TableInfo            *TableInfoType
-
+	TableInfo *TableInfoType
 
 	//stringAnalysisLock  sync.Mutex
 	//numericAnalysisLock sync.Mutex
 
 	//categoryRLock                sync.RWMutex
-	Categories                   map[string]*DataCategoryType
+	Categories map[string]*DataCategoryType
 	//CategoriesB                  []map[string]*DataCategoryType
 	//initCategories               sync.Once
 	//numericPositiveBitsetChannel chan uint64
@@ -46,7 +45,6 @@ type ColumnInfoType struct {
 	//NumericNegativeBitset        *sparsebitset.BitSet
 	//drainBitsetChannels          sync.WaitGroup
 }
-
 
 func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *DataCategoryType, err error),
 ) (result *DataCategoryType, err error) {
@@ -69,54 +67,48 @@ func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *Dat
 	return result, err
 }
 
-
-
-
 type tableBinaryType struct {
-    *bufio.Writer
-	dFile     *os.File
+	*bufio.Writer
+	dFile         *os.File
 	dFullFileName string
 }
 
 func (t *tableBinaryType) Close() (err error) {
 	funcName := "tableBinaryType.Close"
 
-	if t==nil {
+	if t == nil {
 		return nil
 	}
 
 	err = t.Flush()
 	if err != nil {
-		tracelog.Errorf(err,packageName,funcName,"Flushing data to %v ",t.dFullFileName)
+		tracelog.Errorf(err, packageName, funcName, "Flushing data to %v ", t.dFullFileName)
 		return err
 	}
 
 	if t.dFile != nil {
 		err = t.dFile.Close()
 		if err != nil {
-			tracelog.Errorf(err,packageName,funcName,"Closing file %v ",t.dFullFileName)
+			tracelog.Errorf(err, packageName, funcName, "Closing file %v ", t.dFullFileName)
 			return err
 		}
 	}
 	return nil
 }
 
-
-
-
 type TableInfoType struct {
 	*metadata.TableInfoType
-	Columns            []*ColumnInfoType
-	DataDump  *tableBinaryType
-	HashDump  *tableBinaryType
-	bitSetStorage *bolt.DB;
-	currentTx *bolt.Tx;
+	Columns       []*ColumnInfoType
+	DataDump      *tableBinaryType
+	HashDump      *tableBinaryType
+	bitSetStorage *bolt.DB
+	currentTx     *bolt.Tx
 }
 
 func (ti *TableInfoType) openBinaryDump(
-		pathToBinaryDir, suffix string,
-		flags int,
-) 	(result *tableBinaryType, err error) {
+	pathToBinaryDir, suffix string,
+	flags int,
+) (result *tableBinaryType, err error) {
 
 	funcName := "TableInfoType.openBinaryDump"
 	tracelog.Started(packageName, funcName)
@@ -124,7 +116,7 @@ func (ti *TableInfoType) openBinaryDump(
 	if pathToBinaryDir == "" {
 		err = errors.New("Given path to binary dump directory is empty")
 		tracelog.Error(err, packageName, funcName)
-		return nil,err
+		return nil, err
 	}
 
 	err = os.MkdirAll(pathToBinaryDir, 700)
@@ -144,7 +136,7 @@ func (ti *TableInfoType) openBinaryDump(
 	file, err := os.OpenFile(pathToBinaryFile, flags, 0666)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Opening file %v", pathToBinaryFile)
-		return nil,err
+		return nil, err
 	}
 
 	result = &tableBinaryType{
@@ -153,12 +145,12 @@ func (ti *TableInfoType) openBinaryDump(
 		dFullFileName: pathToBinaryFile,
 	}
 
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 
 	return result, nil
 }
 
-func (t *TableInfoType) NewDataDump(pathToBinaryDir string) (err error ){
+func (t *TableInfoType) NewDataDump(pathToBinaryDir string) (err error) {
 	result, err := t.openBinaryDump(
 		pathToBinaryDir,
 		"data",
@@ -171,7 +163,7 @@ func (t *TableInfoType) NewDataDump(pathToBinaryDir string) (err error ){
 	return err
 }
 
-func (t *TableInfoType) NewHashDump(pathToBinaryDir string) (err error ){
+func (t *TableInfoType) NewHashDump(pathToBinaryDir string) (err error) {
 	result, err := t.openBinaryDump(
 		pathToBinaryDir,
 		"hash",
@@ -184,13 +176,7 @@ func (t *TableInfoType) NewHashDump(pathToBinaryDir string) (err error ){
 	return err
 }
 
-
-
-
-
-
-
-func (t *TableInfoType) NewBoltDb(pathToBinaryDir string) (err error){
+func (t *TableInfoType) NewBoltDb(pathToBinaryDir string) (err error) {
 
 	funcName := "TableInfoType.openBinaryDump"
 	tracelog.Started(packageName, funcName)
@@ -215,17 +201,15 @@ func (t *TableInfoType) NewBoltDb(pathToBinaryDir string) (err error){
 		"bitset",
 	)
 
-	t.bitSetStorage, err = bolt.Open(pathToBinaryFile, 0666,nil)
+	t.bitSetStorage, err = bolt.Open(pathToBinaryFile, 0666, nil)
 	if err != nil {
-		tracelog.Errorf(err,packageName,funcName,"Creating bolt db %v "+pathToBinaryFile)
+		tracelog.Errorf(err, packageName, funcName, "Creating bolt db %v "+pathToBinaryFile)
 	}
-	tracelog.Completed(packageName,funcName)
+	tracelog.Completed(packageName, funcName)
 	return
 }
 
-
-func (t *TableInfoType) CloseBoltDb() (err error){
-
+func (t *TableInfoType) CloseBoltDb() (err error) {
 
 	if t.bitSetStorage != nil {
 		err = t.bitSetStorage.Close()
@@ -255,16 +239,12 @@ func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoTy
 	for index := range table.Columns {
 		result.Columns = append(result.Columns, &ColumnInfoType{
 			ColumnInfoType: table.Columns[index],
-			TableInfo:result,
+			TableInfo:      result,
 		},
 		)
 	}
 	return result
 }
-
-
-
-
 
 /*
 
@@ -407,8 +387,6 @@ func (ci *ColumnInfoType) AnalyzeNumericValue(floatValue float64) {
 
 
 */
-
-
 
 /*
 

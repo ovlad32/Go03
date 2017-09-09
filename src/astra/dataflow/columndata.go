@@ -75,16 +75,22 @@ func (columnData *ColumnDataType) DiscoverDataCategory() (simpleCategory *DataCa
 			columnData.DataCategory.Stats.MinNumericValue = floatValue
 		}
 		if simpleCategory.IsInteger {
-			if columnData.DataCategory.Stats.IntegerBitset == nil {
-				columnData.DataCategory.Stats.IntegerBitset = sparsebitset.New(0)
+			if columnData.DataCategory.Stats.ContentBitset == nil {
+				columnData.DataCategory.Stats.ContentBitset = sparsebitset.New(0)
 			}
 			if simpleCategory.IsNegative {
-				columnData.DataCategory.Stats.IntegerBitset.Set(uint64(-truncatedFloatValue))
+				columnData.DataCategory.Stats.ContentBitset.Set(uint64(-truncatedFloatValue))
 			} else {
-				columnData.DataCategory.Stats.IntegerBitset.Set(uint64(truncatedFloatValue))
+				columnData.DataCategory.Stats.ContentBitset.Set(uint64(truncatedFloatValue))
 			}
 		}
 	} else {
+		if columnData.DataCategory.Stats.ContentBitset == nil {
+			columnData.DataCategory.Stats.ContentBitset = sparsebitset.New(0)
+		}
+		for _,charValue := range stringValue {
+			columnData.DataCategory.Stats.ContentBitset.Set(uint64(charValue))
+		}
 		if columnData.DataCategory.Stats.MaxStringValue == "" ||
 			columnData.DataCategory.Stats.MaxStringValue < stringValue {
 			columnData.DataCategory.Stats.MaxStringValue = stringValue
