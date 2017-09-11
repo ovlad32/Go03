@@ -121,8 +121,9 @@ type DataCategoryType struct {
 		MovingMean              float64
 		MovingStandardDeviation float64
 		ContentBitset           *sparsebitset.BitSet
+		ContentBitsetCardinality uint64
 		HashBitset              *sparsebitset.BitSet
-		HashBitsetPartNumber    uint64
+		HashBitsetCardinality uint64
 	}
 	ItemCount               nullable.NullInt64
 	Key                     string
@@ -143,7 +144,6 @@ func (dataCategory DataCategoryType) String() (result string) {
 
 func (dataCategory DataCategoryType) BitsetFileName(suffix BitsetFileSuffixType) (fileName string, err error) {
 	funcName := "DataCategoryType.HashBitsetFileName"
-
 	tracelog.Started(packageName, funcName)
 	fileName = fmt.Sprintf("%v.%v.%v.bitset",
 		dataCategory.Column.Id.String(),
@@ -155,6 +155,13 @@ func (dataCategory DataCategoryType) BitsetFileName(suffix BitsetFileSuffixType)
 
 	return fileName, nil
 }
+
+
+func composeBistsetFileFullPath(pathToDir, fileName string) string {
+	fullPathFileName := fmt.Sprintf("%v%c%v", pathToDir, os.PathSeparator, fileName)
+	return fullPathFileName
+}
+
 
 func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
 	funcName := "DataCategoryType.WriteHashBitsetToDisk"
@@ -176,12 +183,13 @@ func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, path
 
 	fileName, err := dataCategory.BitsetFileName(suffix)
 	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Creating filename for %v bitset %v", suffix, pathToDir)
+		tracelog.Errorf(err, packageName, funcName, "Reading %v bitset data from %v", suffix, pathToDir)
 		return err
 	}
 
-	fullPathFileName := fmt.Sprintf("%v%c%v", pathToDir, os.PathSeparator, fileName)
-	file, err := os.OpenFile(fullPathFileName, os.O_CREATE, 0x660)
+	fullPathFileName := composeBistsetFileFullPath(pathToDir, fileName)
+
+	file, err := os.Create(fullPathFileName)
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Creating file for %v bitset %v", suffix, fullPathFileName)
 		return err
@@ -206,6 +214,71 @@ func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, path
 
 	return err
 }
+
+
+func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
+	funcName := "DataCategoryType.ReadBitsetFromDisk"
+
+	tracelog.Started(packageName, funcName)
+
+	if pathToDir == "" {
+		err = errors.New("Given path to binary dump directory is empty")
+		tracelog.Error(err, packageName, funcName)
+		return err
+	}
+
+	fileName, err := dataCategory.BitsetFileName(suffix)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Creating filename for %v bitset %v", suffix, pathToDir)
+		return err
+	}
+
+	fullPathFileName := composeBistsetFileFullPath(pathToDir, fileName)
+	file, err := os.Open(fullPathFileName)
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Creating file for %v bitset %v", suffix, fullPathFileName)
+		return err
+	}
+
+	defer file.Close()
+
+	buffered := bufio.NewReader(file)
+
+	if suffix == Hash {
+		_, err = dataCategory.Stats.HashBitset.ReadFrom(ctx, buffered)
+		if err == nil {
+			dataCategory.Stats.HashBitsetCardinality = dataCategory.Stats.HashBitset.Cardinality()
+		}
+	} else {
+		_, err = dataCategory.Stats.ContentBitset.ReadFrom(ctx, buffered)
+		if err == nil {
+			dataCategory.Stats.ContentBitsetCardinality = dataCategory.Stats.ContentBitset.Cardinality()
+		}
+	}
+	if err != nil {
+		tracelog.Errorf(err, packageName, funcName, "Reading %v bitset data to file %v", suffix, fullPathFileName)
+		return err
+	}
+
+	tracelog.Completed(packageName, funcName)
+
+	return err
+}
+
+func (dataCategory DataCategoryType) ResetBitset(suffixType BitsetFileSuffixType) {
+	if suffixType == Hash {
+		if dataCategory.Stats.HashBitset != nil{
+			dataCategory.Stats.HashBitset = nil
+		}
+		dataCategory.Stats.HashBitsetCardinality = 0
+	} else {
+		if dataCategory.Stats.ContentBitset != nil{
+			dataCategory.Stats.ContentBitset = nil
+		}
+		dataCategory.Stats.ContentBitsetCardinality = 0
+	}
+}
+
 
 func (dataCategory *DataCategoryType) UpdateStatistics(runContext context.Context) (err error) {
 

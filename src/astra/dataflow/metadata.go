@@ -217,6 +217,14 @@ func (t *TableInfoType) CloseBoltDb() (err error) {
 	return
 }
 
+func (c *ColumnInfoType) ResetBitset(suffixType BitsetFileSuffixType){
+	if c.Categories != nil {
+		for _, v := range c.Categories {
+			v.ResetBitset(suffixType)
+		}
+	}
+}
+
 func (c *ColumnInfoType) IsNumericDataType() bool {
 	realType := c.RealDataType.Value()
 	result :=

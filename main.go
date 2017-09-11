@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sparsebitset"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -132,8 +133,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	testBitsetBuilding()
-	//testBitsetCompare()
+	//testBitsetBuilding()
+	testBitsetCompare()
 
 }
 
@@ -485,7 +486,8 @@ func testBitsetCompare() (err error) {
 		return nonPK, nil
 	}
 
-	pairs := make(keyColumnPairArrayType, 0, 1000)
+	pairs0 := make(keyColumnPairArrayType, 0, 1000)
+	var bruteForcePairCount int = 0
 
 	for leftIndex, leftColumn := range columnToProcess {
 		if !leftColumn.NonNullCount.Valid() {
@@ -506,6 +508,7 @@ func testBitsetCompare() (err error) {
 		}*/
 
 		for rightIndex := leftIndex + 1; rightIndex < len(columnToProcess); rightIndex++ {
+			bruteForcePairCount = bruteForcePairCount + 1
 
 			rightColumn := columnToProcess[rightIndex]
 			if !rightColumn.HashUniqueCount.Valid() {
@@ -534,7 +537,7 @@ func testBitsetCompare() (err error) {
 						PK: leftColumn,
 						FK: rightColumn,
 					}
-					pairs = append(pairs, pair)
+					pairs0 = append(pairs0, pair)
 				}
 			}
 			if !rightNonPK {
@@ -547,18 +550,152 @@ func testBitsetCompare() (err error) {
 						PK: rightColumn,
 						FK: leftColumn,
 					}
-					pairs = append(pairs, pair)
+					pairs0 = append(pairs0, pair)
 				}
 			}
 
 		}
+	}
 
+	fmt.Println(bruteForcePairCount, len(pairs0), float64(len(pairs0))*100/float64(bruteForcePairCount))
+	sort.Sort(sort.Reverse(pairs0))
+	var lastPKColumn *dataflow.ColumnInfoType
+
+	analyzeContentBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
+		if dataCategoryPK.Stats.ContentBitset == nil {
+			dataCategoryPK.Stats.ContentBitset = sparsebitset.New(0)
+			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Cont)
+		}
+		if dataCategoryFK.Stats.ContentBitset == nil {
+			dataCategoryFK.Stats.ContentBitset = sparsebitset.New(0)
+			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Cont)
+		}
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return false, err
+		}
+		var cardinality uint64
+		if dataCategoryFK.Stats.ContentBitset == nil {
+			tracelog.Info(packageName, funcName, "Content Bitset for %v (%v) is null ", dataCategoryFK.Column, dataCategoryFK.Key)
+			return false, nil
+		} else {
+			cardinality, err = dataCategoryFK.Stats.ContentBitset.IntersectionCardinality(dataCategoryPK.Stats.ContentBitset)
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return false, err
+			}
+		}
+		return cardinality == dataCategoryPK.Stats.ContentBitsetCardinality, nil
 	}
-	fmt.Println(len(pairs))
-	sort.Sort(sort.Reverse(pairs))
-	for _, pair := range pairs {
-		fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+
+	analyzeHashBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
+		if dataCategoryPK.Stats.HashBitset == nil {
+			dataCategoryPK.Stats.HashBitset = sparsebitset.New(0)
+			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Hash)
+		}
+		if dataCategoryFK.Stats.HashBitset == nil {
+			dataCategoryFK.Stats.HashBitset = sparsebitset.New(0)
+			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Hash)
+		}
+		if err != nil {
+			tracelog.Error(err, packageName, funcName)
+			return false, err
+		}
+		var cardinality uint64
+		if dataCategoryFK.Stats.HashBitset == nil {
+			tracelog.Info(packageName, funcName, "Hash Bitset for %v (%v) is null ", dataCategoryFK.Column.Id, dataCategoryFK.Key)
+			return false, nil
+		} else {
+				cardinality, err = dataCategoryFK.Stats.HashBitset.IntersectionCardinality(dataCategoryPK.Stats.HashBitset)
+			/*if dataCategoryPK.Column.ColumnName.Value() == "EXPIRY_DATE" && dataCategoryFK.Column.ColumnName.Value() == "CORPORATE_DATE_FUNDED" {
+				fmt.Printf(
+					"SELECT %v from %v minus SELECT %v from %v /*%v,%v,%v*,%v/\n",
+					dataCategoryFK.Column.ColumnName,
+					dataCategoryFK.Column.TableInfo,
+					dataCategoryPK.Column.ColumnName,
+					dataCategoryPK.Column.TableInfo,
+					cardinality,dataCategoryPK.Stats.HashBitsetCardinality,dataCategoryFK.Stats.HashBitset.Cardinality(),dataCategoryPK.Stats.HashBitset.Cardinality())
+			}*/
+			if err != nil {
+				tracelog.Error(err, packageName, funcName)
+				return false, err
+			}
+		}
+		return cardinality == dataCategoryPK.Stats.HashBitsetCardinality, nil
 	}
+
+	traversePairs := func(
+		pairs keyColumnPairArrayType,
+		processPairFunc func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error),
+	) (nextPairs keyColumnPairArrayType, err error) {
+
+		for _, pair := range pairs {
+			if lastPKColumn != nil {
+				if lastPKColumn != pair.PK {
+					lastPKColumn.ResetBitset(dataflow.Cont)
+				}
+			}
+			ctx, ctxCancelFunc := context.WithCancel(context.Background())
+			var result = true
+			for dataCategoryKey, dataCategoryFK := range pair.FK.Categories {
+				if dataCategoryPK, found := pair.PK.Categories[dataCategoryKey]; !found {
+					err = fmt.Errorf("The second pass for column pair PK:%v - FK:%v doesn't reveal datacategory for the key code %v.", pair.PK, pair.FK, dataCategoryKey)
+					tracelog.Error(err, packageName, funcName)
+					ctxCancelFunc()
+					return
+				} else {
+					result, err = processPairFunc(ctx, dataCategoryPK, dataCategoryFK)
+					if err != nil {
+						tracelog.Error(err, packageName, funcName)
+						ctxCancelFunc()
+						return nil, err
+					}
+					if !result {
+						break
+					}
+				}
+			}
+			if result {
+				if nextPairs == nil {
+					nextPairs = make(keyColumnPairArrayType, 0, 1000)
+				}
+				nextPairs = append(nextPairs, pair)
+			}
+		}
+		return nextPairs, nil
+	}
+
+	pairs1, err := traversePairs(pairs0, analyzeContentBitsetFunc)
+	if pairs1 == nil {
+		return
+	}
+	fmt.Println(bruteForcePairCount, len(pairs1), float64(len(pairs1))*100/float64(bruteForcePairCount))
+
+	for _, pair := range pairs0 {
+		pair.PK.ResetBitset(dataflow.Cont)
+		pair.FK.ResetBitset(dataflow.Cont)
+	}
+
+	pairs2, err := traversePairs(pairs1, analyzeHashBitsetFunc)
+	if pairs2 == nil {
+		return
+	}
+	fmt.Println(bruteForcePairCount, len(pairs2), float64(len(pairs2))*100/float64(bruteForcePairCount))
+	if true {
+		for _, pair := range pairs2 {
+			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+		}
+	}
+
+	for _, pair := range pairs1 {
+		pair.PK.ResetBitset(dataflow.Hash)
+		pair.FK.ResetBitset(dataflow.Hash)
+	}
+
+	/*
+		for _, pair := range pairs0 {
+			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+		}*/
 	//TODO: LOAD BITSETs here
 
 	/*processTable := func(runContext context.Context) (err error) {
