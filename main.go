@@ -606,16 +606,8 @@ func testBitsetCompare() (err error) {
 			tracelog.Info(packageName, funcName, "Hash Bitset for %v (%v) is null ", dataCategoryFK.Column.Id, dataCategoryFK.Key)
 			return false, nil
 		} else {
-				cardinality, err = dataCategoryFK.Stats.HashBitset.IntersectionCardinality(dataCategoryPK.Stats.HashBitset)
-			/*if dataCategoryPK.Column.ColumnName.Value() == "EXPIRY_DATE" && dataCategoryFK.Column.ColumnName.Value() == "CORPORATE_DATE_FUNDED" {
-				fmt.Printf(
-					"SELECT %v from %v minus SELECT %v from %v /*%v,%v,%v*,%v/\n",
-					dataCategoryFK.Column.ColumnName,
-					dataCategoryFK.Column.TableInfo,
-					dataCategoryPK.Column.ColumnName,
-					dataCategoryPK.Column.TableInfo,
-					cardinality,dataCategoryPK.Stats.HashBitsetCardinality,dataCategoryFK.Stats.HashBitset.Cardinality(),dataCategoryPK.Stats.HashBitset.Cardinality())
-			}*/
+			cardinality, err = dataCategoryFK.Stats.HashBitset.IntersectionCardinality(dataCategoryPK.Stats.HashBitset)
+
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return false, err
@@ -636,7 +628,7 @@ func testBitsetCompare() (err error) {
 				}
 			}
 			ctx, ctxCancelFunc := context.WithCancel(context.Background())
-			var result = true
+			var result= true
 			for dataCategoryKey, dataCategoryFK := range pair.FK.Categories {
 				if dataCategoryPK, found := pair.PK.Categories[dataCategoryKey]; !found {
 					err = fmt.Errorf("The second pass for column pair PK:%v - FK:%v doesn't reveal datacategory for the key code %v.", pair.PK, pair.FK, dataCategoryKey)
@@ -686,17 +678,91 @@ func testBitsetCompare() (err error) {
 			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
 		}
 	}
-
 	for _, pair := range pairs1 {
 		pair.PK.ResetBitset(dataflow.Hash)
 		pair.FK.ResetBitset(dataflow.Hash)
 	}
 
+	//TODO: LOAD data here
+	{
+	columnMap := make(map[*dataflow.TableInfoType][]*dataflow.ColumnInfoType)
+
+	appendToColumnMap := func(column *dataflow.ColumnInfoType) {
+		if arr, found := columnMap[column.TableInfo]; !found {
+			arr = make([]*dataflow.ColumnInfoType, 0, 5)
+			arr = append(arr, column)
+			columnMap[column.TableInfo] = arr
+		} else {
+			arr = append(arr, column)
+		}
+	}
+
+	for _, pair := range pairs2 {
+		appendToColumnMap(pair.PK)
+		appendToColumnMap(pair.FK)
+	}
+
+	var dataMap map[string]bool
+
+	for table, columns := range columnMap {
+		for _, column := range columns {
+			dataMap = make(map[string]bool)
+			var columnIndex int = 0;
+			for index := range bytes {
+				if column == table.Columns[index] {
+					columnIndex = index
+				}
+			}
+
+			p1 := func(context context.Context, i uint64, bytes [][]byte) error {
+				data := string(bytes[columnIndex])
+				if len(data) > 0 {
+					dataMap[data] = true
+				}
+				return nil
+			}
+
+			dr.ReadAstraDump(
+				context.TODO(),
+				table,
+				p1,
+				&dataflow.TableDumpConfig{
+					Path:            dr.Config.AstraDumpPath,
+					GZip:            dr.Config.AstraDataGZip,
+					ColumnSeparator: dr.Config.AstraColumnSeparator,
+					LineSeparator:   dr.Config.AstraLineSeparator,
+					BufferSize:      dr.Config.AstraReaderBufferSize,
+				},
+			)
+			if len(dataMap) > 0 {
+
+			}
+
+		}
+		fmt.Printf("\n")
+	}
+
+	}
+	//TODO: Assume real data count doesn't differ to hash data count
+	for _, pair := range pairs2 {
+		pair.PK.UniqueRowCount = pair.PK.HashUniqueCount
+		pair.FK.UniqueRowCount = pair.FK.HashUniqueCount
+	}
+
+	
+
+
+
+
+	//dr.ReadAstraDump(context.TODO(),)
+
+
+
 	/*
 		for _, pair := range pairs0 {
 			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
 		}*/
-	//TODO: LOAD BITSETs here
+
 
 	/*processTable := func(runContext context.Context) (err error) {
 		funcName := "processTable"

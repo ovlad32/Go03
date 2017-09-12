@@ -50,7 +50,7 @@ type DataReaderType struct {
 
 var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
 
-func (dr DataReaderType) readAstraDump(
+func (dr DataReaderType) ReadAstraDump(
 	ctx context.Context,
 	table *TableInfoType,
 	rowProcessingFunc func(context.Context, uint64, [][]byte) error,
@@ -192,7 +192,7 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 		return nil
 	}
 
-	linesRead, err := dr.readAstraDump(
+	linesRead, err := dr.ReadAstraDump(
 		ctx,
 		table,
 		processRowContent,
