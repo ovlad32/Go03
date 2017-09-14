@@ -275,6 +275,7 @@ func testBitsetBuilding() (err error) {
 }
 
 type keyColumnPairType struct {
+	IsSimple bool
 	PK *dataflow.ColumnInfoType
 	FK *dataflow.ColumnInfoType
 }
@@ -673,9 +674,12 @@ func testBitsetCompare() (err error) {
 		return
 	}
 	fmt.Println(bruteForcePairCount, len(pairs2), float64(len(pairs2))*100/float64(bruteForcePairCount))
-	if true {
+
+	if false {
 		for _, pair := range pairs2 {
-			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+			if pair.PK.TableInfo.TableName.Value() == "CUSTOMERS" {
+				fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+			}
 		}
 	}
 	for _, pair := range pairs1 {
@@ -684,38 +688,72 @@ func testBitsetCompare() (err error) {
 	}
 
 	//TODO: LOAD data here
-	{
-	columnMap := make(map[*dataflow.TableInfoType][]*dataflow.ColumnInfoType)
-
-	appendToColumnMap := func(column *dataflow.ColumnInfoType) {
-		if arr, found := columnMap[column.TableInfo]; !found {
-			arr = make([]*dataflow.ColumnInfoType, 0, 5)
-			arr = append(arr, column)
-			columnMap[column.TableInfo] = arr
-		} else {
-			arr = append(arr, column)
+	if true {
+		columnMap := make(map[*dataflow.TableInfoType][]*dataflow.ColumnInfoType)
+		appendToColumnMap := func(column *dataflow.ColumnInfoType) {
+			if arr, found := columnMap[column.TableInfo]; !found {
+				arr = make([]*dataflow.ColumnInfoType, 0, 5)
+				arr = append(arr, column)
+				columnMap[column.TableInfo] = arr
+			} else {
+				arr = append(arr, column)
+			}
 		}
+
+		for _, pair := range pairs2 {
+			appendToColumnMap(pair.PK)
+		}
+
+		for table, columns := range columnMap {
+			_ = table
+
+				if len(columns) == 1 {
+					var leftOver = 
+					var integerUnique bool = true
+					for _,dataCategory := range columns[0].Categories{
+						if integerUnique = dataCategory.IsInteger.Value() && dataCategory.IsNumeric.Value();
+							!integerUnique {
+							break;
+						}
+						 dataCategory.Stats.ContentBitsetCardinality
+					}
+				}
+
+				sort.Slice(columns, func(i, j int) bool {
+					return columns[i].HashUniqueCount.Value() > columns[i].HashUniqueCount.Value()
+				})
+				for _, col := range columns {
+					tracelog.Info(packageName, funcName, "%v(%v)", col, col.HashUniqueCount)
+				}
+				fmt.Println()
 	}
 
-	for _, pair := range pairs2 {
-		appendToColumnMap(pair.PK)
-		appendToColumnMap(pair.FK)
-	}
+	if true {
+		//appendToColumnMap(pair.FK)
+		//columns := make([]*dataflow.ColumnInfoType,0)
 
-	var dataMap map[string]bool
+
+
+		}
+	//columnMap
+	/*
+		var dataMap map[string][]byte
+	var columnToTrack map[int]int
 
 	for table, columns := range columnMap {
+		columnToTrack  = make(map[int]int)
 		for _, column := range columns {
-			dataMap = make(map[string]bool)
-			var columnIndex int = 0;
-			for index := range bytes {
+			//fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pa
+
+			dataMap = make(map[string][]byte)
+			for index := range table.Columns {
 				if column == table.Columns[index] {
-					columnIndex = index
+					columnToTrack[index] = 0
 				}
 			}
 
-			p1 := func(context context.Context, i uint64, bytes [][]byte) error {
-				data := string(bytes[columnIndex])
+			p1 := func(context context.Context, i uint64, rawData [][]byte) error {
+				data := string(rawData[columnIndex])
 				if len(data) > 0 {
 					dataMap[data] = true
 				}
@@ -740,16 +778,44 @@ func testBitsetCompare() (err error) {
 
 		}
 		fmt.Printf("\n")
-	}
+	}*/
 
 	}
+
 	//TODO: Assume real data count doesn't differ to hash data count
-	for _, pair := range pairs2 {
-		pair.PK.UniqueRowCount = pair.PK.HashUniqueCount
-		pair.FK.UniqueRowCount = pair.FK.HashUniqueCount
+	if false {
+		type tablePairType struct {
+			PKT, FKT int64
+		}
+
+		tablePairMap := make(map[tablePairType]keyColumnPairArrayType)
+
+		for _, pair := range pairs2 {
+			pair.PK.UniqueRowCount = pair.PK.HashUniqueCount
+			pair.FK.UniqueRowCount = pair.FK.HashUniqueCount
+			tablePair := tablePairType{PKT: pair.PK.TableInfo.Id.Value(), FKT: pair.FK.TableInfo.Id.Value()}
+			if arr, found := tablePairMap[tablePair]; !found {
+				arr = make(keyColumnPairArrayType, 0, 10);
+				arr = append(arr, pair)
+				tablePairMap[tablePair] = arr
+			} else {
+				arr = append(arr, pair)
+			}
+
+			pair.IsSimple = pair.PK.TotalRowCount == pair.PK.UniqueRowCount
+
+		}
+
+		for _, pairs := range tablePairMap {
+			if len(pairs) > 0 {
+				for _, pair := range pairs {
+					fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+				}
+			}
+		}
 	}
 
-	
+
 
 
 
