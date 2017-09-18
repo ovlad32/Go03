@@ -1001,7 +1001,7 @@ func testBitsetCompare() (err error) {
 
 				for _, cc := range CPKeys2{
 					for _, pkc := range cc.columns {
-						
+
 					}
 				}
 
@@ -1009,6 +1009,24 @@ func testBitsetCompare() (err error) {
 			}
 		}
 	}
+
+	map[]
+	sort.slice
+	var data1,data2 []byte
+	l1 := len(data1)
+	l2 := len(data2)
+	if l1 == l2 {
+		for index := 0; index<l1; index++ {
+			if data1[index] == data2[index] {
+				continue
+			}
+			return data1[index] < data2[index]
+		}
+	}
+	return l2<l1
+
+
+
 
 	//dr.ReadAstraDump(context.TODO(),)
 
