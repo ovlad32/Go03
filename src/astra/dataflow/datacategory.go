@@ -106,6 +106,7 @@ type DataCategoryType struct {
 	IsNegative      nullable.NullBool
 	IsInteger       nullable.NullBool
 	HashUniqueCount nullable.NullInt64
+	ItemUniqueCount nullable.NullInt64
 	NonNullCount    nullable.NullInt64
 	MinStringValue  nullable.NullString
 	MaxStringValue  nullable.NullString
@@ -117,15 +118,14 @@ type DataCategoryType struct {
 		MinNumericValue         float64
 		MaxNumericValue         float64
 		NonNullCount            uint64
-		ItemCount               uint64
 		MovingMean              float64
 		MovingStandardDeviation float64
-		ContentBitset           *sparsebitset.BitSet
-		ContentBitsetCardinality uint64
+		ItemBitset           *sparsebitset.BitSet
+		ItemBitsetCardinality uint64
 		HashBitset              *sparsebitset.BitSet
 		HashBitsetCardinality uint64
 	}
-	ItemCount               nullable.NullInt64
+	//ItemCount               nullable.NullInt64
 	Key                     string
 	MovingMean              nullable.NullFloat64
 	MovingStandardDeviation nullable.NullFloat64
@@ -133,8 +133,8 @@ type DataCategoryType struct {
 type BitsetFileSuffixType string
 
 var (
-	Hash BitsetFileSuffixType = "hash"
-	Cont BitsetFileSuffixType = "cont"
+	HashBitsetSuffix BitsetFileSuffixType = "hash"
+	ItemBitsetSuffix BitsetFileSuffixType = "item"
 )
 
 func (dataCategory DataCategoryType) String() (result string) {
@@ -200,10 +200,10 @@ func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, path
 	buffered := bufio.NewWriter(file)
 
 	defer buffered.Flush()
-	if suffix == Hash {
+	if suffix == HashBitsetSuffix {
 		_, err = dataCategory.Stats.HashBitset.WriteTo(ctx, buffered)
 	} else {
-		_, err = dataCategory.Stats.ContentBitset.WriteTo(ctx, buffered)
+		_, err = dataCategory.Stats.ItemBitset.WriteTo(ctx, buffered)
 	}
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Writing %v bitset data to file %v", suffix, fullPathFileName)
@@ -244,15 +244,15 @@ func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pa
 
 	buffered := bufio.NewReader(file)
 
-	if suffix == Hash {
+	if suffix == HashBitsetSuffix {
 		_, err = dataCategory.Stats.HashBitset.ReadFrom(ctx, buffered)
 		if err == nil {
 			dataCategory.Stats.HashBitsetCardinality = dataCategory.Stats.HashBitset.Cardinality()
 		}
 	} else {
-		_, err = dataCategory.Stats.ContentBitset.ReadFrom(ctx, buffered)
+		_, err = dataCategory.Stats.ItemBitset.ReadFrom(ctx, buffered)
 		if err == nil {
-			dataCategory.Stats.ContentBitsetCardinality = dataCategory.Stats.ContentBitset.Cardinality()
+			dataCategory.Stats.ItemBitsetCardinality = dataCategory.Stats.ItemBitset.Cardinality()
 		}
 	}
 	if err != nil {
@@ -266,16 +266,16 @@ func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pa
 }
 
 func (dataCategory DataCategoryType) ResetBitset(suffixType BitsetFileSuffixType) {
-	if suffixType == Hash {
+	if suffixType == HashBitsetSuffix {
 		if dataCategory.Stats.HashBitset != nil{
 			dataCategory.Stats.HashBitset = nil
 		}
 		dataCategory.Stats.HashBitsetCardinality = 0
 	} else {
-		if dataCategory.Stats.ContentBitset != nil{
-			dataCategory.Stats.ContentBitset = nil
+		if dataCategory.Stats.ItemBitset != nil{
+			dataCategory.Stats.ItemBitset = nil
 		}
-		dataCategory.Stats.ContentBitsetCardinality = 0
+		dataCategory.Stats.ItemBitsetCardinality = 0
 	}
 }
 
@@ -303,12 +303,11 @@ func (dataCategory *DataCategoryType) UpdateStatistics(runContext context.Contex
 	if dataCategory.Stats.HashBitset != nil {
 		dataCategory.HashUniqueCount = nullable.NewNullInt64(int64(dataCategory.Stats.HashBitset.Cardinality()))
 	}
-
-	bitset := dataCategory.Stats.ContentBitset
-
-	if bitset != nil {
-		dataCategory.ItemCount = nullable.NewNullInt64(int64(bitset.Cardinality()))
+	if dataCategory.Stats.ItemBitset != nil {
+		dataCategory.ItemUniqueCount = nullable.NewNullInt64(int64(dataCategory.Stats.ItemBitset.Cardinality()))
 	}
+
+	bitset := dataCategory.Stats.ItemBitset
 
 	if dataCategory.IsNumeric.Value() && bitset != nil {
 

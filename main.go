@@ -275,9 +275,9 @@ func testBitsetBuilding() (err error) {
 }
 
 type keyColumnPairType struct {
-	IsSimple bool
-	PK *dataflow.ColumnInfoType
-	FK *dataflow.ColumnInfoType
+	IsSingle bool
+	PK       *dataflow.ColumnInfoType
+	FK       *dataflow.ColumnInfoType
 }
 
 type keyColumnPairArrayType []*keyColumnPairType
@@ -374,23 +374,22 @@ func testBitsetCompare() (err error) {
 
 		nonFK = colFK.TableInfo.RowCount.Value() < 2
 		if nonFK {
-			tracelog.Info(funcName,packageName,"Column %v is not FK. RowCount < 2",colFK)
+			tracelog.Info(funcName, packageName, "Column %v is not FK. RowCount < 2", colFK)
 			return
 		}
 
 		categoryCountFK := len(colFK.Categories)
 		nonFK = categoryCountFK == 0
 		if nonFK {
-			tracelog.Info(funcName,packageName,"Column %v is not FK. DataCategory count  = 0",colFK)
+			tracelog.Info(funcName, packageName, "Column %v is not FK. DataCategory count  = 0", colFK)
 			return
 		}
 
 		categoryCountPK := len(colPK.Categories)
 
-
-		nonFK = categoryCountFK == 0 || categoryCountFK >categoryCountPK
+		nonFK = categoryCountFK == 0 || categoryCountFK > categoryCountPK
 		if nonFK {
-			tracelog.Info(funcName,packageName,"Column %v is not FK to %v. categoryCountFK > categoryCountPK; %v > %v",colFK,colPK,categoryCountFK,categoryCountPK)
+			tracelog.Info(funcName, packageName, "Column %v is not FK to %v. categoryCountFK > categoryCountPK; %v > %v", colFK, colPK, categoryCountFK, categoryCountPK)
 			return
 		}
 
@@ -410,19 +409,19 @@ func testBitsetCompare() (err error) {
 						return
 					}
 					if categoryFK.IsInteger.Value() {
-						if !categoryFK.ItemCount.Valid() {
-							err = fmt.Errorf("ItemCount statistics is empty in %v", categoryFK)
+						if !categoryFK.ItemUniqueCount.Valid() {
+							err = fmt.Errorf("ItemUniqueCount statistics is empty in %v", categoryFK)
 							tracelog.Error(err, packageName, funcName)
 							return
 						}
 
-						nonFK = categoryFK.ItemCount.Value() > categoryPK.ItemCount.Value()
+						nonFK = categoryFK.ItemUniqueCount.Value() > categoryPK.ItemUniqueCount.Value()
 						if nonFK {
-							tracelog.Info(funcName,packageName,
-								"Column %v is not FK to %v for DataCategory %v: ItemCountFK > ItemCountPK; %v > %v",
-									colFK, colPK, categoryFK.Key,
-									categoryFK.ItemCount.Value(),
-									categoryPK.ItemCount.Value())
+							tracelog.Info(funcName, packageName,
+								"Column %v is not FK to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
+								colFK, colPK, categoryFK.Key,
+								categoryFK.ItemUniqueCount.Value(),
+								categoryPK.ItemUniqueCount.Value())
 							return
 						}
 					}
@@ -449,16 +448,16 @@ func testBitsetCompare() (err error) {
 					}
 					nonFK = categoryFK.MaxNumericValue.Value() > categoryPK.MaxNumericValue.Value()
 					if nonFK {
-						tracelog.Info(funcName,packageName,
+						tracelog.Info(funcName, packageName,
 							"Column %v is not FK to %v for DataCategory %v:  MaxNumericValueFK > MaxNumericValuePK; %v > %v",
-							colFK, colPK,categoryFK.Key,
+							colFK, colPK, categoryFK.Key,
 							categoryFK.MaxNumericValue.Value(),
 							categoryPK.MaxNumericValue.Value())
 						return
 					}
 					nonFK = categoryFK.MinNumericValue.Value() < categoryPK.MinNumericValue.Value()
 					if nonFK {
-						tracelog.Info(funcName,packageName,
+						tracelog.Info(funcName, packageName,
 							"Column %v is not FK to %v for DataCategory %v: MinNumericValueFK < MinNumericValuePK; %v < %v",
 							colFK, colPK, categoryFK.Key,
 							categoryFK.MinNumericValue.Value(),
@@ -466,24 +465,24 @@ func testBitsetCompare() (err error) {
 						return
 					}
 				} else {
-					nonFK = categoryFK.ItemCount.Value() > categoryPK.ItemCount.Value()
+					nonFK = categoryFK.ItemUniqueCount.Value() > categoryPK.ItemUniqueCount.Value()
 					if nonFK {
-						tracelog.Info(funcName,packageName,
-							"Column %v is not FK to %v for DataCategory %v: ItemCountFK > ItemCountPK; %v > %v",
+						tracelog.Info(funcName, packageName,
+							"Column %v is not FK to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
 							colFK, colPK, categoryFK.Key,
-							categoryFK.ItemCount.Value(),
-							categoryPK.ItemCount.Value())
+							categoryFK.ItemUniqueCount.Value(),
+							categoryPK.ItemUniqueCount.Value())
 						return
 					}
 					ratio := 1.2
 					nonFK = float64(categoryFK.HashUniqueCount.Value()) > float64(categoryPK.HashUniqueCount.Value())*ratio
 					if nonFK {
-						tracelog.Info(funcName,packageName,
+						tracelog.Info(funcName, packageName,
 							"Column %v is not FK to %v for DataCategory %v: HashUniqueCountFK > DataCategory.HashUniqueCountPK*ratio(%v); %v > %v",
-							colFK, colPK,categoryFK.Key ,ratio,
+							colFK, colPK, categoryFK.Key, ratio,
 							categoryFK.HashUniqueCount.Value(),
 							uint64(float64(categoryPK.HashUniqueCount.Value())*ratio),
-							)
+						)
 						return
 					}
 				}
@@ -492,10 +491,11 @@ func testBitsetCompare() (err error) {
 		}
 
 		// FK Hash unique count has to be less than PK Hash unique count
-		{	ratio := 1.2
+		{
+			ratio := 1.2
 			nonFK = float64(colFK.HashUniqueCount.Value()) > float64(colPK.HashUniqueCount.Value())*ratio
 			if nonFK {
-				tracelog.Info(funcName,packageName,
+				tracelog.Info(funcName, packageName,
 					"Column %v is not FK to %v. HashUniqueCountFK > HashUniqueCountPK*ratio(%v); %v > %v",
 					colFK, colPK, ratio,
 					colPK.HashUniqueCount.Value(),
@@ -507,7 +507,6 @@ func testBitsetCompare() (err error) {
 
 		return false, nil
 	}
-
 	CheckIfNonPK := func(col *dataflow.ColumnInfoType) (nonPK bool, err error) {
 		// Null existence
 		if !col.TableInfo.RowCount.Valid() {
@@ -531,16 +530,17 @@ func testBitsetCompare() (err error) {
 		}
 		nonPK = uint64(col.TableInfo.RowCount.Value()) != totalNonNullCount
 		if nonPK {
-			tracelog.Info(funcName,packageName,
+			tracelog.Info(funcName, packageName,
 				"Column %v is not PK. TotalRowCount != TotalNotNullCount. %v != %v",
-				col, uint64(col.TableInfo.RowCount.Value()),totalNonNullCount,
+				col, uint64(col.TableInfo.RowCount.Value()), totalNonNullCount,
 			)
 		}
 		return nonPK, nil
 	}
 
-	pairs0 := make(keyColumnPairArrayType, 0, 1000)
+	pairsFilteredByFeatures := make(keyColumnPairArrayType, 0, 1000)
 	var bruteForcePairCount int = 0
+	NonPKColumns := make(map[*dataflow.ColumnInfoType]bool)
 
 	for leftIndex, leftColumn := range columnToProcess {
 		if !leftColumn.NonNullCount.Valid() {
@@ -549,9 +549,14 @@ func testBitsetCompare() (err error) {
 				return
 			}
 		}
-		leftNonPK, err := CheckIfNonPK(leftColumn)
-		if err != nil {
-			return err
+		var leftNonPK, rightNonPK bool
+
+		if leftNonPK, found := NonPKColumns[leftColumn]; !found {
+			leftNonPK, err = CheckIfNonPK(leftColumn)
+			if err != nil {
+				return err
+			}
+			NonPKColumns[leftColumn] = leftNonPK
 		}
 
 		/*if leftNonPK {
@@ -571,10 +576,12 @@ func testBitsetCompare() (err error) {
 				}
 
 			}
-
-			rightNonPK, err := CheckIfNonPK(rightColumn)
-			if err != nil {
-				return err
+			if rightNonPK, found := NonPKColumns[leftColumn]; !found {
+				rightNonPK, err = CheckIfNonPK(rightColumn)
+				if err != nil {
+					return err
+				}
+				NonPKColumns[rightColumn] = rightNonPK
 			}
 
 			if rightNonPK && leftNonPK {
@@ -590,7 +597,7 @@ func testBitsetCompare() (err error) {
 						PK: leftColumn,
 						FK: rightColumn,
 					}
-					pairs0 = append(pairs0, pair)
+					pairsFilteredByFeatures = append(pairsFilteredByFeatures, pair)
 				}
 			}
 			if !rightNonPK {
@@ -603,47 +610,46 @@ func testBitsetCompare() (err error) {
 						PK: rightColumn,
 						FK: leftColumn,
 					}
-					pairs0 = append(pairs0, pair)
+					pairsFilteredByFeatures = append(pairsFilteredByFeatures, pair)
 				}
 			}
 
 		}
 	}
 
-	fmt.Println(bruteForcePairCount, len(pairs0), float64(len(pairs0))*100/float64(bruteForcePairCount))
-	sort.Sort(sort.Reverse(pairs0))
+	sort.Sort(sort.Reverse(pairsFilteredByFeatures))
 	var lastPKColumn *dataflow.ColumnInfoType
 
-	analyzeContentBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
-		if dataCategoryPK.Stats.ContentBitset == nil {
-			dataCategoryPK.Stats.ContentBitset = sparsebitset.New(0)
-			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Cont)
+	analyzeItemBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
+		if dataCategoryPK.Stats.ItemBitset == nil {
+			dataCategoryPK.Stats.ItemBitset = sparsebitset.New(0)
+			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.ItemBitsetSuffix)
 		}
-		if dataCategoryFK.Stats.ContentBitset == nil {
-			dataCategoryFK.Stats.ContentBitset = sparsebitset.New(0)
-			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Cont)
+		if dataCategoryFK.Stats.ItemBitset == nil {
+			dataCategoryFK.Stats.ItemBitset = sparsebitset.New(0)
+			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.ItemBitsetSuffix)
 		}
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
 			return false, err
 		}
 		var cardinality uint64
-		if dataCategoryFK.Stats.ContentBitset == nil {
-			tracelog.Info(packageName, funcName, "Content Bitset for %v (%v) is null ", dataCategoryFK.Column, dataCategoryFK.Key)
+		if dataCategoryFK.Stats.ItemBitset == nil {
+			tracelog.Info(packageName, funcName, "Item Bitset for %v (%v) is null ", dataCategoryFK.Column, dataCategoryFK.Key)
 			return false, nil
 		} else {
-			cardinality, err = dataCategoryFK.Stats.ContentBitset.IntersectionCardinality(dataCategoryPK.Stats.ContentBitset)
+			cardinality, err = dataCategoryFK.Stats.ItemBitset.IntersectionCardinality(dataCategoryPK.Stats.ItemBitset)
 			if err != nil {
 				tracelog.Error(err, packageName, funcName)
 				return false, err
 			}
 		}
-		result := cardinality == dataCategoryFK.Stats.ContentBitsetCardinality
+		result := cardinality == dataCategoryFK.Stats.ItemBitsetCardinality
 		if !result {
-			tracelog.Info(funcName,packageName,
+			tracelog.Info(funcName, packageName,
 				"Column %v is not FK to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Content values %v != %v",
-				dataCategoryFK.Column,dataCategoryPK.Column,dataCategoryFK.Key,
-				cardinality ,dataCategoryFK.Stats.ContentBitsetCardinality,
+				dataCategoryFK.Column, dataCategoryPK.Column, dataCategoryFK.Key,
+				cardinality, dataCategoryFK.Stats.ItemBitsetCardinality,
 			)
 		}
 		return result, nil
@@ -652,11 +658,11 @@ func testBitsetCompare() (err error) {
 	analyzeHashBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
 		if dataCategoryPK.Stats.HashBitset == nil {
 			dataCategoryPK.Stats.HashBitset = sparsebitset.New(0)
-			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Hash)
+			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.HashBitsetSuffix)
 		}
 		if dataCategoryFK.Stats.HashBitset == nil {
 			dataCategoryFK.Stats.HashBitset = sparsebitset.New(0)
-			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.AstraDumpPath, dataflow.Hash)
+			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.HashBitsetSuffix)
 		}
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
@@ -676,10 +682,10 @@ func testBitsetCompare() (err error) {
 		}
 		result := cardinality == dataCategoryFK.Stats.HashBitsetCardinality
 		if !result {
-			tracelog.Info(funcName,packageName,
+			tracelog.Info(funcName, packageName,
 				"Column %v is not FK to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Hash values %v != %v",
-				dataCategoryFK.Column,dataCategoryPK.Column,dataCategoryFK.Key,
-				cardinality ,dataCategoryFK.Stats.HashBitsetCardinality,
+				dataCategoryFK.Column, dataCategoryPK.Column, dataCategoryFK.Key,
+				cardinality, dataCategoryFK.Stats.HashBitsetCardinality,
 			)
 		}
 		return result, nil
@@ -693,11 +699,11 @@ func testBitsetCompare() (err error) {
 		for _, pair := range pairs {
 			if lastPKColumn != nil {
 				if lastPKColumn != pair.PK {
-					lastPKColumn.ResetBitset(dataflow.Cont)
+					lastPKColumn.ResetBitset(dataflow.ItemBitsetSuffix)
 				}
 			}
 			ctx, ctxCancelFunc := context.WithCancel(context.Background())
-			var result= true
+			var result = true
 			for dataCategoryKey, dataCategoryFK := range pair.FK.Categories {
 				if dataCategoryPK, found := pair.PK.Categories[dataCategoryKey]; !found {
 					err = fmt.Errorf("The second pass for column pair PK:%v - FK:%v doesn't reveal datacategory for the key code %v.", pair.PK, pair.FK, dataCategoryKey)
@@ -726,36 +732,56 @@ func testBitsetCompare() (err error) {
 		return nextPairs, nil
 	}
 
-	pairs1, err := traversePairs(pairs0, analyzeContentBitsetFunc)
-	if pairs1 == nil {
+	tracelog.Info(packageName, funcName,
+		"Feature analysis efficiency: %v%%. Left %v from %v",
+		100.0-math.Trunc(float64(len(pairsFilteredByFeatures))*100/float64(bruteForcePairCount)),
+		len(pairsFilteredByFeatures),
+		bruteForcePairCount,
+	)
+
+	pairsFilteredByContent, err := traversePairs(pairsFilteredByFeatures, analyzeItemBitsetFunc)
+	if pairsFilteredByContent == nil {
 		return
 	}
-	fmt.Println(bruteForcePairCount, len(pairs1), float64(len(pairs1))*100/float64(bruteForcePairCount))
 
-	for _, pair := range pairs0 {
-		pair.PK.ResetBitset(dataflow.Cont)
-		pair.FK.ResetBitset(dataflow.Cont)
+	tracelog.Info(packageName, funcName,
+		"Content analysis efficiency: %v%%. Left %v from %v",
+		100.0-math.Trunc(float64(len(pairsFilteredByContent))*100/float64(len(pairsFilteredByFeatures))),
+		len(pairsFilteredByContent),
+		len(pairsFilteredByFeatures),
+	)
+
+	for _, pair := range pairsFilteredByFeatures {
+		pair.PK.ResetBitset(dataflow.ItemBitsetSuffix)
+		pair.FK.ResetBitset(dataflow.ItemBitsetSuffix)
 	}
 	if false {
-		for _, pair := range pairs1 {
+		for _, pair := range pairsFilteredByContent {
 			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
 		}
 	}
-	pairs2, err := traversePairs(pairs1, analyzeHashBitsetFunc)
-	if pairs2 == nil {
+	pairsFilteredByHash, err := traversePairs(pairsFilteredByContent, analyzeHashBitsetFunc)
+	if pairsFilteredByHash == nil {
 		return
 	}
-	fmt.Println(bruteForcePairCount, len(pairs2), float64(len(pairs2))*100/float64(bruteForcePairCount))
+	tracelog.Info(packageName, funcName,
+		"Hash analysis efficiency: %v%%. Left %v from %v",
+		100.0-math.Trunc(float64(len(pairsFilteredByHash))*100/float64(len(pairsFilteredByContent))),
+		len(pairsFilteredByHash),
+		len(pairsFilteredByContent),
+	)
+	//	fmt.Println(bruteForcePairCount, len(pairsFilteredByHash), float64(len(pairsFilteredByHash))*100/float64(bruteForcePairCount))
+
+	for _, pair := range pairsFilteredByContent {
+		pair.PK.ResetBitset(dataflow.HashBitsetSuffix)
+		pair.FK.ResetBitset(dataflow.HashBitsetSuffix)
+	}
 
 	if true {
-		for _, pair := range pairs2 {
-				fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+		for _, pair := range pairsFilteredByHash {
+			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
 		}
-		fmt.Printf("---2\n", )
-	}
-	for _, pair := range pairs1 {
-		pair.PK.ResetBitset(dataflow.Hash)
-		pair.FK.ResetBitset(dataflow.Hash)
+		fmt.Printf("---2\n")
 	}
 
 	//TODO: LOAD data here
@@ -771,133 +797,225 @@ func testBitsetCompare() (err error) {
 			}
 		}
 
-		for _, pair := range pairs2 {
+		for _, pair := range pairsFilteredByHash {
 			appendToColumnMap(pair.PK)
 		}
 
 		for table, columns := range columnMap {
 			_ = table
 
-				if len(columns) == 1 {
-					var integerUnique bool = true
-					for _,dataCategory := range columns[0].Categories{
-						if integerUnique = dataCategory.IsInteger.Value() && dataCategory.IsNumeric.Value();
-							!integerUnique {
-							break;
-						}
+			if len(columns) == 1 {
+				var integerUnique bool = true
+				for _, dataCategory := range columns[0].Categories {
+					if integerUnique = dataCategory.IsInteger.Value() && dataCategory.IsNumeric.Value(); !integerUnique {
+						break
 					}
 				}
+			}
 
-				sort.Slice(columns, func(i, j int) bool {
-					return columns[i].HashUniqueCount.Value() > columns[i].HashUniqueCount.Value()
-				})
-				for _, col := range columns {
-					tracelog.Info(packageName, funcName, "%v(%v)", col, col.HashUniqueCount)
+			sort.Slice(columns, func(i, j int) bool {
+				return columns[i].HashUniqueCount.Value() > columns[i].HashUniqueCount.Value()
+			})
+			for _, col := range columns {
+				tracelog.Info(packageName, funcName, "%v(%v)", col, col.HashUniqueCount)
+			}
+			fmt.Println()
+		}
+
+		if true {
+			//appendToColumnMap(pair.FK)
+			//columns := make([]*dataflow.ColumnInfoType,0)
+
+		}
+		//columnMap
+		/*
+				var dataMap map[string][]byte
+			var columnToTrack map[int]int
+
+			for table, columns := range columnMap {
+				columnToTrack  = make(map[int]int)
+				for _, column := range columns {
+					//fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pa
+
+					dataMap = make(map[string][]byte)
+					for index := range table.Columns {
+						if column == table.Columns[index] {
+							columnToTrack[index] = 0
+						}
+					}
+
+					p1 := func(context context.Context, i uint64, rawData [][]byte) error {
+						data := string(rawData[columnIndex])
+						if len(data) > 0 {
+							dataMap[data] = true
+						}
+						return nil
+					}
+
+					dr.ReadAstraDump(
+						context.TODO(),
+						table,
+						p1,
+						&dataflow.TableDumpConfig{
+							Path:            dr.Config.AstraDumpPath,
+							GZip:            dr.Config.AstraDataGZip,
+							ColumnSeparator: dr.Config.AstraColumnSeparator,
+							LineSeparator:   dr.Config.AstraLineSeparator,
+							BufferSize:      dr.Config.AstraReaderBufferSize,
+						},
+					)
+					if len(dataMap) > 0 {
+
+					}
+
 				}
-				fmt.Println()
+				fmt.Printf("\n")
+			}*/
+
 	}
 
 	if true {
-		//appendToColumnMap(pair.FK)
-		//columns := make([]*dataflow.ColumnInfoType,0)
-
-
-
+		//TODO: Assume real data count doesn't differ to hash data count
+		for _, pair := range pairsFilteredByHash {
+			pair.PK.UniqueRowCount = pair.PK.HashUniqueCount
+			pair.FK.UniqueRowCount = pair.FK.HashUniqueCount
+			//Possibly
+			pair.IsSingle = pair.PK.TotalRowCount == pair.PK.UniqueRowCount
 		}
-	//columnMap
-	/*
-		var dataMap map[string][]byte
-	var columnToTrack map[int]int
 
-	for table, columns := range columnMap {
-		columnToTrack  = make(map[int]int)
-		for _, column := range columns {
-			//fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pa
-
-			dataMap = make(map[string][]byte)
-			for index := range table.Columns {
-				if column == table.Columns[index] {
-					columnToTrack[index] = 0
-				}
-			}
-
-			p1 := func(context context.Context, i uint64, rawData [][]byte) error {
-				data := string(rawData[columnIndex])
-				if len(data) > 0 {
-					dataMap[data] = true
-				}
-				return nil
-			}
-
-			dr.ReadAstraDump(
-				context.TODO(),
-				table,
-				p1,
-				&dataflow.TableDumpConfig{
-					Path:            dr.Config.AstraDumpPath,
-					GZip:            dr.Config.AstraDataGZip,
-					ColumnSeparator: dr.Config.AstraColumnSeparator,
-					LineSeparator:   dr.Config.AstraLineSeparator,
-					BufferSize:      dr.Config.AstraReaderBufferSize,
-				},
-			)
-			if len(dataMap) > 0 {
-
-			}
-
-		}
-		fmt.Printf("\n")
-	}*/
-
-	}
-
-	//TODO: Assume real data count doesn't differ to hash data count
-	if true {
 		type tablePairType struct {
 			PKT, FKT int64
 		}
 
 		tablePairMap := make(map[tablePairType]keyColumnPairArrayType)
 
-		for _, pair := range pairs2 {
-			pair.PK.UniqueRowCount = pair.PK.HashUniqueCount
-			pair.FK.UniqueRowCount = pair.FK.HashUniqueCount
+		for _, pair := range pairsFilteredByHash {
 			tablePair := tablePairType{PKT: pair.PK.TableInfo.Id.Value(), FKT: pair.FK.TableInfo.Id.Value()}
 			if arr, found := tablePairMap[tablePair]; !found {
-				arr = make(keyColumnPairArrayType, 0, 10);
+				arr = make(keyColumnPairArrayType, 0, 10)
 				arr = append(arr, pair)
 				tablePairMap[tablePair] = arr
 			} else {
 				tablePairMap[tablePair] = append(arr, pair)
 			}
-
-			pair.IsSimple = pair.PK.TotalRowCount == pair.PK.UniqueRowCount
-
 		}
+		type PKCombinationType struct {
+			columns               []*dataflow.ColumnInfoType
+			lastSortedColumnIndex int
+			cardinality           uint64
+		}
+		for _, columnPairs := range tablePairMap {
+			if len(columnPairs) > 1 {
+				fmt.Printf("\n%v(%v):\n", columnPairs[0].PK.TableInfo, columnPairs[0].PK.TotalRowCount)
+				var SortedPKCols []*dataflow.ColumnInfoType
+				CPKeys := make([]*PKCombinationType, 0, 10)
+				_ = CPKeys
 
-		for _, pairs := range tablePairMap {
-			if len(pairs) > 1 {
-				for _, pair := range pairs {
-					fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+				{
+					pkCols := make(map[*dataflow.ColumnInfoType]bool)
+					for _, columnPair := range columnPairs {
+						pkCols[columnPair.PK] = true
+					}
+
+					SortedPKCols = make([]*dataflow.ColumnInfoType, 0, len(pkCols))
+
+					for col, _ := range pkCols {
+						SortedPKCols = append(SortedPKCols, col)
+					}
+					sort.Slice(SortedPKCols, func(i, j int) bool {
+						return SortedPKCols[i].UniqueRowCount.Value() > SortedPKCols[j].UniqueRowCount.Value()
+					})
+
+					//buildCombinations := func() {
+					/*printColumns:= func(arr[]*dataflow.ColumnInfoType) {
+							for _,col:= range arr {
+								fmt.Printf("%v,",col)
+							}
+							fmt.Printf("\n,")
+					}*/
+
+					for {
+						if len(SortedPKCols) == 0 {
+							break
+						}
+						var inputColumnCombinations []*PKCombinationType
+						var CPKeysLast int
+
+						inputColumnCombinations = make([]*PKCombinationType, 1, len(SortedPKCols))
+						inputColumnCombinations[0] = &PKCombinationType{
+							columns:               make([]*dataflow.ColumnInfoType, 1),
+							lastSortedColumnIndex: 1,
+						}
+						inputColumnCombinations[0].columns[0] = SortedPKCols[0]
+						//1,2,3,4 -> 12,13,14,123,124,134,23,24,234,34
+						for {
+							CPKeysLast = len(CPKeys)
+							for _, inputColumnCombination := range inputColumnCombinations {
+								var columnCombination *PKCombinationType
+								inputLength := len(inputColumnCombination.columns)
+								for index := inputColumnCombination.lastSortedColumnIndex; index < len(SortedPKCols); index++ {
+									columnCombination = &PKCombinationType{
+										columns:               make([]*dataflow.ColumnInfoType, inputLength, inputLength+1),
+										lastSortedColumnIndex: index + 1,
+									}
+									copy(columnCombination.columns, inputColumnCombination.columns)
+									columnCombination.columns = append(columnCombination.columns, SortedPKCols[index])
+									CPKeys = append(CPKeys, columnCombination)
+								}
+							}
+							inputColumnCombinations = CPKeys[CPKeysLast:]
+							if len(inputColumnCombinations) == 0 {
+								break
+							}
+						}
+						SortedPKCols = SortedPKCols[1:]
+					}
+
 				}
+				printColumnArray := func(arr []*PKCombinationType) {
+					for _, key := range arr {
+						fmt.Printf("%v\n", key.columns)
+					}
+				}
+				CPKeys2 := make([]*PKCombinationType, 0, len(CPKeys))
+				for _, columnCombination := range CPKeys {
+					for index, column := range columnCombination.columns {
+						if index == 0 {
+							columnCombination.cardinality = uint64(column.UniqueRowCount.Value())
+						} else {
+							columnCombination.cardinality = columnCombination.cardinality * uint64(column.UniqueRowCount.Value())
+						}
+					}
+					if columnCombination.cardinality >= uint64(columnCombination.columns[0].TableInfo.RowCount.Value()) {
+						CPKeys2 = append(CPKeys2, columnCombination)
+					} else {
+						tracelog.Info(packageName, funcName,
+							"Column data permutation volume for columns %v is insufficient to fill the table row count volume. %v < %v",
+							columnCombination.columns,
+							columnCombination.cardinality,
+							columnCombination.columns[0].TableInfo.RowCount.Value(),
+						)
+					}
+				}
+				printColumnArray(CPKeys2)
+
+				for _, cc := range CPKeys2{
+					for _, pkc := range cc.columns {
+						
+					}
+				}
+
+
 			}
 		}
 	}
 
-
-
-
-
-
 	//dr.ReadAstraDump(context.TODO(),)
 
-
-
 	/*
-		for _, pair := range pairs0 {
+		for _, pair := range pairsFilteredByFeatures {
 			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
 		}*/
-
 
 	/*processTable := func(runContext context.Context) (err error) {
 		funcName := "processTable"

@@ -32,7 +32,7 @@ func (h2 Repository) PersistDataCategory(ctx context.Context, dataCategory *Data
 				", is_integer "+
 				", non_null_count "+
 				", hash_unique_count "+
-				", item_count "+
+				", item_unique_count "+
 				", min_sval "+
 				", max_sval "+
 				", min_fval "+
@@ -49,7 +49,7 @@ func (h2 Repository) PersistDataCategory(ctx context.Context, dataCategory *Data
 				dataCategory.IsInteger.Value(),
 				dataCategory.NonNullCount,
 				dataCategory.HashUniqueCount,
-				dataCategory.ItemCount,
+				dataCategory.ItemUniqueCount,
 				dataCategory.MinStringValue.SQLString(),
 				dataCategory.MaxStringValue.SQLString(),
 				dataCategory.MinNumericValue,
@@ -121,7 +121,7 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		", is_integer bool  null " +
 		", non_null_count bigint" +
 		", hash_unique_count bigint" +
-		", item_count bigint" +
+		", item_unique_count bigint" +
 		", min_sval varchar("+fmt.Sprintf("%v",VarcharMax) +")" +
 		", max_sval varchar("+fmt.Sprintf("%v",VarcharMax) +")" +
 		", min_fval float" +
@@ -246,7 +246,7 @@ func (h2 Repository) dataCategory(whereFunc func() string) (result map[string]*D
 		", IS_INTEGER "+
 		", NON_NULL_COUNT "+
 		", HASH_UNIQUE_COUNT "+
-		", ITEM_COUNT "+
+		", ITEM_UNIQUE_COUNT "+
 		", MIN_SVAL "+
 		", MAX_SVAL "+
 		", MIN_FVAL "+
@@ -273,7 +273,7 @@ func (h2 Repository) dataCategory(whereFunc func() string) (result map[string]*D
 			&row.IsInteger,
 			&row.NonNullCount,
 			&row.HashUniqueCount,
-			&row.ItemCount,
+			&row.ItemUniqueCount,
 			&row.MinStringValue,
 			&row.MaxStringValue,
 			&row.MinNumericValue,

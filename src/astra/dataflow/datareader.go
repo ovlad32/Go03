@@ -25,7 +25,7 @@ type DumpConfigType struct {
 	AstraDataGZip           bool   `json:"astra-data-gzip"`
 	AstraColumnSeparator    byte   `json:"astra-column-byte-separator"`
 	AstraLineSeparator      byte   `json:"astra-line-byte-separator"`
-	BinaryDumpPath          string `json:"binary-dump-path"`
+	BitsetPath          	string `json:"bitset-path"`
 	KVStorePath             string `json:"kv-store-path"`
 	AstraReaderBufferSize   int    `json:"astra-reader-buffer-size"`
 	TableWorkers            int    `json:"table-workers"`
@@ -224,7 +224,7 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 				return err
 			}
 
-			err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.AstraDumpPath, Hash)
+			err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.BitsetPath, HashBitsetSuffix)
 			if err != nil {
 				tracelog.Errorf(err, packageName, funcName, "Error while writting hash bitset data for %v.%v (%v)", table, column.ColumnName, dataCategory.Key)
 				return err
@@ -232,10 +232,10 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 
 			if dataCategory.IsNumeric.Value() {
 				if dataCategory.IsInteger.Value() {
-					err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.AstraDumpPath, Cont)
+					err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.BitsetPath, ItemBitsetSuffix)
 				}
 			} else {
-				err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.AstraDumpPath, Cont)
+				err = dataCategory.WriteBitsetToDisk(ctx, dr.Config.BitsetPath, ItemBitsetSuffix)
 			}
 			if err != nil {
 				tracelog.Errorf(err, packageName, funcName, "Error while writting integer bitset data for %v.%v (%v)", table, column.ColumnName, dataCategory.Key)

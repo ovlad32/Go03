@@ -75,21 +75,21 @@ func (columnData *ColumnDataType) DiscoverDataCategory() (simpleCategory *DataCa
 			columnData.DataCategory.Stats.MinNumericValue = floatValue
 		}
 		if simpleCategory.IsInteger {
-			if columnData.DataCategory.Stats.ContentBitset == nil {
-				columnData.DataCategory.Stats.ContentBitset = sparsebitset.New(0)
+			if columnData.DataCategory.Stats.ItemBitset == nil {
+				columnData.DataCategory.Stats.ItemBitset = sparsebitset.New(0)
 			}
 			if simpleCategory.IsNegative {
-				columnData.DataCategory.Stats.ContentBitset.Set(uint64(-truncatedFloatValue))
+				columnData.DataCategory.Stats.ItemBitset.Set(uint64(-truncatedFloatValue))
 			} else {
-				columnData.DataCategory.Stats.ContentBitset.Set(uint64(truncatedFloatValue))
+				columnData.DataCategory.Stats.ItemBitset.Set(uint64(truncatedFloatValue))
 			}
 		}
 	} else {
-		if columnData.DataCategory.Stats.ContentBitset == nil {
-			columnData.DataCategory.Stats.ContentBitset = sparsebitset.New(0)
+		if columnData.DataCategory.Stats.ItemBitset == nil {
+			columnData.DataCategory.Stats.ItemBitset = sparsebitset.New(0)
 		}
 		for _,charValue := range stringValue {
-			columnData.DataCategory.Stats.ContentBitset.Set(uint64(charValue))
+			columnData.DataCategory.Stats.ItemBitset.Set(uint64(charValue))
 		}
 		if columnData.DataCategory.Stats.MaxStringValue == "" ||
 			columnData.DataCategory.Stats.MaxStringValue < stringValue {
