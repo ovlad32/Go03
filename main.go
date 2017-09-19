@@ -305,8 +305,9 @@ type ComplexPKCombinationType struct {
 	columnPositions       []int
 	lastSortedColumnIndex int
 	cardinality           uint64
-	bitset sparsebitset.BitSet
+	bitset *sparsebitset.BitSet
 	duplicatesByHash      map[uint32][]*ComplexPKDupDataType
+	dataDuplicationFound bool
 }
 
 func (pkc ComplexPKCombinationType) ColumnIndexString() (result string) {
@@ -1066,8 +1067,14 @@ func testBitsetCompare() (err error) {
 
 
 				ComplexPK3 := make([]*ComplexPKCombinationType, 0, len(ComplexPK2))
-				for _, columnCombination := range ComplexPK2 {
+				var currentPKTable *dataflow.TableInfoType
+				for index, columnCombination := range ComplexPK2 {
+					if index == 0 {
+						currentPKTable = columnCombination.columns[0].TableInfo
+					}
 					columnCombination.columnPositions = make([]int, len(columnCombination.columns))
+					columnCombination.bitset = sparsebitset.New(0)
+					columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
 					for keyColumnIndex, pkc := range columnCombination.columns {
 						for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
 							if pkc.Id.Value() == pkc.TableInfo.Columns[tableColumnIndex].Id.Value() {
@@ -1075,26 +1082,30 @@ func testBitsetCompare() (err error) {
 							}
 						}
 					}
-					fmt.Printf("%v\n", columnCombination.columns)
+				}
+				//	fmt.Printf("%v\n", columnCombination.columns)
 
-					bs := sparsebitset.New(0)
-					verificationMode := false
+					//bs := sparsebitset.New(0)
+					var verificationMode bool = false
 					proc := func(ctc context.Context, LineNumber uint64, data [][]byte) (err error) {
-						hashMethod := fnv.New32()
-						for _, index := range columnCombination.columnPositions {
-							hashMethod.Write(data[index])
-						}
-						hashValue := hashMethod.Sum32()
-						var prevSet bool
-						if !verificationMode {
-							prevSet = bs.Set(uint64(hashValue))
-						} else {
-							prevSet = true
-						}
+						var truncateCombinations = false;
 
-						if prevSet {
-							if columnCombination.duplicatesByHash == nil {
-								columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+						for _, columnCombination := range ComplexPK2 {
+
+							if columnCombination.dataDuplicationFound {
+								continue
+							}
+
+							hashMethod := fnv.New32()
+							for _, index := range columnCombination.columnPositions {
+								hashMethod.Write(data[index])
+							}
+							hashValue := hashMethod.Sum32()
+							var prevSet bool
+							if !verificationMode {
+								prevSet = columnCombination.bitset.Set(uint64(hashValue))
+							} else {
+								prevSet = true
 							}
 
 							addToDuplicateByHash := func(duplicates []*ComplexPKDupDataType) {
@@ -1108,24 +1119,41 @@ func testBitsetCompare() (err error) {
 								duplicates = append(duplicates, newDup)
 								columnCombination.duplicatesByHash[hashValue] = duplicates
 							}
-							if duplicates, found := columnCombination.duplicatesByHash[hashValue]; !found {
-								if !verificationMode {
-									duplicates = make([]*ComplexPKDupDataType, 0, 3)
-									addToDuplicateByHash(duplicates)
-								}
-							} else {
-								for _, dup := range duplicates {
-									for index, position := range columnCombination.columnPositions {
-										result := bytes.Compare(dup.Data[index], data[position])
-										if result == 0 && dup.LineNumber != LineNumber {
-											// TODO:DUPLICATE!
-											tracelog.Info(packageName, funcName, "Data duplication found for %v in line %v", columnCombination.columns, LineNumber)
-											return DataDuplicateFoundError;
+
+							if prevSet {
+								if duplicates, found := columnCombination.duplicatesByHash[hashValue]; !found {
+									if !verificationMode {
+										duplicates = make([]*ComplexPKDupDataType, 0, 3)
+										addToDuplicateByHash(duplicates)
+									}
+								} else {
+									for _, dup := range duplicates {
+										for index, position := range columnCombination.columnPositions {
+											result := bytes.Compare(dup.Data[index], data[position])
+											if result == 0 && dup.LineNumber != LineNumber {
+												// TODO:DUPLICATE!
+												truncateCombinations = true
+												tracelog.Info(packageName, funcName, "Data duplication found for %v in line %v", columnCombination.columns, LineNumber)
+												columnCombination.dataDuplicationFound = true
+												columnCombination.bitset = nil
+												columnCombination.duplicatesByHash = nil
+
+												//return DataDuplicateFoundError;
+											}
 										}
 									}
+									if !verificationMode {
+										addToDuplicateByHash(duplicates)
+									}
 								}
-								if !verificationMode {
-									addToDuplicateByHash(duplicates)
+							}
+							if truncateCombinations {
+								outer:
+								for {
+
+									if columnCombination.dataDuplicationFound {
+										ComplexPK2 = append(ComplexPK2[:index],ComplexPK2[index:]...)
+									}
 								}
 							}
 						}
@@ -1145,7 +1173,7 @@ func testBitsetCompare() (err error) {
 
 					_, err := dr.ReadAstraDump(
 						context.TODO(),
-						columnCombination.columns[0].TableInfo,
+						currentPKTable,
 						proc,
 						&dataflow.TableDumpConfig{
 							GZip:            dr.Config.AstraDataGZip,
@@ -1156,23 +1184,23 @@ func testBitsetCompare() (err error) {
 						},
 					)
 					if err == DataDuplicateFoundError {
-						columnCombination.duplicatesByHash = nil
-						tracelog.Info(packageName, funcName,
-							"Data of column combination %v is not unique!",
-							columnCombination.columns,
-						)
+						//columnCombination.duplicatesByHash = nil
+						//tracelog.Info(packageName, funcName,
+						//	"Data of column combination %v is not unique!",
+						//	columnCombination.columns,
+					//	)
 						continue
 					} else if err != nil {
-						columnCombination.duplicatesByHash = nil
+						//columnCombination.duplicatesByHash = nil
 						return err
 					}
 
 					verificationMode = true
-					tracelog.Info(packageName, funcName, "Second pass for %v ", columnCombination.columns)
+					//tracelog.Info(packageName, funcName, "Second pass for %v ", columnCombination.columns)
 
 					_, err = dr.ReadAstraDump(
 						context.TODO(),
-						columnCombination.columns[0].TableInfo,
+						currentPKTable ,
 						proc,
 						&dataflow.TableDumpConfig{
 							GZip:            dr.Config.AstraDataGZip,
@@ -1183,18 +1211,20 @@ func testBitsetCompare() (err error) {
 						},
 					)
 					if err == DataDuplicateFoundError {
-						columnCombination.duplicatesByHash = nil
-						tracelog.Info(packageName, funcName,
-							"Data of column combination %v is not unique!",
-							columnCombination.columns,
-						)
+						//columnCombination.duplicatesByHash = nil
+						//tracelog.Info(packageName, funcName,
+						//	"Data of column combination %v is not unique!",
+						//	columnCombination.columns,
+						//)
 						continue
 					} else if err != nil {
-						columnCombination.duplicatesByHash = nil
+						//columnCombination.duplicatesByHash = nil
 						return err
 					}
-
-					ComplexPK3 = append(ComplexPK3, columnCombination)
+					for _,columnCombination := range ComplexPK2 {
+						if columnCombination.dataDuplicationFound {
+							ComplexPK3 = append(ComplexPK3, columnCombination)
+						}
 				}
 				printColumnArray(ComplexPK3)
 			}
