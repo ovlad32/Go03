@@ -29,7 +29,6 @@ package sparsebitset
 import (
 	"encoding/binary"
 	"io"
-	"log"
 	"errors"
 	"context"
 	"sync"
@@ -202,18 +201,21 @@ func (a blockAry) delete(idx uint32) (blockAry, error) {
 }
 */
 // setBit sets the bit at the given position to `1`.
-func (a *blockAry) setBit(n uint64) error {
+func (a *blockAry) setBit(n uint64) (wasSet bool) {
 	off, bit := offsetBits(n)
-	val := uint64(1)<< bit
-	if _, found := (*a)[off]; !found {
+	value := uint64(1)<< bit
+	if prevValue, found := (*a)[off]; !found {
 		(*a)[off] = (1 << bit)
+		return false
 	} else {
-		if (*a)[off] & val == 0 {
-			(*a)[off] |= val
+		if wasSet = (prevValue & value) == value; !wasSet {
+			(*a)[off] = prevValue | value
 		}
 	}
-	return nil
+	return
 }
+
+
 
 /*
 // clearBit sets the bit at the given position to `0`.
@@ -314,14 +316,8 @@ func (b *BitSet) Test(n uint64) bool {
 */
 
 // Set sets the bit at the given position to `1`.
-func (b *BitSet) Set(n uint64) *BitSet {
-	err := b.set.setBit(n)
-	if err != nil {
-		log.Println(err, ":", n)
-		return nil
-	}
-
-	return b
+func (b *BitSet) Set(n uint64) (wasSet bool) {
+	return  b.set.setBit(n)
 }
 
 /*

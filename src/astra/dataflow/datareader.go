@@ -143,7 +143,7 @@ func (dr DataReaderType) ReadAstraDump(
 			err = rowProcessingFunc(ctx, lineNumber, lineColumns)
 
 			if err != nil {
-				tracelog.Errorf(err, packageName, funcName, "Error while processing %v", table)
+				//tracelog.Errorf(err, packageName, funcName, "Error while processing %v", table)
 				return lineNumber, err
 			}
 		}
