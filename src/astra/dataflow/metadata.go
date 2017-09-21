@@ -10,23 +10,6 @@ import (
 	"os"
 )
 
-type TableDumpConfig struct {
-	Path            string
-	GZip            bool
-	ColumnSeparator byte
-	LineSeparator   byte
-	BufferSize      int
-}
-
-func defaultTableDumpConfig() *TableDumpConfig {
-	return &TableDumpConfig{
-		Path:            "./",
-		GZip:            true,
-		ColumnSeparator: 0x1F,
-		LineSeparator:   0x0A,
-		BufferSize:      4096,
-	}
-}
 
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
@@ -217,7 +200,7 @@ func (t *TableInfoType) CloseBoltDb() (err error) {
 	return
 }
 
-func (c *ColumnInfoType) ResetBitset(suffixType BitsetFileSuffixType){
+func (c *ColumnInfoType) ResetBitset(suffixType BitsetFileSuffixType) {
 	if c.Categories != nil {
 		for _, v := range c.Categories {
 			v.ResetBitset(suffixType)

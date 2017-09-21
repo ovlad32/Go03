@@ -456,7 +456,7 @@ func (h2 *Repository) PutMetadata(m *MetadataType) (err error) {
 		m.Version,
 		m.DatabaseConfigId,
 	)
-	_,err = tx.Exec(statement)
+	_, err = tx.Exec(statement)
 	if err != nil {
 		return
 	}

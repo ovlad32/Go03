@@ -6,13 +6,11 @@ import (
 	"io"
 )
 
+type RowDataType [][]byte
 
-type RowDataType [][]byte;
-
-
-func(rowData RowDataType) WriteToBinaryDump(writer io.Writer) (offset uint64,err error) {
+func (rowData RowDataType) WriteToBinaryDump(writer io.Writer) (offset uint64, err error) {
 	funcName := "RowDataType.WriteToBinaryDump"
-	tracelog.Started(packageName,funcName)
+	tracelog.Started(packageName, funcName)
 	offset = 0
 	columnCount := len(rowData)
 	// persisting count of columns per a line

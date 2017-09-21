@@ -1,19 +1,18 @@
 package metadata
 
 import (
+	"fmt"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
-	"fmt"
 )
 
 var tablePairSourceBucket = []byte("source")
 var tablePairStatsBucket = []byte("stats")
 
-
 type TablePairType struct {
-	table1            *TableInfoType
-	table2            *TableInfoType
+	table1 *TableInfoType
+	table2 *TableInfoType
 	//dataBucketName    *[]byte
 	IntersectionCount uint64
 	storage           *bolt.DB
@@ -22,11 +21,9 @@ type TablePairType struct {
 	StatsBucket       *bolt.Bucket
 }
 
-
-
-func NewTablePair(table1, table2 * TableInfoType) (result *TablePairType, err error) {
+func NewTablePair(table1, table2 *TableInfoType) (result *TablePairType, err error) {
 	funcName := "NewTablePair"
-	tracelog.Started(funcName,packageName)
+	tracelog.Started(funcName, packageName)
 	if table1 == nil || table2 == nil ||
 		!table1.Id.Valid() || !table2.Id.Valid() {
 		err = TableInfoNotInitialized
@@ -34,29 +31,27 @@ func NewTablePair(table1, table2 * TableInfoType) (result *TablePairType, err er
 		return
 	}
 	result = &TablePairType{
-		table1:table1,
-		table2:table2,
+		table1: table1,
+		table2: table2,
 	}
 	if table1.Id.Value() > table2.Id.Value() {
-		result.table1,result.table2 = result.table2,result.table1
+		result.table1, result.table2 = result.table2, result.table1
 	}
-	tracelog.Completedf(packageName, funcName, "%v",  result)
+	tracelog.Completedf(packageName, funcName, "%v", result)
 	return
 }
 
-
-
 func (tp TablePairType) String() string {
-	return fmt.Sprintf("table pair:%v - %v",tp.table1,tp.table2)
+	return fmt.Sprintf("table pair:%v - %v", tp.table1, tp.table2)
 }
 
-func(tp TablePairType) PathToStorage() (pathTo, pathToFileName string, err error ) {
+func (tp TablePairType) PathToStorage() (pathTo, pathToFileName string, err error) {
 	funcName := "TablePairType.OpenStorage"
-	tracelog.Startedf(funcName,packageName,"%v",tp)
+	tracelog.Startedf(funcName, packageName, "%v", tp)
 	if tp.table1 == nil || tp.table2 == nil ||
 		!tp.table1.Id.Valid() || !tp.table2.Id.Valid() {
 		err = ColumnInfoNotInitialized
-		tracelog.Errorf(err, packageName,  "%v", funcName,tp)
+		tracelog.Errorf(err, packageName, "%v", funcName, tp)
 		return
 	}
 	pathTo = "./DBT"
@@ -66,10 +61,10 @@ func(tp TablePairType) PathToStorage() (pathTo, pathToFileName string, err error
 
 func (tp *TablePairType) OpenStorage(writable bool) (err error) {
 	funcName := "TablePairType.OpenStorage"
-	tracelog.Startedf(funcName,packageName,  "%v", tp)
+	tracelog.Startedf(funcName, packageName, "%v", tp)
 	var path, file string
 	if tp.storage == nil {
-		path, file,err = tp.PathToStorage()
+		path, file, err = tp.PathToStorage()
 
 		if err != nil {
 			tracelog.Error(err, packageName, funcName)
@@ -86,7 +81,6 @@ func (tp *TablePairType) OpenStorage(writable bool) (err error) {
 				return
 			}
 		}
-
 
 		tp.storage, err = bolt.Open(file, 0600, nil)
 		if err != nil {
@@ -110,11 +104,9 @@ func (tp *TablePairType) OpenStorage(writable bool) (err error) {
 			return
 		}
 	}
- 	tracelog.Completedf(packageName, funcName,  "%v", tp)
+	tracelog.Completedf(packageName, funcName, "%v", tp)
 	return
 }
-
-
 
 func (tp *TablePairType) OpenSourceBucket() (err error) {
 	funcName := "TablePairType.OpenSourceBucket"
@@ -156,7 +148,6 @@ func (tp *TablePairType) OpenStatsBucket() (err error) {
 	}
 	return
 }
-
 
 func (tp *TablePairType) CloseStorageTransaction(commit bool) (err error) {
 	funcName := "TablePairType.CloseStorageTransaction"

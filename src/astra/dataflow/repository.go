@@ -2,9 +2,9 @@ package dataflow
 
 import (
 	"astra/metadata"
+	"context"
 	"fmt"
 	"github.com/goinggo/tracelog"
-	"context"
 )
 
 const VarcharMax = 4000
@@ -22,46 +22,46 @@ func (h2 Repository) PersistDataCategory(ctx context.Context, dataCategory *Data
 		return
 	}
 	defer tx.Rollback()
-		_, err = tx.Exec(
-			fmt.Sprintf("merge into column_datacategory_stats("+
-				" column_id "+
-				", key "+
-				", byte_length "+
-				", is_numeric "+
-				", is_negative "+
-				", is_integer "+
-				", non_null_count "+
-				", hash_unique_count "+
-				", item_unique_count "+
-				", min_sval "+
-				", max_sval "+
-				", min_fval "+
-				", max_fval "+
-				", moving_mean "+
-				", moving_stddev "+
-				" ) key(column_id, key) "+
-				" values(%v, '%v', %v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v) ",
-				dataCategory.Column.Id,
-				dataCategory.Key,
-				dataCategory.ByteLength.Value(),
-				dataCategory.IsNumeric.Value(),
-				dataCategory.IsNegative.Value(),
-				dataCategory.IsInteger.Value(),
-				dataCategory.NonNullCount,
-				dataCategory.HashUniqueCount,
-				dataCategory.ItemUniqueCount,
-				dataCategory.MinStringValue.SQLString(),
-				dataCategory.MaxStringValue.SQLString(),
-				dataCategory.MinNumericValue,
-				dataCategory.MaxNumericValue,
-				dataCategory.MovingMean,
-				dataCategory.MovingStandardDeviation,
-			),
-		)
-		if err != nil {
-			tracelog.Error(err, packageName, funcName)
-			return
-		}
+	_, err = tx.Exec(
+		fmt.Sprintf("merge into column_datacategory_stats("+
+			" column_id "+
+			", key "+
+			", byte_length "+
+			", is_numeric "+
+			", is_negative "+
+			", is_integer "+
+			", non_null_count "+
+			", hash_unique_count "+
+			", item_unique_count "+
+			", min_sval "+
+			", max_sval "+
+			", min_fval "+
+			", max_fval "+
+			", moving_mean "+
+			", moving_stddev "+
+			" ) key(column_id, key) "+
+			" values(%v, '%v', %v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v, %v) ",
+			dataCategory.Column.Id,
+			dataCategory.Key,
+			dataCategory.ByteLength.Value(),
+			dataCategory.IsNumeric.Value(),
+			dataCategory.IsNegative.Value(),
+			dataCategory.IsInteger.Value(),
+			dataCategory.NonNullCount,
+			dataCategory.HashUniqueCount,
+			dataCategory.ItemUniqueCount,
+			dataCategory.MinStringValue.SQLString(),
+			dataCategory.MaxStringValue.SQLString(),
+			dataCategory.MinNumericValue,
+			dataCategory.MaxNumericValue,
+			dataCategory.MovingMean,
+			dataCategory.MovingStandardDeviation,
+		),
+	)
+	if err != nil {
+		tracelog.Error(err, packageName, funcName)
+		return
+	}
 
 	/*
 		_, err = tx.Exec(fmt.Sprintf(
@@ -99,7 +99,6 @@ func (h2 Repository) PersistDataCategory(ctx context.Context, dataCategory *Data
 
 	tx.Commit()
 
-
 	return
 }
 
@@ -122,8 +121,8 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		", non_null_count bigint" +
 		", hash_unique_count bigint" +
 		", item_unique_count bigint" +
-		", min_sval varchar("+fmt.Sprintf("%v",VarcharMax) +")" +
-		", max_sval varchar("+fmt.Sprintf("%v",VarcharMax) +")" +
+		", min_sval varchar(" + fmt.Sprintf("%v", VarcharMax) + ")" +
+		", max_sval varchar(" + fmt.Sprintf("%v", VarcharMax) + ")" +
 		", min_fval float" +
 		", max_fval float" +
 		", moving_mean float" +
@@ -175,7 +174,6 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		return
 	}
 
-
 	_, err = tx.Exec("alter table column_info add column if not exists integer_unique_count bigint")
 	if err != nil {
 		tracelog.Error(err, packageName, funcName)
@@ -194,11 +192,10 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 		return
 	}
 
-
-	 tx.Commit()
+	tx.Commit()
 	//if err != nil {
-		//tracelog.Errorf(err, packageName, funcName, "Commit transaction...")
-		//return
+	//tracelog.Errorf(err, packageName, funcName, "Commit transaction...")
+	//return
 	//}
 	//err = nil
 
@@ -226,8 +223,6 @@ func (h2 Repository) CreateDataCategoryTable() (err error) {
 	return
 }
 
-
-
 func (h2 Repository) dataCategory(whereFunc func() string) (result map[string]*DataCategoryType, err error) {
 
 	tx, err := h2.IDb.Begin()
@@ -239,20 +234,20 @@ func (h2 Repository) dataCategory(whereFunc func() string) (result map[string]*D
 	result = make(map[string]*DataCategoryType, 0)
 
 	query := "SELECT " +
-		" KEY "+
-		", BYTE_LENGTH "+
-		", IS_NUMERIC "+
-		", IS_NEGATIVE "+
-		", IS_INTEGER "+
-		", NON_NULL_COUNT "+
-		", HASH_UNIQUE_COUNT "+
-		", ITEM_UNIQUE_COUNT "+
-		", MIN_SVAL "+
-		", MAX_SVAL "+
-		", MIN_FVAL "+
-		", MAX_FVAL "+
+		" KEY " +
+		", BYTE_LENGTH " +
+		", IS_NUMERIC " +
+		", IS_NEGATIVE " +
+		", IS_INTEGER " +
+		", NON_NULL_COUNT " +
+		", HASH_UNIQUE_COUNT " +
+		", ITEM_UNIQUE_COUNT " +
+		", MIN_SVAL " +
+		", MAX_SVAL " +
+		", MIN_FVAL " +
+		", MAX_FVAL " +
 		", MOVING_MEAN " +
-		", MOVING_STDDEV "+
+		", MOVING_STDDEV " +
 		" FROM COLUMN_DATACATEGORY_STATS t "
 
 	if whereFunc != nil {
@@ -284,7 +279,7 @@ func (h2 Repository) dataCategory(whereFunc func() string) (result map[string]*D
 		if err != nil {
 			return
 		}
-		result[row.Key] = &row;
+		result[row.Key] = &row
 	}
 	return
 }

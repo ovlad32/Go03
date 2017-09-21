@@ -27,12 +27,12 @@
 package sparsebitset
 
 import (
-	"encoding/binary"
-	"io"
-	"errors"
 	"context"
-	"sync"
+	"encoding/binary"
+	"errors"
+	"io"
 	"sort"
+	"sync"
 )
 
 const (
@@ -203,7 +203,7 @@ func (a blockAry) delete(idx uint32) (blockAry, error) {
 // setBit sets the bit at the given position to `1`.
 func (a *blockAry) setBit(n uint64) (wasSet bool) {
 	off, bit := offsetBits(n)
-	value := uint64(1)<< bit
+	value := uint64(1) << bit
 	if prevValue, found := (*a)[off]; !found {
 		(*a)[off] = (1 << bit)
 		return false
@@ -214,8 +214,6 @@ func (a *blockAry) setBit(n uint64) (wasSet bool) {
 	}
 	return
 }
-
-
 
 /*
 // clearBit sets the bit at the given position to `0`.
@@ -262,7 +260,6 @@ func (a blockAry) flipBit(n uint64) (blockAry, error) {
 // testBit answers `true` if the bit at the given position is set;
 // `false` otherwise.
 
-
 // BitSet is a compact representation of sparse positive integer sets.
 
 type BitSet struct {
@@ -280,7 +277,7 @@ func New(n uint64) *BitSet {
 	return &BitSet{set: make(blockAry)}
 }
 
-func NewFromKV(kv []byte,translator binary.ByteOrder) *BitSet{
+func NewFromKV(kv []byte, translator binary.ByteOrder) *BitSet {
 
 	result := &BitSet{set: make(blockAry)}
 	startK := uint64(0)
@@ -290,18 +287,19 @@ func NewFromKV(kv []byte,translator binary.ByteOrder) *BitSet{
 	kvLength := uint64(len(kv))
 	for {
 		key := translator.Uint64(kv[startK:startV])
-		startK += step;
-		startV += step;
+		startK += step
+		startV += step
 		result.set[key] = translator.Uint64(kv[startK:startV])
-		startK += step;
-		startV += step;
-		if kvLength<=startK {
-			break;
+		startK += step
+		startV += step
+		if kvLength <= startK {
+			break
 		}
 	}
-	return result;
+	return result
 
 }
+
 /*
 // Len answers the number of bytes used by this bitset.
 func (b *BitSet) Len() int {
@@ -317,7 +315,7 @@ func (b *BitSet) Test(n uint64) bool {
 
 // Set sets the bit at the given position to `1`.
 func (b *BitSet) Set(n uint64) (wasSet bool) {
-	return  b.set.setBit(n)
+	return b.set.setBit(n)
 }
 
 /*
@@ -906,7 +904,7 @@ func (b *BitSet) BinarySize() int {
 }
 
 // WriteTo serialises this bitset to the given `io.Writer`.
-func (b *BitSet) WriteTo(ctx context.Context,w io.Writer) (int64, error) {
+func (b *BitSet) WriteTo(ctx context.Context, w io.Writer) (int64, error) {
 	var err error
 
 	// Write length of the data to follow.
@@ -925,7 +923,8 @@ func (b *BitSet) WriteTo(ctx context.Context,w io.Writer) (int64, error) {
 
 	for key, value := range b.set {
 		select {
-			case <-ctx.Done():{
+		case <-ctx.Done():
+			{
 				return 0, nil
 			}
 		default:
@@ -963,9 +962,10 @@ func (b *BitSet) ReadFrom(ctx context.Context, r io.Reader) (int64, error) {
 	for i := 0; i < n; i++ {
 		var key, value uint64
 		select {
-		case <-ctx.Done():{
-			return 0, nil
-		}
+		case <-ctx.Done():
+			{
+				return 0, nil
+			}
 		default:
 			err = binary.Read(r, binary.BigEndian, &key)
 			if err != nil {
@@ -982,13 +982,11 @@ func (b *BitSet) ReadFrom(ctx context.Context, r io.Reader) (int64, error) {
 	return int64(b.BinarySize()), nil
 }
 
-
-
-func (b *BitSet) MergeFrom(ctx context.Context,r io.Reader) (int64, error) {
+func (b *BitSet) MergeFrom(ctx context.Context, r io.Reader) (int64, error) {
 	var err error
 
 	if b.set == nil || len(b.set) == 0 {
-		 return b.ReadFrom(ctx,r)
+		return b.ReadFrom(ctx, r)
 	}
 
 	// Read length of the data that follows.
@@ -1041,38 +1039,36 @@ func (b *BitSet) Test(n uint64) bool {
 	}
 }
 
-
 type byOrder []uint64
 
-func(a byOrder) Len() int {return len(a) }
+func (a byOrder) Len() int           { return len(a) }
 func (a byOrder) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a byOrder) Less(i, j int) bool { return a[i] < a[j] }
 
-
-func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
-	var wg sync.WaitGroup;
+func (b *BitSet) BitChan(ctx context.Context) chan uint64 {
+	var wg sync.WaitGroup
 
 	out := make(chan uint64)
 	wg.Add(1)
-	go func(){
+	go func() {
 		wg.Wait()
 		close(out)
-	} ()
+	}()
 
 	go func() {
 
-		if toSort,ok := ctx.Value("sort").(bool); ok && toSort {
-			byOrder := make(byOrder,0,len(b.set));
+		if toSort, ok := ctx.Value("sort").(bool); ok && toSort {
+			byOrder := make(byOrder, 0, len(b.set))
 			for key, _ := range b.set {
 				byOrder = append(byOrder, key)
 			}
-			if desc,ok := ctx.Value("desc").(bool); ok && desc {
+			if desc, ok := ctx.Value("desc").(bool); ok && desc {
 				sort.Sort(sort.Reverse(byOrder))
 			} else {
 				sort.Sort(byOrder)
 			}
-			outerSorted:
-			for _,key := range byOrder {
+		outerSorted:
+			for _, key := range byOrder {
 				val := b.set[key]
 				prod := key * wordSize
 				rsh := uint64(0)
@@ -1087,7 +1083,7 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 						select {
 						case out <- result:
 						case <-ctx.Done():
-							break outerSorted;
+							break outerSorted
 						}
 						prev = result
 					}
@@ -1095,7 +1091,7 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 				}
 			}
 		} else {
-			outerNonSorted:
+		outerNonSorted:
 			for key, val := range b.set {
 				prod := key * wordSize
 				rsh := uint64(0)
@@ -1110,7 +1106,7 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 						select {
 						case out <- result:
 						case <-ctx.Done():
-							break outerNonSorted;
+							break outerNonSorted
 						}
 						prev = result
 					}
@@ -1123,50 +1119,49 @@ func (b *BitSet) BitChan(ctx context.Context) (chan uint64) {
 	return out
 }
 
-
-func (b *BitSet) KvChan(ctx context.Context) (chan []uint64) {
-	var wg sync.WaitGroup;
+func (b *BitSet) KvChan(ctx context.Context) chan []uint64 {
+	var wg sync.WaitGroup
 
 	out := make(chan []uint64)
 	wg.Add(1)
-	go func(){
+	go func() {
 		wg.Wait()
 		close(out)
-	} ()
+	}()
 
 	go func() {
 
-		if toSort,ok := ctx.Value("sort").(bool); ok && toSort {
-			byOrder := make(byOrder,0,len(b.set));
+		if toSort, ok := ctx.Value("sort").(bool); ok && toSort {
+			byOrder := make(byOrder, 0, len(b.set))
 			for key, _ := range b.set {
-				byOrder = append(byOrder,key)
+				byOrder = append(byOrder, key)
 			}
-			if desc,ok := ctx.Value("desc").(bool); ok && desc {
+			if desc, ok := ctx.Value("desc").(bool); ok && desc {
 				sort.Reverse(byOrder)
 			} else {
 				sort.Sort(byOrder)
 			}
 		outerSorted:
-			for _,key := range byOrder {
-				result := make([]uint64,2)
-				result [0] = key
-				result [1] = b.set[key]
+			for _, key := range byOrder {
+				result := make([]uint64, 2)
+				result[0] = key
+				result[1] = b.set[key]
 				select {
 				case out <- result:
 				case <-ctx.Done():
-					break outerSorted;
+					break outerSorted
 				}
 			}
 		} else {
 		outerNonSorted:
 			for key, val := range b.set {
-				result := make([]uint64,2)
-				result [0] = key
-				result [1] = val
+				result := make([]uint64, 2)
+				result[0] = key
+				result[1] = val
 				select {
 				case out <- result:
 				case <-ctx.Done():
-					break outerNonSorted;
+					break outerNonSorted
 				}
 			}
 		}
@@ -1174,6 +1169,7 @@ func (b *BitSet) KvChan(ctx context.Context) (chan []uint64) {
 	}()
 	return out
 }
+
 /*
 func (b *BitSet) NextSet(n uint64) (uint64, bool) {
 	off, rsh := offsetBits(n)
@@ -1201,4 +1197,3 @@ func (b *BitSet) NextSet(n uint64) (uint64, bool) {
 	return (b.set[i].Offset * wordSize) + trailingZeroes64(b.set[i].Bits), true
 }
 */
-

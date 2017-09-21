@@ -19,12 +19,12 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"sort"
 	"sparsebitset"
-	"hash/fnv"
-	"errors"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -39,7 +39,7 @@ var argMetadataIds = flag.String("metadata_id", string(-math.MaxInt64), "")
 var argWorkflowIds = flag.String("workflow_id", string(-math.MaxInt64), "")
 
 /*
-func readConfig() (*dataflow.DumpConfigType, error) {
+func readConfig() (*dataflow.AstraConfigType, error) {
 	funcName := "readConfig"
 	if _, err := os.Stat(*pathToConfigFile); os.IsNotExist(err) {
 		tracelog.Error(err, funcName, "Specify correct path to config.json")
@@ -52,7 +52,7 @@ func readConfig() (*dataflow.DumpConfigType, error) {
 		return nil, err
 	}
 	jd := json.NewDecoder(conf)
-	var result dataflow.DumpConfigType
+	var result dataflow.AstraConfigType
 	err = jd.Decode(&result)
 	if err != nil {
 		tracelog.Errorf(err, funcName, "Decoding config file %v", *pathToConfigFile)
@@ -296,7 +296,7 @@ func (a keyColumnPairArrayType) Less(i, j int) bool {
 }
 
 type ComplexPKDupDataType struct {
-	Data [][]byte
+	Data       [][]byte
 	LineNumber uint64
 }
 
@@ -305,27 +305,25 @@ type ComplexPKCombinationType struct {
 	columnPositions       []int
 	lastSortedColumnIndex int
 	cardinality           uint64
-	bitset *sparsebitset.BitSet
+	firstPassBitset                *sparsebitset.BitSet
+	duplicateBitset                *sparsebitset.BitSet
 	duplicatesByHash      map[uint32][]*ComplexPKDupDataType
-	dataDuplicationFound bool
+	dataDuplicationFound  bool
 }
 
 func (pkc ComplexPKCombinationType) ColumnIndexString() (result string) {
 	result = ""
-	for index,position := range pkc.columnPositions {
+	for index, position := range pkc.columnPositions {
 		if index == 0 {
-			result = strconv.FormatInt(int64(position),10)
+			result = strconv.FormatInt(int64(position), 10)
 		} else {
 		}
-		result = result + "-" + strconv.FormatInt(int64(position),10)
+		result = result + "-" + strconv.FormatInt(int64(position), 10)
 	}
 	return result
 }
 
-
-
 var DataDuplicateFoundError = errors.New("Data duplicatation found")
-
 
 func testBitsetCompare() (err error) {
 	funcName := "testBitsetBuilding"
@@ -596,7 +594,7 @@ func testBitsetCompare() (err error) {
 				return
 			}
 		}
-		var leftNonPK, rightNonPK,columnFound bool
+		var leftNonPK, rightNonPK, columnFound bool
 
 		if leftNonPK, columnFound = NonPKColumns[leftColumn]; !columnFound {
 			leftNonPK, err = CheckIfNonPK(leftColumn)
@@ -910,7 +908,7 @@ func testBitsetCompare() (err error) {
 						context.TODO(),
 						table,
 						p1,
-						&dataflow.TableDumpConfig{
+						&dataflow.TableDumpConfigType{
 							Path:            dr.Config.AstraDumpPath,
 							GZip:            dr.Config.AstraDataGZip,
 							ColumnSeparator: dr.Config.AstraColumnSeparator,
@@ -939,6 +937,10 @@ func testBitsetCompare() (err error) {
 			PKT, FKT int64
 		}
 		printColumnArray := func(arr []*ComplexPKCombinationType) {
+			if len(arr) ==0 {
+				fmt.Println("No column combinations left")
+				return
+			}
 			for _, key := range arr {
 				fmt.Printf("%v\n", key.columns)
 			}
@@ -948,9 +950,9 @@ func testBitsetCompare() (err error) {
 		tablePairMap := make(map[tablePairType]keyColumnPairArrayType)
 
 		for _, pair := range pairsFilteredByHash {
-			if  !(pair.PK.TableInfo.TableName.Value() == "TX" && pair.FK.TableInfo.TableName.Value() == "TX_ITEM") {
+			/*if !(pair.PK.TableInfo.TableName.Value() == "TX" && pair.FK.TableInfo.TableName.Value() == "TX_ITEM") {
 				continue
-			}
+			}*/
 			tablePair := tablePairType{PKT: pair.PK.TableInfo.Id.Value(), FKT: pair.FK.TableInfo.Id.Value()}
 			if arr, found := tablePairMap[tablePair]; !found {
 				arr = make(keyColumnPairArrayType, 0, 10)
@@ -965,18 +967,18 @@ func testBitsetCompare() (err error) {
 			count := 0
 			for _, columnPairs := range tablePairMap {
 				if len(columnPairs) > 1 {
-					count ++
-					break;
+					count++
+					break
 				}
 			}
 			if count == 0 {
-				tracelog.Info(packageName,funcName,"There is no complex key candidates found!")
+				tracelog.Info(packageName, funcName, "There is no complex key candidates found!")
 				return
 			}
 		}
 		for _, columnPairs := range tablePairMap {
 			if len(columnPairs) > 1 {
-				fmt.Printf("\nPK:%v(%v) - FK:%v(%v):\n", columnPairs[0].PK.TableInfo, columnPairs[0].PK.TotalRowCount,columnPairs[0].FK.TableInfo,columnPairs[0].FK.TotalRowCount)
+				fmt.Printf("\nPK:%v) - FK:%v:\n", columnPairs[0].PK.TableInfo, columnPairs[0].FK.TableInfo)
 				var SortedPKCols []*dataflow.ColumnInfoType
 				ComplexPK1 := make([]*ComplexPKCombinationType, 0, 10)
 				_ = ComplexPK1
@@ -1056,7 +1058,7 @@ func testBitsetCompare() (err error) {
 						ComplexPK2 = append(ComplexPK2, columnCombination)
 					} else {
 						tracelog.Info(packageName, funcName,
-							"Column data permutation volume for columns %v is insufficient to fill the table row count volume. %v < %v",
+							"Column permutation %v data volume is insufficient to fill the table row count volume. %v < %v",
 							columnCombination.columns,
 							columnCombination.cardinality,
 							columnCombination.columns[0].TableInfo.RowCount.Value(),
@@ -1064,37 +1066,37 @@ func testBitsetCompare() (err error) {
 					}
 				}
 
-
-
-				ComplexPK3 := make([]*ComplexPKCombinationType, 0, len(ComplexPK2))
+				//ComplexPK3 := make([]*ComplexPKCombinationType, 0, len(ComplexPK2))
 				var currentPKTable *dataflow.TableInfoType
-				for index, columnCombination := range ComplexPK2 {
-					if index == 0 {
-						currentPKTable = columnCombination.columns[0].TableInfo
-					}
-					columnCombination.columnPositions = make([]int, len(columnCombination.columns))
-					columnCombination.bitset = sparsebitset.New(0)
-					columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
-					for keyColumnIndex, pkc := range columnCombination.columns {
-						for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
-							if pkc.Id.Value() == pkc.TableInfo.Columns[tableColumnIndex].Id.Value() {
-								columnCombination.columnPositions[keyColumnIndex] = tableColumnIndex
+				if len(ComplexPK2) > 0 {
+					for _, columnCombination := range ComplexPK2 {
+						if currentPKTable == nil {
+							currentPKTable = columnCombination.columns[0].TableInfo
+						}
+						columnCombination.columnPositions = make([]int, len(columnCombination.columns))
+						columnCombination.firstPassBitset = sparsebitset.New(0)
+						columnCombination.duplicateBitset = sparsebitset.New(0)
+						columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+						for keyColumnIndex, pkc := range columnCombination.columns {
+							for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
+								if pkc.Id.Value() == pkc.TableInfo.Columns[tableColumnIndex].Id.Value() {
+									columnCombination.columnPositions[keyColumnIndex] = tableColumnIndex
+								}
 							}
 						}
 					}
-				}
-				//	fmt.Printf("%v\n", columnCombination.columns)
+					//	fmt.Printf("%v\n", columnCombination.columns)
 
 					//bs := sparsebitset.New(0)
 					var verificationMode bool = false
-					proc := func(ctc context.Context, LineNumber uint64, data [][]byte) (err error) {
-						var truncateCombinations = false;
+					proc := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
+						var truncateCombinations = false
 
 						for _, columnCombination := range ComplexPK2 {
 
-							if columnCombination.dataDuplicationFound {
-								continue
-							}
+							/*if columnCombination.dataDuplicationFound {
+							continue
+						}*/
 
 							hashMethod := fnv.New32()
 							for _, index := range columnCombination.columnPositions {
@@ -1103,9 +1105,9 @@ func testBitsetCompare() (err error) {
 							hashValue := hashMethod.Sum32()
 							var prevSet bool
 							if !verificationMode {
-								prevSet = columnCombination.bitset.Set(uint64(hashValue))
+								prevSet = columnCombination.firstPassBitset.Set(uint64(hashValue))
 							} else {
-								prevSet = true
+								prevSet = columnCombination.duplicateBitset.Test(uint64(hashValue))
 							}
 
 							addToDuplicateByHash := func(duplicates []*ComplexPKDupDataType) {
@@ -1121,6 +1123,7 @@ func testBitsetCompare() (err error) {
 							}
 
 							if prevSet {
+								columnCombination.duplicateBitset.Set(uint64(hashValue));
 								if duplicates, found := columnCombination.duplicatesByHash[hashValue]; !found {
 									if !verificationMode {
 										duplicates = make([]*ComplexPKDupDataType, 0, 3)
@@ -1133,49 +1136,49 @@ func testBitsetCompare() (err error) {
 											if result == 0 && dup.LineNumber != LineNumber {
 												// TODO:DUPLICATE!
 												truncateCombinations = true
-												tracelog.Info(packageName, funcName, "Data duplication found for %v in line %v", columnCombination.columns, LineNumber)
+												tracelog.Info(packageName, funcName, "Data duplication found for columns %v in line %v", columnCombination.columns, LineNumber)
 												columnCombination.dataDuplicationFound = true
-												columnCombination.bitset = nil
-												columnCombination.duplicatesByHash = nil
 
 												//return DataDuplicateFoundError;
 											}
 										}
 									}
-									if !verificationMode {
+									if !verificationMode && !columnCombination.dataDuplicationFound {
 										addToDuplicateByHash(duplicates)
 									}
 								}
 							}
 							if truncateCombinations {
-								outer:
-								for {
-
-									if columnCombination.dataDuplicationFound {
-										ComplexPK2 = append(ComplexPK2[:index],ComplexPK2[index:]...)
+								for index := 0; index < len(ComplexPK2); index++ {
+									if ComplexPK2[index].dataDuplicationFound {
+										ComplexPK2 = append(ComplexPK2[:index], ComplexPK2[index+1:]...)
 									}
+								}
+								if len(ComplexPK2) == 0 {
+									return dataflow.ReadDumpActionAbort,nil
 								}
 							}
 						}
-						return nil
+						return dataflow.ReadDumpActionContinue, nil
 					}
 
 					/*file,err := os.OpenFile(fmt.Sprintf("%v%c%v.dup.data",
-									dr.Config.BuildBinaryDump,
-										os.PathSeparator,
-											columnCombination.ColumnIndexString(),
-											),
-												os.O_APPEND
-								)
-								if os.IsNotExist(err) {
+					dr.Config.BuildBinaryDump,
+						os.PathSeparator,
+							columnCombination.ColumnIndexString(),
+							),
+								os.O_APPEND
+				)
+				if os.IsNotExist(err) {
 
-								}*/
+				}*/
+					tracelog.Info(packageName, funcName, "First pass for %v ", currentPKTable)
 
-					_, err := dr.ReadAstraDump(
+					result, _, err := dr.ReadAstraDump(
 						context.TODO(),
 						currentPKTable,
 						proc,
-						&dataflow.TableDumpConfig{
+						&dataflow.TableDumpConfigType{
 							GZip:            dr.Config.AstraDataGZip,
 							Path:            dr.Config.AstraDumpPath,
 							LineSeparator:   dr.Config.AstraLineSeparator,
@@ -1183,71 +1186,76 @@ func testBitsetCompare() (err error) {
 							BufferSize:      dr.Config.AstraReaderBufferSize,
 						},
 					)
-					if err == DataDuplicateFoundError {
-						//columnCombination.duplicatesByHash = nil
-						//tracelog.Info(packageName, funcName,
-						//	"Data of column combination %v is not unique!",
-						//	columnCombination.columns,
-					//	)
-						continue
-					} else if err != nil {
+					if err != nil {
 						//columnCombination.duplicatesByHash = nil
 						return err
 					}
+					_ = result
+					if len(ComplexPK2) > 0 {
+						verificationMode = true
+						tracelog.Info(packageName, funcName, "Second pass for %v ", currentPKTable)
 
-					verificationMode = true
-					//tracelog.Info(packageName, funcName, "Second pass for %v ", columnCombination.columns)
-
-					_, err = dr.ReadAstraDump(
-						context.TODO(),
-						currentPKTable ,
-						proc,
-						&dataflow.TableDumpConfig{
-							GZip:            dr.Config.AstraDataGZip,
-							Path:            dr.Config.AstraDumpPath,
-							LineSeparator:   dr.Config.AstraLineSeparator,
-							ColumnSeparator: dr.Config.AstraColumnSeparator,
-							BufferSize:      dr.Config.AstraReaderBufferSize,
-						},
-					)
-					if err == DataDuplicateFoundError {
-						//columnCombination.duplicatesByHash = nil
-						//tracelog.Info(packageName, funcName,
-						//	"Data of column combination %v is not unique!",
-						//	columnCombination.columns,
-						//)
-						continue
-					} else if err != nil {
-						//columnCombination.duplicatesByHash = nil
-						return err
-					}
-					for _,columnCombination := range ComplexPK2 {
-						if columnCombination.dataDuplicationFound {
-							ComplexPK3 = append(ComplexPK3, columnCombination)
+						_, _, err = dr.ReadAstraDump(
+							context.TODO(),
+							currentPKTable,
+							proc,
+							&dataflow.TableDumpConfigType{
+								GZip:            dr.Config.AstraDataGZip,
+								Path:            dr.Config.AstraDumpPath,
+								LineSeparator:   dr.Config.AstraLineSeparator,
+								ColumnSeparator: dr.Config.AstraColumnSeparator,
+								BufferSize:      dr.Config.AstraReaderBufferSize,
+							},
+						)
+						if err == DataDuplicateFoundError {
+							//columnCombination.duplicatesByHash = nil
+							//tracelog.Info(packageName, funcName,
+							//	"Data of column combination %v is not unique!",
+							//	columnCombination.columns,
+							//)
+							continue
+						} else if err != nil {
+							//columnCombination.duplicatesByHash = nil
+							return err
 						}
+					}
+
+
+					//columnCombination.duplicatesByHash = nil
+					//tracelog.Info(packageName, funcName,
+					//	"Data of column combination %v is not unique!",
+					//	columnCombination.columns,
+					//	)
+					/*	continue
+				} else if err != nil {
+					//columnCombination.duplicatesByHash = nil
+					return err
+				}*/
+
+
+					fmt.Printf("\nPK:%v - FK:%v:\n", columnPairs[0].PK.TableInfo, columnPairs[0].FK.TableInfo)
+					printColumnArray(ComplexPK2)
 				}
-				printColumnArray(ComplexPK3)
+
 			}
 		}
 	}
-/*
-	map[]
-	sort.slice
-	var data1,data2 []byte
-	l1 := len(data1)
-	l2 := len(data2)
-	if l1 == l2 {
-		for index := 0; index<l1; index++ {
-			if data1[index] == data2[index] {
-				continue
+	/*
+		map[]
+		sort.slice
+		var data1,data2 []byte
+		l1 := len(data1)
+		l2 := len(data2)
+		if l1 == l2 {
+			for index := 0; index<l1; index++ {
+				if data1[index] == data2[index] {
+					continue
+				}
+				return data1[index] < data2[index]
 			}
-			return data1[index] < data2[index]
 		}
-	}
-	return l2<l1
-*/
-
-
+		return l2<l1
+	*/
 
 	//dr.ReadAstraDump(context.TODO(),)
 

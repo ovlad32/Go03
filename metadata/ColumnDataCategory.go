@@ -1,32 +1,26 @@
 package metadata
 
-
 import (
+	sparsebitset "../src/sparsebitset"
 	jsnull "../src/util/jsnull"
 	utils "./../utils"
-	sparsebitset "../src/sparsebitset"
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"fmt"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
-	"encoding/binary"
-	"fmt"
-	"errors"
-	"bytes"
 )
 
-
-
-type ColumnDataCategoryStatesConfig struct{
+type ColumnDataCategoryStatesConfig struct {
 	StorageDirectory string
 }
 
-type storageState struct{
-	storage *bolt.DB;
+type storageState struct {
+	storage      *bolt.DB
 	writtenCount uint64
 	writtenLimit uint64
 }
-
-
-
 
 type ColumnDataCategoryStatsType struct {
 	Column             *ColumnInfoType
@@ -49,7 +43,7 @@ type ColumnDataCategoryStatsType struct {
 	bitSetStorage      *storageState
 	writtenCount       uint64
 	HashValuesStorage  *bolt.DB
-	config  *ColumnDataCategoryStatesConfig
+	config             *ColumnDataCategoryStatesConfig
 }
 
 func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsType, err error) {
@@ -59,6 +53,7 @@ func NewColumnDataCategoryFromBytes(k []byte) (result *ColumnDataCategoryStatsTy
 	}
 	return
 }
+
 /*
 func (cdc *ColumnDataCategoryStatsType) Code() (result string, err error){
 	mask := "%v%v."
@@ -123,7 +118,6 @@ func(cdc *ColumnDataCategoryStatsType) Write() (err error) {
 }
 
 */
-
 
 func (cdc *ColumnDataCategoryStatsType) ConvertToBytes() (result []byte, err error) {
 	funcName := "ColumnDataCategoryStatsType.DataCategoryBytes"
@@ -288,7 +282,6 @@ func (cdc *ColumnDataCategoryStatsType) OpenHashValuesBucket() (err error) {
 	return
 }
 
-
 func (cdc ColumnDataCategoryStatsType) String() (result string) {
 	if !cdc.IsNumeric.Value() {
 		result = fmt.Sprintf("char[%v]", cdc.ByteLength.Value())
@@ -317,7 +310,6 @@ func (cdc ColumnDataCategoryStatsType) String() (result string) {
 	return
 }
 
-
 func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
 	kLen := len(k)
 	if kLen < 2 {
@@ -337,7 +329,7 @@ func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
 		}
 	} else {
 		ci.IsNegative = jsnull.NewNullBool(((k[0] >> 0) & 0x01) > 0)
-		isFp := ( k[0] >>1 ) & 0x01 == 0
+		isFp := (k[0]>>1)&0x01 == 0
 		if isFp {
 			ci.FloatingPointScale = jsnull.NewNullInt64(int64(k[3]))
 			ci.IsSubHash = jsnull.NewNullBool(kLen > 4)
@@ -357,41 +349,40 @@ func (ci *ColumnDataCategoryStatsType) PopulateFromBytes(k []byte) (err error) {
 
 func (cd *ColumnDataCategoryStatsType) RowIntersectionCount(hash, rows1Bytes []byte) (result uint64) {
 
-	oneAgainstMany := func(one,many []byte) bool {
+	oneAgainstMany := func(one, many []byte) bool {
 		value, _ := utils.B8ToUInt64(one)
-		bs := sparsebitset.New(0);
-		bs.ReadFrom(bytes.NewBuffer(many));
+		bs := sparsebitset.New(0)
+		bs.ReadFrom(bytes.NewBuffer(many))
 		return bs.Test(value)
 	}
 	rows2Bytes := cd.CategoryBucket.Get(hash)
 
 	if len(rows1Bytes) == 8 && len(rows2Bytes) == 8 {
 		found := true
-		for index := 0; index<len(rows1Bytes); index++ {
+		for index := 0; index < len(rows1Bytes); index++ {
 			if rows1Bytes[index] != rows2Bytes[index] {
 				found = false
-				break;
+				break
 			}
 		}
 		if found {
-			result ++
+			result++
 		}
-	} else if len(rows1Bytes) == 8 && len(rows2Bytes)>8 {
-		if oneAgainstMany(rows1Bytes,rows2Bytes) {
+	} else if len(rows1Bytes) == 8 && len(rows2Bytes) > 8 {
+		if oneAgainstMany(rows1Bytes, rows2Bytes) {
 			result++
 		}
 	} else if len(rows2Bytes) > 8 && len(rows1Bytes) == 8 {
-		if oneAgainstMany(rows2Bytes,rows1Bytes) {
+		if oneAgainstMany(rows2Bytes, rows1Bytes) {
 			result++
 		}
 	} else {
-		bs1 :=  sparsebitset.New(0);
-		bs1.ReadFrom(bytes.NewBuffer(rows1Bytes));
-		bs2 :=  sparsebitset.New(0);
-		bs2.ReadFrom(bytes.NewBuffer(rows2Bytes));
+		bs1 := sparsebitset.New(0)
+		bs1.ReadFrom(bytes.NewBuffer(rows1Bytes))
+		bs2 := sparsebitset.New(0)
+		bs2.ReadFrom(bytes.NewBuffer(rows2Bytes))
 		cardinality, _ := bs1.IntersectionCardinality(bs2)
 		result = result + cardinality
 	}
 	return
 }
-

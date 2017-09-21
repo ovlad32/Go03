@@ -2,15 +2,15 @@ package dataflow
 
 import (
 	"astra/B8"
+	"fmt"
+	"github.com/goinggo/tracelog"
 	"hash/fnv"
+	"io/ioutil"
 	"math"
+	"os"
 	"sparsebitset"
 	"strconv"
 	"strings"
-	"os"
-	"io/ioutil"
-	"fmt"
-	"github.com/goinggo/tracelog"
 )
 
 type ColumnDataType struct {
@@ -88,7 +88,7 @@ func (columnData *ColumnDataType) DiscoverDataCategory() (simpleCategory *DataCa
 		if columnData.DataCategory.Stats.ItemBitset == nil {
 			columnData.DataCategory.Stats.ItemBitset = sparsebitset.New(0)
 		}
-		for _,charValue := range stringValue {
+		for _, charValue := range stringValue {
 			columnData.DataCategory.Stats.ItemBitset.Set(uint64(charValue))
 		}
 		if columnData.DataCategory.Stats.MaxStringValue == "" ||
@@ -125,25 +125,25 @@ func (columnData *ColumnDataType) Encode() (err error) {
 	return
 }
 
-func(c ColumnInfoType) IndexFileExists(baseDir string) (result bool, err error){
+func (c ColumnInfoType) IndexFileExists(baseDir string) (result bool, err error) {
 	funcName := "ColumnInfoType.IndexFileExists"
-	tracelog.Started(packageName,funcName)
+	tracelog.Started(packageName, funcName)
 
-	fileMask := fmt.Sprintf("%v%v%v.*.bitset",baseDir,os.PathSeparator,c.Id.Value())
+	fileMask := fmt.Sprintf("%v%v%v.*.bitset", baseDir, os.PathSeparator, c.Id.Value())
 
-	files, err :=  ioutil.ReadDir(fileMask )
+	files, err := ioutil.ReadDir(fileMask)
 	if err != nil {
-		tracelog.Errorf(err,packageName,funcName,"Cannot list files with mask %v",fileMask)
-		return false,err
+		tracelog.Errorf(err, packageName, funcName, "Cannot list files with mask %v", fileMask)
+		return false, err
 	}
 
 	for _, f := range files {
 		if !f.IsDir() {
-			return true,nil
+			return true, nil
 		}
 	}
-	tracelog.Completed(packageName,funcName)
-	return false,nil
+	tracelog.Completed(packageName, funcName)
+	return false, nil
 }
 
 /*

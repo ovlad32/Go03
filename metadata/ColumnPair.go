@@ -12,6 +12,7 @@ import (
 var columnPairCategoriesBucket = []byte("categories")
 var columnPairStatsBucket = []byte("stats")
 var columnPairIntersectionBucket = []byte("intersection")
+
 //var columnPairCategoryStatsBucket = []byte("stats")
 //var columnPairBitsetBucket = []byte("bitset")
 //var columnPairStatsHashUniqueCountKey = []byte("uniqueHashCount")
@@ -19,64 +20,60 @@ var columnPairHashUniqueCountKey = []byte("uniqueHashCount")
 var columnPairHashCategoryCountKey = []byte("categoryCount")
 
 type ColumnPairType struct {
-	dataCategory        []byte
-	column1             *ColumnInfoType
-	column2             *ColumnInfoType
-	ProcessStatus       jsnull.NullString
-	HashIntersectionCount   jsnull.NullInt64
+	dataCategory              []byte
+	column1                   *ColumnInfoType
+	column2                   *ColumnInfoType
+	ProcessStatus             jsnull.NullString
+	HashIntersectionCount     jsnull.NullInt64
 	CategoryIntersectionCount jsnull.NullInt64
-	column1RowCount     jsnull.NullInt64
-	column2RowCount     jsnull.NullInt64
+	column1RowCount           jsnull.NullInt64
+	column2RowCount           jsnull.NullInt64
 	//dataBucketName      []byte
-	storage             *bolt.DB
-	currentTx           *bolt.Tx
-	CategoriesBucket    *bolt.Bucket
+	storage          *bolt.DB
+	currentTx        *bolt.Tx
+	CategoriesBucket *bolt.Bucket
 	//CategoryBucket      *bolt.Bucket
 	//CategoryHashBucket  *bolt.Bucket
 	//CategoryStatsBucket *bolt.Bucket
 	//BitsetBucket        *bolt.Bucket
-	StatsBucket         *bolt.Bucket
-//	HashIntersectionBytes    *bytes.Buffer
+	StatsBucket *bolt.Bucket
+	//	HashIntersectionBytes    *bytes.Buffer
 	//HashIntersectionBitset    *sparsebitset.BitSet
-	Assossiated  map[*ColumnPairType] [2]uint64;
+	Assossiated map[*ColumnPairType][2]uint64
 }
 
-type ColumnPairsType []*ColumnPairType;
+type ColumnPairsType []*ColumnPairType
 
-type byHashCount []*ColumnPairType;
+type byHashCount []*ColumnPairType
 
-func (v byHashCount) Len() int{
+func (v byHashCount) Len() int {
 	return len(v)
 }
-func (v byHashCount) Less(i, j int) bool{
-	return v[i].HashIntersectionCount.Value()> v[j].HashIntersectionCount.Value()
+func (v byHashCount) Less(i, j int) bool {
+	return v[i].HashIntersectionCount.Value() > v[j].HashIntersectionCount.Value()
 }
 
-func (v byHashCount) Swap(i, j int)  {
+func (v byHashCount) Swap(i, j int) {
 	v[i], v[j] = v[j], v[i]
 }
 
+type byRowsCount []*ColumnPairType
 
-type byRowsCount []*ColumnPairType;
-
-func (v byRowsCount) Len() int{
+func (v byRowsCount) Len() int {
 	return len(v)
 }
-func (v byRowsCount) Less(i, j int) bool{
+func (v byRowsCount) Less(i, j int) bool {
 	return (v[i].column1RowCount.Value() + v[i].column2RowCount.Value()) >
 		(v[j].column1RowCount.Value() + v[j].column2RowCount.Value())
 }
 
-func (v byRowsCount) Swap(i, j int)  {
+func (v byRowsCount) Swap(i, j int) {
 	v[i], v[j] = v[j], v[i]
 }
 
-
-
-
 func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (result *ColumnPairType, err error) {
 	funcName := "NewColumnPair"
-	tracelog.Started(funcName,packageName)
+	tracelog.Started(funcName, packageName)
 	if column1 == nil || column2 == nil ||
 		!column1.Id.Valid() || !column2.Id.Valid() {
 		err = ColumnInfoNotInitialized
@@ -103,7 +100,6 @@ func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (resul
 	result.column1RowCount = jsnull.NewNullInt64(int64(0))
 	result.column2RowCount = jsnull.NewNullInt64(int64(0))
 
-
 	/*result.dataBucketName = make([]byte, 8*2, 8*2)
 	b81 := utils.Int64ToB8(result.column1.Id.Value())
 	copy(result.dataBucketName, b81)
@@ -116,16 +112,16 @@ func NewColumnPair(column1, column2 *ColumnInfoType, dataCategory []byte) (resul
 }
 
 func (cp ColumnPairType) String() string {
-	return fmt.Sprintf("column pair:%v - %v",cp.column1,cp.column2)
+	return fmt.Sprintf("column pair:%v - %v", cp.column1, cp.column2)
 }
 
-func(cp ColumnPairType) PathToStorage() (pathTo, pathToFileName string, err error ) {
+func (cp ColumnPairType) PathToStorage() (pathTo, pathToFileName string, err error) {
 	funcName := "ColumnPairType.OpenStorage"
-	tracelog.Startedf(funcName,packageName,"%v",cp)
+	tracelog.Startedf(funcName, packageName, "%v", cp)
 	if cp.column1 == nil || cp.column2 == nil ||
 		!cp.column1.Id.Valid() || !cp.column2.Id.Valid() {
 		err = ColumnInfoNotInitialized
-		tracelog.Errorf(err, packageName, funcName, "%v",cp)
+		tracelog.Errorf(err, packageName, funcName, "%v", cp)
 		return
 	}
 	pathTo = "G:/DBS"
@@ -135,7 +131,7 @@ func(cp ColumnPairType) PathToStorage() (pathTo, pathToFileName string, err erro
 
 func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 	funcName := "ColumnPairType.OpenStorage"
-	tracelog.Started(funcName,packageName)
+	tracelog.Started(funcName, packageName)
 	var path, file string
 	if cp.storage == nil {
 		path, file, err = cp.PathToStorage()
@@ -155,8 +151,6 @@ func (cp *ColumnPairType) OpenStorage(writable bool) (err error) {
 				return
 			}
 		}
-
-
 
 		cp.storage, err = bolt.Open(file, 0600, nil)
 		if err != nil {
@@ -195,7 +189,7 @@ func (cp *ColumnPairType) OpenCategoriesBucket() (err error) {
 				return
 			}
 			if cp.CategoriesBucket == nil {
-				err = fmt.Errorf("Categories bucket has not been created for column pair %v",cp)
+				err = fmt.Errorf("Categories bucket has not been created for column pair %v", cp)
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
@@ -216,7 +210,7 @@ func (cp *ColumnPairType) OpenStatsBucket() (err error) {
 				return
 			}
 			if cp.StatsBucket == nil {
-				err = fmt.Errorf("Stats bucket has not been created for column pair %v",cp)
+				err = fmt.Errorf("Stats bucket has not been created for column pair %v", cp)
 				tracelog.Error(err, packageName, funcName)
 				return
 			}
@@ -224,6 +218,7 @@ func (cp *ColumnPairType) OpenStatsBucket() (err error) {
 	}
 	return
 }
+
 /*
 func (cp *ColumnPairType) OpenCategoryBucket(dataCategory []byte) (err error) {
 	funcName := "ColumnPairType.OpenCategoryBucket"
@@ -309,7 +304,6 @@ func (cp *ColumnPairType) OpenCategoryStatsBucket() (err error) {
 	return
 }*/
 
-
 func (cp *ColumnPairType) CloseStorageTransaction(commit bool) (err error) {
 	funcName := "ColumnPairType.CloseStorageTransaction"
 	if cp.currentTx != nil {
@@ -341,6 +335,7 @@ func (cp *ColumnPairType) CloseStorage() (err error) {
 	tracelog.Completed(packageName, funcName)
 	return
 }
+
 /**
 
 func (cp *ColumnPairType) match(categoryString string,category, rowNumber1, rowNumber2 *[]byte) (result bool,err error) {

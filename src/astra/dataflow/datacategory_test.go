@@ -3,105 +3,105 @@ package dataflow
 import "testing"
 
 type columnType struct {
-	isNumeric bool;
+	isNumeric bool
 }
-func (c columnType) IsNumericDataType() bool{
+
+func (c columnType) IsNumericDataType() bool {
 	return c.isNumeric
 }
 
-
 func TestNewDataCategory(t *testing.T) {
-	numeric := &columnType{true};
-	nonNumeric := &columnType{false};
+	numeric := &columnType{true}
+	nonNumeric := &columnType{false}
 
 	type testCaseType struct {
 		Scenario int
-		Data []byte
-		Column *columnType
+		Data     []byte
+		Column   *columnType
 		Expected *DataCategorySimpleType
 	}
 	var testCasSet = []testCaseType{
 		testCaseType{
-			Scenario:1,
-			Data: []byte("12345"),
-			Column: numeric,
+			Scenario: 1,
+			Data:     []byte("12345"),
+			Column:   numeric,
 			Expected: &DataCategorySimpleType{
-				IsNumeric: true,
+				IsNumeric:  true,
 				IsNegative: false,
 				FloatValue: float64(12345),
 			},
 		},
 		testCaseType{
-			Scenario:2,
-			Data: []byte("abcde"),
-			Column: nonNumeric,
+			Scenario: 2,
+			Data:     []byte("abcde"),
+			Column:   nonNumeric,
 			Expected: &DataCategorySimpleType{
 				IsNumeric: false,
 			},
 		},
 		testCaseType{
-			Scenario:3,
-			Data: []byte("1E3"),
-			Column: nonNumeric,
+			Scenario: 3,
+			Data:     []byte("1E3"),
+			Column:   nonNumeric,
 			Expected: &DataCategorySimpleType{
 				IsNumeric: false,
 			},
 		},
 		testCaseType{
-			Scenario:4,
-			Data: []byte("1.1E3"),
-			Column: numeric,
+			Scenario: 4,
+			Data:     []byte("1.1E3"),
+			Column:   numeric,
 			Expected: &DataCategorySimpleType{
-				IsNumeric: true,
-				FloatValue:float64(1100),
+				IsNumeric:  true,
+				FloatValue: float64(1100),
 			},
 		},
 		testCaseType{
-			Scenario:5,
-			Data: []byte("1.1E-3"),
-			Column: nonNumeric,
+			Scenario: 5,
+			Data:     []byte("1.1E-3"),
+			Column:   nonNumeric,
 			Expected: &DataCategorySimpleType{
-				IsNumeric: true,
-				FloatValue:float64(1100),
+				IsNumeric:  true,
+				FloatValue: float64(1100),
 			},
 		},
 		testCaseType{
-			Scenario:6,
-			Data: []byte(".1E3"),
-			Column: nonNumeric,
+			Scenario: 6,
+			Data:     []byte(".1E3"),
+			Column:   nonNumeric,
 			Expected: &DataCategorySimpleType{
-				IsNumeric: true,
-				FloatValue:float64(100),
+				IsNumeric:  true,
+				FloatValue: float64(100),
 			},
 		},
 		testCaseType{
-			Scenario:7,
-			Data: []byte("0E3"),
-			Column: nonNumeric,
+			Scenario: 7,
+			Data:     []byte("0E3"),
+			Column:   nonNumeric,
 			Expected: &DataCategorySimpleType{
 				IsNumeric: false,
 			},
 		},
 		testCaseType{
-			Scenario:8,
-			Data: []byte("-1.1E3"),
-			Column: nonNumeric,
+			Scenario: 8,
+			Data:     []byte("-1.1E3"),
+			Column:   nonNumeric,
 			Expected: &DataCategorySimpleType{
-				IsNumeric: true,
-				IsNegative:true,
-				FloatingPointScale:0,
-				FloatValue:float64(-1100),
+				IsNumeric:          true,
+				IsNegative:         true,
+				FloatingPointScale: 0,
+				FloatValue:         float64(-1100),
 			},
 		},
 		testCaseType{
-			Scenario:8,
-			Data: []byte("-1.1E-3"),
-			Column: nonNumeric,
+			Scenario: 8,
+			Data:     []byte("-1.1E-3"),
+			Column:   nonNumeric,
 			Expected: &DataCategorySimpleType{
-				IsNumeric: true,
-				IsNegative:true,
-				FloatingPointScale:4,
-				FloatValue:float64(-0.0011),
+				IsNumeric:          true,
+				IsNegative:         true,
+				FloatingPointScale: 4,
+				FloatValue:         float64(-0.0011),
 			},
 		},
 	}
@@ -110,7 +110,7 @@ func TestNewDataCategory(t *testing.T) {
 		result := NewDataCategory(
 			testCase.Data,
 			testCase.Column,
-		);
+		)
 
 		if result.IsNumeric != testCase.Expected.IsNumeric {
 			t.Errorf("Case %v Data %v : IsNumeric:%v but expected %v",
@@ -130,7 +130,7 @@ func TestNewDataCategory(t *testing.T) {
 				)
 			}
 
-			if result.FloatingPointScale!= testCase.Expected.FloatingPointScale {
+			if result.FloatingPointScale != testCase.Expected.FloatingPointScale {
 				t.Errorf("Case %v Data %v : FloatingPointScale:%v but expected %v",
 					testCase.Scenario,
 					string(testCase.Data),
@@ -139,7 +139,7 @@ func TestNewDataCategory(t *testing.T) {
 				)
 			}
 
-			if result.FloatValue!= testCase.Expected.FloatValue {
+			if result.FloatValue != testCase.Expected.FloatValue {
 				t.Errorf("Case %v Data %v : FloatValue:%v but expected %v",
 					testCase.Scenario,
 					string(testCase.Data),

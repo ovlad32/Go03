@@ -10,8 +10,8 @@ import (
 	//_ "github.com/lxn/go-pgsql"
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
-	"strings"
 	"os"
+	"strings"
 )
 
 var H2 H2Type
@@ -31,7 +31,6 @@ const packageName = "metadata"
 
 var tablesLabelBucketBytes = []byte("tables")
 var columnsLabelBucketBytes = []byte("columns")
-
 
 var hashStatsUnqiueCountBucketBytes = []byte("hashUniqueCount")
 
@@ -398,10 +397,6 @@ func (h2 H2Type) ColumnInfoById(Id jsnull.NullInt64) (result *ColumnInfoType, er
 	return
 }
 
-
-
-
-
 type H2Type struct {
 	Login          string
 	Password       string
@@ -463,7 +458,7 @@ type TableInfoType struct {
 	TableLabelBucket  *bolt.Bucket
 	TableBucket       *bolt.Bucket
 	ColumnLabelBucket *bolt.Bucket
-	dump *os.File;
+	dump              *os.File
 }
 type TableInfoTypeChannel chan *TableInfoType
 
@@ -556,6 +551,7 @@ func (ti *TableInfoType) GetOrCreateBuckets(tx *bolt.Tx) (err error) {
 	tracelog.Completed(packageName, funcName)
 	return
 }
+
 /*
 func(ti *TableInfoType) SaveRow(row[][]byte) (length uint32, err error) {
 	if ti.dump == nil {
@@ -633,10 +629,8 @@ func(ti *TableInfoType) SaveRow(row[][]byte) (length uint32, err error) {
 }
 */
 
-
 //	MinStringLength jsnull.NullInt64
 //	MaxStringLength jsnull.NullInt64
-
 
 func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
 	tx, err := h2.IDb.Begin()
@@ -699,53 +693,51 @@ func (h2 H2Type) SaveColumnCategory(column *ColumnInfoType) (err error) {
 	return
 }
 func (h2 H2Type) CreateDataCategoryTable() (err error) {
-		tx, err := h2.IDb.Begin()
-		if err != nil {
-			return
-		}
-		defer tx.Rollback()
-		//_, err = tx.Exec("drop table if exists column_datacategory_stats")
+	tx, err := h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
 
-		_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
-			" id bigint not null " +
-			", byte_length int not null " +
-			", is_numeric bool not null " +
-			", is_negative bool not null " +
-			", fp_scale int not null " +
-			", non_null_count bigint" +
-			", hash_unique_count bigint" +
-			", min_sval varchar(4000)" +
-			", max_sval varchar(4000)" +
-			", min_fval float" +
-			", max_fval float" +
-			", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_negative, fp_scale) " +
-			" ) ")
-		tx.Commit()
+	_, err = tx.Exec("create table if not exists column_datacategory_stats(" +
+		" id bigint not null " +
+		", byte_length int not null " +
+		", is_numeric bool not null " +
+		", is_negative bool not null " +
+		", fp_scale int not null " +
+		", non_null_count bigint" +
+		", hash_unique_count bigint" +
+		", min_sval varchar(4000)" +
+		", max_sval varchar(4000)" +
+		", min_fval float" +
+		", max_fval float" +
+		", constraint column_datacategory_stats_pk primary key(id, byte_length, is_numeric, is_negative, fp_scale) " +
+		" ) ")
+	tx.Commit()
 
-		tx, err = h2.IDb.Begin()
-		if err != nil {
-			return
-		}
-		defer tx.Rollback()
-		//_, err = tx.Exec("drop table if exists column_datacategory_stats")
+	tx, err = h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	//_, err = tx.Exec("drop table if exists column_datacategory_stats")
 
-		_, err = tx.Exec("create table if not exists column_pair( " +
-			"id integer, "+
-			"column_1_id integer,  "+
-			"column_1_rowcount integer,  "+
-			"column_2_id integer,  "+
-			"column_2_rowcount integer,  "+
-			"category_Intersection_Count integer,  "+
-			"hash_Intersection_Count integer,  "+
-			"status char(1),"+
-			"constraint column_pair_pk primary key (column_1_id,column_2_id) "+
-			")  ");
-		tx.Commit()
-
+	_, err = tx.Exec("create table if not exists column_pair( " +
+		"id integer, " +
+		"column_1_id integer,  " +
+		"column_1_rowcount integer,  " +
+		"column_2_id integer,  " +
+		"column_2_rowcount integer,  " +
+		"category_Intersection_Count integer,  " +
+		"hash_Intersection_Count integer,  " +
+		"status char(1)," +
+		"constraint column_pair_pk primary key (column_1_id,column_2_id) " +
+		")  ")
+	tx.Commit()
 
 	return
 }
-
 
 func (h2 H2Type) SaveColumnPairs(pairs []*ColumnPairType) (err error) {
 	tx, err := h2.IDb.Begin()
@@ -753,9 +745,9 @@ func (h2 H2Type) SaveColumnPairs(pairs []*ColumnPairType) (err error) {
 		return
 	}
 	defer tx.Rollback()
-	for _, p := range pairs  {
+	for _, p := range pairs {
 		merge := fmt.Sprintf("merge into column_pair("+
-		//" id"+
+			//" id"+
 			" column_1_id "+
 			", column_2_id"+
 			", column_1_rowcount"+
@@ -773,7 +765,7 @@ func (h2 H2Type) SaveColumnPairs(pairs []*ColumnPairType) (err error) {
 			p.CategoryIntersectionCount,
 			p.HashIntersectionCount,
 		)
-		_, err = tx.Exec( merge)
+		_, err = tx.Exec(merge)
 		if err != nil {
 			return
 		}
@@ -787,7 +779,7 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 	if err != nil {
 		return
 	}
-	defer tx.Rollback();
+	defer tx.Rollback()
 	queryText := "select " +
 		"  p.column_1_id" +
 		", p.column_2_id" +
@@ -796,22 +788,22 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 		", p.hash_intersection_count " +
 		", p.status " +
 		" from column_pair p  "
-	if whereFunc != nil{
+	if whereFunc != nil {
 		queryText = queryText + whereFunc()
 	}
 
 	queryText = queryText + " order by p.hash_intersection_count desc"
 
-	rows,err := tx.Query(queryText);
+	rows, err := tx.Query(queryText)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		pair := &ColumnPairType {
-			column1 : new(ColumnInfoType),
-			column2 : new(ColumnInfoType),
+		pair := &ColumnPairType{
+			column1: new(ColumnInfoType),
+			column2: new(ColumnInfoType),
 		}
 		err = rows.Scan(
 			&pair.column1.Id,
@@ -822,35 +814,32 @@ func (h2 H2Type) columnPairs(whereFunc func() string) (result ColumnPairsType, e
 			&pair.ProcessStatus,
 		)
 
-
 		if err != nil {
 			return
 		}
 
-
 		if result == nil {
-			result = make(ColumnPairsType,0,10)
+			result = make(ColumnPairsType, 0, 10)
 		}
 
-
-		result = append(result,pair)
+		result = append(result, pair)
 	}
 
 	return
 }
 
-func (h H2Type) MetadataByWorkflowId(workflowId jsnull.NullInt64)(metadataId1,metadataId2 jsnull.NullInt64, err error){
+func (h H2Type) MetadataByWorkflowId(workflowId jsnull.NullInt64) (metadataId1, metadataId2 jsnull.NullInt64, err error) {
 	queryText := fmt.Sprintf("select distinct t.metadata_id from link l "+
 		" inner join column_info  c on c.id in (l.parent_column_info_id,l.child_column_info_id) "+
-		" inner join table_info t on t.id = c.table_info_id " +
-		" where l.workflow_id = %v ",workflowId.String());
+		" inner join table_info t on t.id = c.table_info_id "+
+		" where l.workflow_id = %v ", workflowId.String())
 
-	tx,err := h.IDb.Begin()
+	tx, err := h.IDb.Begin()
 	if err != nil {
 		return
 	}
 
-	result,err := tx.Query(queryText)
+	result, err := tx.Query(queryText)
 	if err != nil {
 		return
 	}
@@ -858,15 +847,15 @@ func (h H2Type) MetadataByWorkflowId(workflowId jsnull.NullInt64)(metadataId1,me
 	if result.Next() {
 		result.Scan(&metadataId1)
 	} else {
-		err = fmt.Errorf("There is no the first metadata id  for workflow_id = %v",workflowId);
+		err = fmt.Errorf("There is no the first metadata id  for workflow_id = %v", workflowId)
 		return
 	}
 	if result.Next() {
 		result.Scan(&metadataId2)
 	} else {
 		var clean jsnull.NullInt64
-		metadataId1 = clean;
-		err = fmt.Errorf("There is no the second metadata id  for workflow_id = %v",workflowId);
+		metadataId1 = clean
+		err = fmt.Errorf("There is no the second metadata id  for workflow_id = %v", workflowId)
 		return
 	}
 	return

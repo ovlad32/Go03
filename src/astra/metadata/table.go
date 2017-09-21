@@ -1,12 +1,11 @@
 package metadata
 
 import (
+	"astra/nullable"
+	"errors"
 	"fmt"
 	"github.com/goinggo/tracelog"
-	"errors"
-	"astra/nullable"
 )
-
 
 type TableInfoType struct {
 	Id            nullable.NullInt64  `json:"tale-id"`
@@ -22,7 +21,6 @@ type TableInfoType struct {
 	Metadata      *MetadataType
 	Columns       []*ColumnInfoType `json:"columns"`
 }
-
 
 func (t TableInfoType) СheckId() error {
 	var funcName = "TableInfoType.СheckId"
@@ -57,7 +55,7 @@ func (t TableInfoType) СheckTableName() (err error) {
 	return
 }
 
-func (t TableInfoType) CheckMetadata() (err error)  {
+func (t TableInfoType) CheckMetadata() (err error) {
 	var funcName = "TableInfoType.CheckMetadata"
 	tracelog.Started(packageName, funcName)
 	if t.Metadata == nil {
@@ -69,7 +67,7 @@ func (t TableInfoType) CheckMetadata() (err error)  {
 	return
 }
 
-func (t TableInfoType) СheckColumnListExistence() (err error)  {
+func (t TableInfoType) СheckColumnListExistence() (err error) {
 	var funcName = "TableInfoType.СheckColumnListExistence"
 	tracelog.Started(packageName, funcName)
 
@@ -94,19 +92,18 @@ func (t TableInfoType) СheckColumnListExistence() (err error)  {
 	return
 }
 
-
 func (t TableInfoType) СheckDumpFileName() (err error) {
 	var funcName = "TableInfoType.СheckDumpFileName"
 	tracelog.Started(packageName, funcName)
 
 	if !t.PathToFile.Valid() {
-		err:= errors.New("Dump filename has not been initialized!")
-		tracelog.Error(err,packageName,funcName)
+		err := errors.New("Dump filename has not been initialized!")
+		tracelog.Error(err, packageName, funcName)
 		return err
 	}
 	if t.PathToFile.Value() == "" {
-		err:= errors.New("Dump filename is empty!")
-		tracelog.Error(err,packageName,funcName)
+		err := errors.New("Dump filename is empty!")
+		tracelog.Error(err, packageName, funcName)
 		return err
 	}
 	tracelog.Completed(packageName, funcName)
@@ -120,7 +117,7 @@ func (t TableInfoType) String() string {
 	var result = ""
 
 	if t.SchemaName.Value() != "" {
-		result = result +t.SchemaName.Value() + "."
+		result = result + t.SchemaName.Value() + "."
 	}
 
 	if t.TableName.Value() != "" {
@@ -132,7 +129,6 @@ func (t TableInfoType) String() string {
 	tracelog.Completed(packageName, funcName)
 	return result
 }
-
 
 func (t TableInfoType) GoString() string {
 	var funcName = "TableInfoType.GoString"
@@ -154,4 +150,3 @@ func (t TableInfoType) GoString() string {
 	tracelog.Completed(packageName, funcName)
 	return result
 }
-

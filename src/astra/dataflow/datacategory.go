@@ -120,10 +120,10 @@ type DataCategoryType struct {
 		NonNullCount            uint64
 		MovingMean              float64
 		MovingStandardDeviation float64
-		ItemBitset           *sparsebitset.BitSet
-		ItemBitsetCardinality uint64
+		ItemBitset              *sparsebitset.BitSet
+		ItemBitsetCardinality   uint64
 		HashBitset              *sparsebitset.BitSet
-		HashBitsetCardinality uint64
+		HashBitsetCardinality   uint64
 	}
 	//ItemCount               nullable.NullInt64
 	Key                     string
@@ -156,12 +156,10 @@ func (dataCategory DataCategoryType) BitsetFileName(suffix BitsetFileSuffixType)
 	return fileName, nil
 }
 
-
 func composeBistsetFileFullPath(pathToDir, fileName string) string {
 	fullPathFileName := fmt.Sprintf("%v%c%v", pathToDir, os.PathSeparator, fileName)
 	return fullPathFileName
 }
-
 
 func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
 	funcName := "DataCategoryType.WriteHashBitsetToDisk"
@@ -215,7 +213,6 @@ func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, path
 	return err
 }
 
-
 func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
 	funcName := "DataCategoryType.ReadBitsetFromDisk"
 
@@ -267,18 +264,17 @@ func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pa
 
 func (dataCategory DataCategoryType) ResetBitset(suffixType BitsetFileSuffixType) {
 	if suffixType == HashBitsetSuffix {
-		if dataCategory.Stats.HashBitset != nil{
+		if dataCategory.Stats.HashBitset != nil {
 			dataCategory.Stats.HashBitset = nil
 		}
 		dataCategory.Stats.HashBitsetCardinality = 0
 	} else {
-		if dataCategory.Stats.ItemBitset != nil{
+		if dataCategory.Stats.ItemBitset != nil {
 			dataCategory.Stats.ItemBitset = nil
 		}
 		dataCategory.Stats.ItemBitsetCardinality = 0
 	}
 }
-
 
 func (dataCategory *DataCategoryType) UpdateStatistics(runContext context.Context) (err error) {
 

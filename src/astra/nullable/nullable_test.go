@@ -115,10 +115,7 @@ func TestNullFloat64_String(t *testing.T) {
 		}
 	}
 
-
 }
-
-
 
 func TestNewNullInt64(t *testing.T) {
 	nullVar := NullInt64{}
@@ -161,4 +158,3 @@ func TestNullInt64_String(t *testing.T) {
 		}
 	}
 }
-

@@ -1,6 +1,5 @@
 package metadata
 
-
 import "database/sql"
 
 type DatabaseConfigType struct {

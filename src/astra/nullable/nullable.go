@@ -2,11 +2,10 @@ package nullable
 
 import (
 	"database/sql"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
-
 
 //-------------------------------------------------------------------------------
 type NullString struct {
@@ -41,13 +40,12 @@ func (n NullString) String() (result string) {
 
 func (n NullString) SQLString() (result string) {
 	if n.Valid() {
-		result = "'"+strings.Replace(n.internal.String, "'", "''", -1)+"'"
+		result = "'" + strings.Replace(n.internal.String, "'", "''", -1) + "'"
 	} else {
 		result = "null"
 	}
 	return
 }
-
 
 func (s NullString) MarshalJSON() ([]byte, error) {
 	if s.internal.Valid {
