@@ -282,7 +282,7 @@ type keyColumnPairType struct {
 	PK       *dataflow.ColumnInfoType
 	FK       *dataflow.ColumnInfoType
 }
-
+/*
 type keyColumnPairArrayType []*keyColumnPairType
 
 func (a keyColumnPairArrayType) Len() int      { return len(a) }
@@ -294,6 +294,20 @@ func (a keyColumnPairArrayType) Less(i, j int) bool {
 		return a[i].PK.HashUniqueCount.Value() < a[j].PK.HashUniqueCount.Value()
 	}
 }
+*/
+type ColumnArrayType []*dataflow.ColumnInfoType
+
+func (ca ColumnArrayType) ColumnIdString() (result string) {
+	result = ""
+	for index, col:= range ca {
+		if index == 0 {
+			result = strconv.FormatInt(int64(col.Id.Value()), 10)
+		} else {
+		}
+		result = result + "-" + strconv.FormatInt(int64(col.Id.Value()), 10)
+	}
+	return result
+}
 
 type ComplexPKDupDataType struct {
 	Data       [][]byte
@@ -301,7 +315,7 @@ type ComplexPKDupDataType struct {
 }
 
 type ComplexPKCombinationType struct {
-	columns               []*dataflow.ColumnInfoType
+	columns               ColumnArrayType
 	columnPositions       []int
 	lastSortedColumnIndex int
 	cardinality           uint64
@@ -583,7 +597,7 @@ func testBitsetCompare() (err error) {
 		return false, nil
 	}
 
-	pairsFilteredByFeatures := make(keyColumnPairArrayType, 0, 1000)
+	pairsFilteredByFeatures := make([]*keyColumnPairType, 0, 1000)
 	var bruteForcePairCount int = 0
 	NonPKColumns := make(map[*dataflow.ColumnInfoType]bool)
 
@@ -668,7 +682,18 @@ func testBitsetCompare() (err error) {
 		}
 	}
 
-	sort.Sort(sort.Reverse(pairsFilteredByFeatures))
+	sort.Slice(
+			pairsFilteredByFeatures,
+			func(i, j int) bool {
+				if pairsFilteredByFeatures[i].PK.HashUniqueCount.Value() == pairsFilteredByFeatures[j].PK.HashUniqueCount.Value() {
+					return pairsFilteredByFeatures[i].PK.Id.Value() < pairsFilteredByFeatures[j].PK.HashUniqueCount.Value()
+				} else {
+					return pairsFilteredByFeatures[i].PK.HashUniqueCount.Value() < pairsFilteredByFeatures[j].PK.HashUniqueCount.Value()
+				}
+			},
+	)
+
+
 	var lastPKColumn *dataflow.ColumnInfoType
 
 	analyzeItemBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
@@ -743,9 +768,9 @@ func testBitsetCompare() (err error) {
 	}
 
 	traversePairs := func(
-		pairs keyColumnPairArrayType,
+		pairs []*keyColumnPairType,
 		processPairFunc func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error),
-	) (nextPairs keyColumnPairArrayType, err error) {
+	) (nextPairs []*keyColumnPairType, err error) {
 
 		for _, pair := range pairs {
 			if lastPKColumn != nil {
@@ -775,7 +800,7 @@ func testBitsetCompare() (err error) {
 			}
 			if result {
 				if nextPairs == nil {
-					nextPairs = make(keyColumnPairArrayType, 0, 1000)
+					nextPairs = make([]*keyColumnPairType, 0, 1000)
 				}
 				nextPairs = append(nextPairs, pair)
 			}
@@ -866,8 +891,12 @@ func testBitsetCompare() (err error) {
 			}
 
 			sort.Slice(columns, func(i, j int) bool {
-				return columns[i].HashUniqueCount.Value() > columns[i].HashUniqueCount.Value()
+				if columns[i].HashUniqueCount.Value()  == columns[j].HashUniqueCount.Value() {
+					return columns[i].Id.Value() > columns[j].Id.Value()
+				}
+				return columns[i].HashUniqueCount.Value() > columns[j].HashUniqueCount.Value()
 			})
+
 			for _, col := range columns {
 				tracelog.Info(packageName, funcName, "%v(%v)", col, col.HashUniqueCount)
 			}
@@ -947,7 +976,9 @@ func testBitsetCompare() (err error) {
 		}
 		_ = printColumnArray
 
-		tablePairMap := make(map[tablePairType]keyColumnPairArrayType)
+		tablePairMap := make(map[tablePairType][]*keyColumnPairType)
+		tableCPKeys := make(map[int64]map[string]*ComplexPKCombinationType)
+		_ = tableCPKeys
 
 		for _, pair := range pairsFilteredByHash {
 			/*if !(pair.PK.TableInfo.TableName.Value() == "TX" && pair.FK.TableInfo.TableName.Value() == "TX_ITEM") {
@@ -955,7 +986,7 @@ func testBitsetCompare() (err error) {
 			}*/
 			tablePair := tablePairType{PKT: pair.PK.TableInfo.Id.Value(), FKT: pair.FK.TableInfo.Id.Value()}
 			if arr, found := tablePairMap[tablePair]; !found {
-				arr = make(keyColumnPairArrayType, 0, 10)
+				arr = make([]*keyColumnPairType, 0, 10)
 				arr = append(arr, pair)
 				tablePairMap[tablePair] = arr
 			} else {
@@ -968,7 +999,6 @@ func testBitsetCompare() (err error) {
 			for _, columnPairs := range tablePairMap {
 				if len(columnPairs) > 1 {
 					count++
-					break
 				}
 			}
 			if count == 0 {
@@ -976,6 +1006,7 @@ func testBitsetCompare() (err error) {
 				return
 			}
 		}
+
 		for _, columnPairs := range tablePairMap {
 			if len(columnPairs) > 1 {
 				fmt.Printf("\nPK:%v) - FK:%v:\n", columnPairs[0].PK.TableInfo, columnPairs[0].FK.TableInfo)
