@@ -311,6 +311,7 @@ func (ca ColumnArrayType) ColumnIdString() (result string) {
 }
 
 type ComplexPKDupDataType struct {
+	ColumnCombinationKey string
 	Data       [][]byte
 	LineNumber uint64
 }
@@ -328,12 +329,12 @@ type ComplexPKCombinationType struct {
 
 func (pkc ComplexPKCombinationType) ColumnIndexString() (result string) {
 	result = ""
-	for index, position := range pkc.columnPositions {
+	for index, column := range pkc.columns {
 		if index == 0 {
-			result = strconv.FormatInt(int64(position), 10)
+			result = strconv.FormatInt(int64(column.Id.Value()), 10)
 		} else {
+			result = result + "-" + strconv.FormatInt(int64(column.Id.Value()), 10)
 		}
-		result = result + "-" + strconv.FormatInt(int64(position), 10)
 	}
 	return result
 }
@@ -1008,274 +1009,381 @@ func testBitsetCompare() (err error) {
 			}
 		}
 
+
+
+		ComplexPKStage1 := make([]*ComplexPKCombinationType, 0, 10)
+		tableCPKs := make(map[*dataflow.TableInfoType]map[string]*ComplexPKCombinationType)
 		for _, columnPairs := range tablePairMap {
 			if len(columnPairs) > 1 {
 				fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
-				var SortedPKCols []*dataflow.ColumnInfoType
-				ComplexPK1 := make([]*ComplexPKCombinationType, 0, 10)
-				_ = ComplexPK1
 
-				{
-					pkCols := make(map[*dataflow.ColumnInfoType]bool)
-					for _, columnPair := range columnPairs {
-						pkCols[columnPair.PKColumn] = true
+				//* Collecting possible PK columns
+				uniqueColumns := make(map[*dataflow.ColumnInfoType]bool)
+
+				for _, columnPair := range columnPairs {
+					uniqueColumns[columnPair.PKColumn] = true
+				}
+
+				var SortedPKColumns []*dataflow.ColumnInfoType
+				SortedPKColumns = make([]*dataflow.ColumnInfoType, 0, len(uniqueColumns))
+
+				for column, _ := range uniqueColumns {
+					SortedPKColumns = append(SortedPKColumns, column)
+				}
+
+				//* Sort possible PK columns from the highest data cardinality
+				sort.Slice(SortedPKColumns, func(i, j int) bool {
+					if SortedPKColumns[i].UniqueRowCount.Value() == SortedPKColumns[j].UniqueRowCount.Value() {
+						return SortedPKColumns[i].Id.Value() > SortedPKColumns[j].Id.Value();
+					} else {
+						return SortedPKColumns[i].UniqueRowCount.Value() > SortedPKColumns[j].UniqueRowCount.Value()
 					}
+				},
+				)
 
-					SortedPKCols = make([]*dataflow.ColumnInfoType, 0, len(pkCols))
+				//* Making PK column combinations
 
-					for col, _ := range pkCols {
-						SortedPKCols = append(SortedPKCols, col)
+				for {
+					if len(SortedPKColumns) == 0 {
+						break
 					}
-					sort.Slice(SortedPKCols, func(i, j int) bool {
-						return SortedPKCols[i].UniqueRowCount.Value() > SortedPKCols[j].UniqueRowCount.Value()
-					})
+					var inputColumnCombinations []*ComplexPKCombinationType
+					var CPKeysLast int
 
+					inputColumnCombinations = make([]*ComplexPKCombinationType, 1, len(SortedPKColumns))
+					inputColumnCombinations[0] = &ComplexPKCombinationType{
+						columns:               make([]*dataflow.ColumnInfoType, 1),
+						lastSortedColumnIndex: 1,
+					}
+					inputColumnCombinations[0].columns[0] = SortedPKColumns[0]
+					//1,2,3,4 -> 12,13,14,123,124,134,23,24,234,34
 
 					for {
-						if len(SortedPKCols) == 0 {
+						CPKeysLast = len(ComplexPKStage1)
+						for _, inputColumnCombination := range inputColumnCombinations {
+							var columnCombination *ComplexPKCombinationType
+							inputLength := len(inputColumnCombination.columns)
+							for index := inputColumnCombination.lastSortedColumnIndex; index < len(SortedPKColumns); index++ {
+								columnCombination = &ComplexPKCombinationType{
+									columns:               make([]*dataflow.ColumnInfoType, inputLength, inputLength+1),
+									lastSortedColumnIndex: index + 1,
+								}
+								copy(columnCombination.columns, inputColumnCombination.columns)
+								columnCombination.columns = append(columnCombination.columns, SortedPKColumns[index])
+								ComplexPKStage1 = append(ComplexPKStage1, columnCombination)
+							}
+						}
+						inputColumnCombinations = ComplexPKStage1[CPKeysLast:]
+						if len(inputColumnCombinations) == 0 {
 							break
 						}
-						var inputColumnCombinations []*ComplexPKCombinationType
-						var CPKeysLast int
-
-						inputColumnCombinations = make([]*ComplexPKCombinationType, 1, len(SortedPKCols))
-						inputColumnCombinations[0] = &ComplexPKCombinationType{
-							columns:               make([]*dataflow.ColumnInfoType, 1),
-							lastSortedColumnIndex: 1,
-						}
-						inputColumnCombinations[0].columns[0] = SortedPKCols[0]
-						//1,2,3,4 -> 12,13,14,123,124,134,23,24,234,34
-						for {
-							CPKeysLast = len(ComplexPK1)
-							for _, inputColumnCombination := range inputColumnCombinations {
-								var columnCombination *ComplexPKCombinationType
-								inputLength := len(inputColumnCombination.columns)
-								for index := inputColumnCombination.lastSortedColumnIndex; index < len(SortedPKCols); index++ {
-									columnCombination = &ComplexPKCombinationType{
-										columns:               make([]*dataflow.ColumnInfoType, inputLength, inputLength+1),
-										lastSortedColumnIndex: index + 1,
-									}
-									copy(columnCombination.columns, inputColumnCombination.columns)
-									columnCombination.columns = append(columnCombination.columns, SortedPKCols[index])
-									ComplexPK1 = append(ComplexPK1, columnCombination)
-								}
-							}
-							inputColumnCombinations = ComplexPK1[CPKeysLast:]
-							if len(inputColumnCombinations) == 0 {
-								break
-							}
-						}
-						SortedPKCols = SortedPKCols[1:]
 					}
-
+					SortedPKColumns = SortedPKColumns[1:]
 				}
+			}
 
-				ComplexPK2 := make([]*ComplexPKCombinationType, 0, len(ComplexPK1))
-				for _, columnCombination := range ComplexPK1 {
-					for index, column := range columnCombination.columns {
-						if index == 0 {
-							columnCombination.cardinality = uint64(column.UniqueRowCount.Value())
-						} else {
-							columnCombination.cardinality = columnCombination.cardinality * uint64(column.UniqueRowCount.Value())
-						}
-					}
-					if columnCombination.cardinality >= uint64(columnCombination.columns[0].TableInfo.RowCount.Value()) {
-						ComplexPK2 = append(ComplexPK2, columnCombination)
+			for _, columnCombination := range ComplexPKStage1 {
+				for index, column := range columnCombination.columns {
+					if index == 0 {
+						columnCombination.cardinality = uint64(column.UniqueRowCount.Value())
 					} else {
-						tracelog.Info(packageName, funcName,
-							"Data volume of сolumn permutation %v is insufficient to fill the table row count. %v < %v",
-							columnCombination.columns,
-							columnCombination.cardinality,
-							columnCombination.columns[0].TableInfo.RowCount.Value(),
-						)
+						columnCombination.cardinality = columnCombination.cardinality * uint64(column.UniqueRowCount.Value())
 					}
 				}
-
-				tableCPKs := make(map[*dataflow.TableInfoType]map[string]*ComplexPKCombinationType)
-				_ = tableCPKs
-
-				for _, columnCombination := range ComplexPK2 {
-					table := columnCombination.columns[0].TableInfo
-					if collectedColumnCombinations, cccFound := tableCPKs[table];!cccFound {
-						collectedColumnCombinations = make(map[string]*ComplexPKCombinationType)
-						collectedColumnCombinations[columnCombination.ColumnIndexString()] = columnCombination
-						tableCPKs[table] = collectedColumnCombinations
-					}
+				if columnCombination.cardinality < uint64(columnCombination.columns[0].TableInfo.RowCount.Value()) {
+					tracelog.Info(packageName, funcName,
+						"Data volume of column permutation %v is insufficient to fill the table row count. %v < %v",
+						columnCombination.columns,
+						columnCombination.cardinality,
+						columnCombination.columns[0].TableInfo.RowCount.Value(),
+					)
+					continue;
 				}
+				table := columnCombination.columns[0].TableInfo
+				//
 
-				//ComplexPK3 := make([]*ComplexPKCombinationType, 0, len(ComplexPK2))
-				var currentPKTable *dataflow.TableInfoType
-				if len(tableCPKs) > 0 {
-					//for _, columnCombination := range ComplexPK2 {
-					for table, columnCombinationMap := range tableCPKs {
-						currentPKTable = table
-						for _, columnCombination :=  range columnCombinationMap {
-							columnCombination.columnPositions = make([]int, len(columnCombination.columns))
-							columnCombination.firstPassBitset = sparsebitset.New(0)
-							columnCombination.duplicateBitset = sparsebitset.New(0)
-							columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
-							for keyColumnIndex, pkc := range columnCombination.columns {
-								for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
-									if pkc.Id.Value() == pkc.TableInfo.Columns[tableColumnIndex].Id.Value() {
-										columnCombination.columnPositions[keyColumnIndex] = tableColumnIndex
-									}
-								}
-							}
+				if collectedColumnCombinations, cccFound := tableCPKs[table]; !cccFound {
+					collectedColumnCombinations = make(map[string]*ComplexPKCombinationType)
+					collectedColumnCombinations[columnCombination.ColumnIndexString()] = columnCombination
+					tableCPKs[table] = collectedColumnCombinations
+				} else {
+					collectedColumnCombinations[columnCombination.ColumnIndexString()] = columnCombination
+					tableCPKs[table] = collectedColumnCombinations
+				}
+			}
+		}
+		if len(tableCPKs)  == 0 {
+		}
+
+		for _, columnCombinationMap := range tableCPKs {
+			for _, columnCombination :=  range columnCombinationMap {
+				columnCombination.firstPassBitset = sparsebitset.New(0)
+				columnCombination.duplicateBitset = sparsebitset.New(0)
+				columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+				columnCombination.columnPositions = make([]int, len(columnCombination.columns))
+				for keyColumnIndex, pkc := range columnCombination.columns {
+					for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
+						if pkc.Id.Value() == pkc.TableInfo.Columns[tableColumnIndex].Id.Value() {
+							columnCombination.columnPositions[keyColumnIndex] = tableColumnIndex
 						}
 					}
-					//	fmt.Printf("%v\n", columnCombination.columns)
-
-					//bs := sparsebitset.New(0)
-					var verificationMode bool = false
-					proc := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
-						var truncateCombinations = false
-
-						for _, columnCombination := range ComplexPK2 {
-
-							/*if columnCombination.dataDuplicationFound {
-								continue
-							}*/
-
-							hashMethod := fnv.New32()
-							for _, index := range columnCombination.columnPositions {
-								hashMethod.Write(data[index])
-							}
-							hashValue := hashMethod.Sum32()
-							var prevSet bool
-							if !verificationMode {
-								prevSet = columnCombination.firstPassBitset.Set(uint64(hashValue))
-							} else {
-								prevSet = columnCombination.duplicateBitset.Test(uint64(hashValue))
-							}
-
-							addToDuplicateByHash := func(duplicates []*ComplexPKDupDataType) {
-								newDup := &ComplexPKDupDataType{
-									Data:       make([][]byte, len(columnCombination.columns)),
-									LineNumber: LineNumber,
-								}
-								for index, position := range columnCombination.columnPositions {
-									newDup.Data[index] = data[position]
-								}
-								duplicates = append(duplicates, newDup)
-								columnCombination.duplicatesByHash[hashValue] = duplicates
-							}
-
-							if prevSet {
-								columnCombination.duplicateBitset.Set(uint64(hashValue))
-								if duplicates, found := columnCombination.duplicatesByHash[hashValue]; !found {
-									if !verificationMode {
-										duplicates = make([]*ComplexPKDupDataType, 0, 3)
-										addToDuplicateByHash(duplicates)
-									}
-								} else {
-									for _, dup := range duplicates {
-										for index, position := range columnCombination.columnPositions {
-											result := bytes.Compare(dup.Data[index], data[position])
-											if result == 0 && dup.LineNumber != LineNumber {
-												// TODO:DUPLICATE!
-												truncateCombinations = true
-												tracelog.Info(packageName, funcName, "Data duplication found for columns %v in line %v", columnCombination.columns, LineNumber)
-												columnCombination.dataDuplicationFound = true
-
-												//return DataDuplicateFoundError;
-											}
-										}
-									}
-									if !verificationMode && !columnCombination.dataDuplicationFound {
-										addToDuplicateByHash(duplicates)
-									}
-								}
-							}
-							if truncateCombinations {
-								for index := 0; index < len(ComplexPK2); index++ {
-									if ComplexPK2[index].dataDuplicationFound {
-										ComplexPK2 = append(ComplexPK2[:index], ComplexPK2[index+1:]...)
-									}
-								}
-								if len(ComplexPK2) == 0 {
-									return dataflow.ReadDumpActionAbort, nil
-								}
-							}
-						}
-						return dataflow.ReadDumpActionContinue, nil
-					}
-
-					/*file,err := os.OpenFile(fmt.Sprintf("%v%c%v.dup.data",
-						dr.Config.BuildBinaryDump,
-							os.PathSeparator,
-								columnCombination.ColumnIndexString(),
-								),
-									os.O_APPEND
-					)
-					if os.IsNotExist(err) {
-
-					}*/
-					tracelog.Info(packageName, funcName, "First pass for %v ", currentPKTable)
-
-					result, _, err := dr.ReadAstraDump(
-						context.TODO(),
-						currentPKTable,
-						proc,
-						&dataflow.TableDumpConfigType{
-							GZip:            dr.Config.AstraDataGZip,
-							Path:            dr.Config.AstraDumpPath,
-							LineSeparator:   dr.Config.AstraLineSeparator,
-							ColumnSeparator: dr.Config.AstraColumnSeparator,
-							BufferSize:      dr.Config.AstraReaderBufferSize,
-						},
-					)
-					if err != nil {
-						//columnCombination.duplicatesByHash = nil
-						return err
-					}
-					_ = result
-					if len(ComplexPK2) > 0 {
-						verificationMode = true
-						tracelog.Info(packageName, funcName, "Second pass for %v ", currentPKTable)
-
-						_, _, err = dr.ReadAstraDump(
-							context.TODO(),
-							currentPKTable,
-							proc,
-							&dataflow.TableDumpConfigType{
-								GZip:            dr.Config.AstraDataGZip,
-								Path:            dr.Config.AstraDumpPath,
-								LineSeparator:   dr.Config.AstraLineSeparator,
-								ColumnSeparator: dr.Config.AstraColumnSeparator,
-								BufferSize:      dr.Config.AstraReaderBufferSize,
-							},
-						)
-						if err == DataDuplicateFoundError {
-							//columnCombination.duplicatesByHash = nil
-							//tracelog.Info(packageName, funcName,
-							//	"Data of column combination %v is not unique!",
-							//	columnCombination.columns,
-							//)
-							continue
-						} else if err != nil {
-							//columnCombination.duplicatesByHash = nil
-							return err
-						}
-					}
-
-					//columnCombination.duplicatesByHash = nil
-					//tracelog.Info(packageName, funcName,
-					//	"Data of column combination %v is not unique!",
-					//	columnCombination.columns,
-					//	)
-					/*	continue
-						} else if err != nil {
-							//columnCombination.duplicatesByHash = nil
-							return err
-						}*/
-
-					fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
-					printColumnArray(ComplexPK2)
 				}
 
 			}
 		}
-	}
+				//	fmt.Printf("%v\n", columnCombination.columns)
+
+				//bs := sparsebitset.New(0)
+		for currentPkTable, columnCombinationMap := range tableCPKs {
+
+			//var verificationMode bool = false
+			CurrentLeapLineNumber := uint64(0);
+			cumulativeDataLength := uint64(0);
+
+			LeadingHorse := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
+				var truncateCombinations = false
+
+				for columnCombinationMapKey, columnCombination := range columnCombinationMap {
+
+					/*if columnCombination.dataDuplicationFound {
+						continue
+					}*/
+
+					firstHashMethod := fnv.New32()
+					for _, index := range columnCombination.columnPositions {
+						firstHashMethod.Write(data[index])
+					}
+
+
+
+					if !columnCombination.firstPassBitset.Set(uint64(firstHashMethod.Sum32())) {
+						continue;
+					}
+
+
+					secondHashMethod := fnv.New32a()
+					for _, position := range columnCombination.columnPositions {
+						secondHashMethod.Write(data[position])
+					}
+
+					hashValue := secondHashMethod.Sum32()
+					columnCombination.duplicateBitset.Set(uint64(hashValue))
+
+					var copiedDataMap map[int][]byte
+					if copiedDataMap == nil {
+						copiedDataMap = make(map[int][]byte)
+					}
+
+
+					addToDuplicateByHash := func(duplicates []*ComplexPKDupDataType) {
+						newDup := &ComplexPKDupDataType{
+							ColumnCombinationKey: columnCombinationMapKey,
+							Data:       make([][]byte, len(columnCombination.columns)),
+							LineNumber: LineNumber,
+						}
+
+						for index, position := range columnCombination.columnPositions {
+							dataLength := len(copiedDataMap[position])
+							cumulativeDataLength = cumulativeDataLength + dataLength;
+							if copied, isDataCopied := copiedDataMap[position]; !isDataCopied {
+								copied = make([]byte, dataLength)
+								copy(copied,data[position])
+								copiedDataMap[position] = copied
+								newDup.Data[index] = copied
+							} else {
+								newDup.Data[index] = copiedDataMap[position]
+							}
+						}
+						duplicates = append(duplicates, newDup)
+						columnCombination.duplicatesByHash[hashValue] = duplicates
+					}
+
+					if duplicates, found := columnCombination.duplicatesByHash[hashValue]; !found {
+						//if !verificationMode {
+							duplicates = make([]*ComplexPKDupDataType, 0, 3)
+							addToDuplicateByHash(duplicates)
+						//}
+					} else {
+						for _, dup := range duplicates {
+							countDifferentPieces := 0;
+							if dup.ColumnCombinationKey == columnCombinationMapKey {
+								for index, position := range columnCombination.columnPositions {
+									result := bytes.Compare(dup.Data[index], data[position])
+									if result != 0 {
+										countDifferentPieces++
+									}
+								}
+							}
+							if countDifferentPieces == 0 {
+								// TODO:DUPLICATE!
+								truncateCombinations = true
+								tracelog.Info(packageName, funcName, "Data duplication found for columns %v in line %v", columnCombination.columns, LineNumber)
+								columnCombination.dataDuplicationFound = true
+							}
+
+							//return DataDuplicateFoundError;
+
+						}
+						if !columnCombination.dataDuplicationFound {
+							addToDuplicateByHash(duplicates)
+						}
+					}
+				}
+
+				if truncateCombinations {
+					for columnCombinationKey, columnCombination := range(columnCombinationMap) {
+						if columnCombination.dataDuplicationFound {
+							delete(columnCombinationMap,columnCombinationKey)
+						}
+					}
+					if len(columnCombinationMap) == 0 {
+						tracelog.Info(packageName, funcName,
+							"There is no column combination available for %v to check",
+							currentPkTable,
+						)
+						return dataflow.ReadDumpActionAbort, nil
+					}
+				}
+			return dataflow.ReadDumpActionContinue, nil
+		}
+
+
+
+
+		SlaveHorse := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
+			var truncateCombinations = false
+			//copiedDataMap := make(map[int][]byte)
+			for columnCombinationMapKey, columnCombination := range columnCombinationMap {
+
+				secondHashMethod := fnv.New32a()
+				for _, index := range columnCombination.columnPositions {
+					secondHashMethod.Write(data[index])
+				}
+				hashValue := secondHashMethod.Sum32()
+				if !columnCombination.duplicateBitset.Test(uint64(hashValue)) {
+					continue;
+				}
+
+				firstHashMethod := fnv.New32a()
+				for _, index := range columnCombination.columnPositions {
+					firstHashMethod.Write(data[index])
+				}
+				if !columnCombination.firstPassBitset.Test(uint64(firstHashMethod.Sum32())) {
+					continue;
+				}
+
+				if duplicates, found := columnCombination.duplicatesByHash[hashValue]; found {
+					for _, dup := range duplicates {
+						countDifferentPieces := 0;
+						if dup.LineNumber != (LineNumber+CurrentLeapLineNumber) && dup.ColumnCombinationKey == columnCombinationMapKey {
+							for index, position := range columnCombination.columnPositions {
+								result := bytes.Compare(dup.Data[index], data[position])
+								if result != 0 {
+									countDifferentPieces++
+								}
+							}
+						}
+						if countDifferentPieces == 0 {
+							// TODO:DUPLICATE!
+							truncateCombinations = true
+							tracelog.Info(packageName, funcName, "Data duplication found for columns %v in line %v", columnCombination.columns, LineNumber)
+							columnCombination.dataDuplicationFound = true
+						}
+							//return DataDuplicateFoundError;
+					}
+				}
+			}
+
+			if truncateCombinations {
+				for columnCombinationKey, columnCombination := range(columnCombinationMap) {
+					if columnCombination.dataDuplicationFound {
+						delete(columnCombinationMap,columnCombinationKey)
+					}
+				}
+				if len(columnCombinationMap) == 0 {
+					tracelog.Info(packageName, funcName,
+						"There is no column combination available for %v to check",
+						currentPkTable,
+					)
+					return dataflow.ReadDumpActionAbort, nil
+				}
+			}
+			return dataflow.ReadDumpActionContinue, nil
+		}
+
+				/*file,err := os.OpenFile(fmt.Sprintf("%v%c%v.dup.data",
+					dr.Config.BuildBinaryDump,
+						os.PathSeparator,
+							columnCombination.ColumnIndexString(),
+							),
+								os.O_APPEND
+				)
+				if os.IsNotExist(err) {
+
+				}*/
+		tracelog.Info(packageName, funcName, "First pass for %v ", currentPkTable)
+
+		result, CurrentLeapLineNumber, err := dr.ReadAstraDump(
+			context.TODO(),
+			currentPkTable,
+			LeadingHorse,
+			&dataflow.TableDumpConfigType{
+				GZip:            dr.Config.AstraDataGZip,
+				Path:            dr.Config.AstraDumpPath,
+				LineSeparator:   dr.Config.AstraLineSeparator,
+				ColumnSeparator: dr.Config.AstraColumnSeparator,
+				BufferSize:      dr.Config.AstraReaderBufferSize,
+			},
+		)
+		if err != nil {
+			//columnCombination.duplicatesByHash = nil
+			return err
+		}
+		_ = result
+		if len(columnCombinationMap) > 0 {
+			tracelog.Info(packageName, funcName, "Second pass for %v ", currentPkTable)
+
+			_, _, err = dr.ReadAstraDump(
+				context.TODO(),
+				currentPkTable,
+				SlaveHorse,
+				&dataflow.TableDumpConfigType{
+					GZip:            dr.Config.AstraDataGZip,
+					Path:            dr.Config.AstraDumpPath,
+					LineSeparator:   dr.Config.AstraLineSeparator,
+					ColumnSeparator: dr.Config.AstraColumnSeparator,
+					BufferSize:      dr.Config.AstraReaderBufferSize,
+				},
+			)
+			if err == DataDuplicateFoundError {
+				//columnCombination.duplicatesByHash = nil
+				//tracelog.Info(packageName, funcName,
+				//	"Data of column combination %v is not unique!",
+				//	columnCombination.columns,
+				//)
+				continue
+			} else if err != nil {
+				//columnCombination.duplicatesByHash = nil
+				return err
+			}
+		}
+
+				//columnCombination.duplicatesByHash = nil
+				//tracelog.Info(packageName, funcName,
+				//	"Data of column combination %v is not unique!",
+				//	columnCombination.columns,
+				//	)
+				/*	continue
+					} else if err != nil {
+						//columnCombination.duplicatesByHash = nil
+						return err
+					}*/
+
+				//fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
+				//printColumnArray(columnCombinationMap)
+				fmt.Println(columnCombinationMap)
+			}
+		}
 	/*
 		map[]
 		sort.slice
