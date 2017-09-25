@@ -279,19 +279,20 @@ func testBitsetBuilding() (err error) {
 
 type keyColumnPairType struct {
 	IsSingle bool
-	PK       *dataflow.ColumnInfoType
-	FK       *dataflow.ColumnInfoType
+	PKColumn *dataflow.ColumnInfoType
+	FKColumn *dataflow.ColumnInfoType
 }
+
 /*
 type keyColumnPairArrayType []*keyColumnPairType
 
 func (a keyColumnPairArrayType) Len() int      { return len(a) }
 func (a keyColumnPairArrayType) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a keyColumnPairArrayType) Less(i, j int) bool {
-	if a[i].PK.HashUniqueCount.Value() == a[j].PK.HashUniqueCount.Value() {
-		return a[i].FK.HashUniqueCount.Value() < a[j].FK.HashUniqueCount.Value()
+	if a[i].PKColumn.HashUniqueCount.Value() == a[j].PKColumn.HashUniqueCount.Value() {
+		return a[i].FKColumn.HashUniqueCount.Value() < a[j].FKColumn.HashUniqueCount.Value()
 	} else {
-		return a[i].PK.HashUniqueCount.Value() < a[j].PK.HashUniqueCount.Value()
+		return a[i].PKColumn.HashUniqueCount.Value() < a[j].PKColumn.HashUniqueCount.Value()
 	}
 }
 */
@@ -299,7 +300,7 @@ type ColumnArrayType []*dataflow.ColumnInfoType
 
 func (ca ColumnArrayType) ColumnIdString() (result string) {
 	result = ""
-	for index, col:= range ca {
+	for index, col := range ca {
 		if index == 0 {
 			result = strconv.FormatInt(int64(col.Id.Value()), 10)
 		} else {
@@ -319,8 +320,8 @@ type ComplexPKCombinationType struct {
 	columnPositions       []int
 	lastSortedColumnIndex int
 	cardinality           uint64
-	firstPassBitset                *sparsebitset.BitSet
-	duplicateBitset                *sparsebitset.BitSet
+	firstPassBitset       *sparsebitset.BitSet
+	duplicateBitset       *sparsebitset.BitSet
 	duplicatesByHash      map[uint32][]*ComplexPKDupDataType
 	dataDuplicationFound  bool
 }
@@ -421,14 +422,14 @@ func testBitsetCompare() (err error) {
 
 		nonFK = colFK.TableInfo.RowCount.Value() < 2
 		if nonFK {
-			tracelog.Info(funcName, packageName, "Column %v is not FK. RowCount < 2", colFK)
+			tracelog.Info(funcName, packageName, "Column %v is not FKColumn. RowCount < 2", colFK)
 			return
 		}
 
 		categoryCountFK := len(colFK.Categories)
 		nonFK = categoryCountFK == 0
 		if nonFK {
-			tracelog.Info(funcName, packageName, "Column %v is not FK. DataCategory count  = 0", colFK)
+			tracelog.Info(funcName, packageName, "Column %v is not FKColumn. DataCategory count  = 0", colFK)
 			return
 		}
 
@@ -436,7 +437,7 @@ func testBitsetCompare() (err error) {
 
 		nonFK = categoryCountFK == 0 || categoryCountFK > categoryCountPK
 		if nonFK {
-			tracelog.Info(funcName, packageName, "Column %v is not FK to %v. categoryCountFK > categoryCountPK; %v > %v", colFK, colPK, categoryCountFK, categoryCountPK)
+			tracelog.Info(funcName, packageName, "Column %v is not FKColumn to %v. categoryCountFK > categoryCountPK; %v > %v", colFK, colPK, categoryCountFK, categoryCountPK)
 			return
 		}
 
@@ -465,7 +466,7 @@ func testBitsetCompare() (err error) {
 						nonFK = categoryFK.ItemUniqueCount.Value() > categoryPK.ItemUniqueCount.Value()
 						if nonFK {
 							tracelog.Info(funcName, packageName,
-								"Column %v is not FK to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
+								"Column %v is not FKColumn to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
 								colFK, colPK, categoryFK.Key,
 								categoryFK.ItemUniqueCount.Value(),
 								categoryPK.ItemUniqueCount.Value())
@@ -496,7 +497,7 @@ func testBitsetCompare() (err error) {
 					nonFK = categoryFK.MaxNumericValue.Value() > categoryPK.MaxNumericValue.Value()
 					if nonFK {
 						tracelog.Info(funcName, packageName,
-							"Column %v is not FK to %v for DataCategory %v:  MaxNumericValueFK > MaxNumericValuePK; %v > %v",
+							"Column %v is not FKColumn to %v for DataCategory %v:  MaxNumericValueFK > MaxNumericValuePK; %v > %v",
 							colFK, colPK, categoryFK.Key,
 							categoryFK.MaxNumericValue.Value(),
 							categoryPK.MaxNumericValue.Value())
@@ -505,7 +506,7 @@ func testBitsetCompare() (err error) {
 					nonFK = categoryFK.MinNumericValue.Value() < categoryPK.MinNumericValue.Value()
 					if nonFK {
 						tracelog.Info(funcName, packageName,
-							"Column %v is not FK to %v for DataCategory %v: MinNumericValueFK < MinNumericValuePK; %v < %v",
+							"Column %v is not FKColumn to %v for DataCategory %v: MinNumericValueFK < MinNumericValuePK; %v < %v",
 							colFK, colPK, categoryFK.Key,
 							categoryFK.MinNumericValue.Value(),
 							categoryPK.MinNumericValue.Value())
@@ -515,7 +516,7 @@ func testBitsetCompare() (err error) {
 					nonFK = categoryFK.ItemUniqueCount.Value() > categoryPK.ItemUniqueCount.Value()
 					if nonFK {
 						tracelog.Info(funcName, packageName,
-							"Column %v is not FK to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
+							"Column %v is not FKColumn to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
 							colFK, colPK, categoryFK.Key,
 							categoryFK.ItemUniqueCount.Value(),
 							categoryPK.ItemUniqueCount.Value())
@@ -525,7 +526,7 @@ func testBitsetCompare() (err error) {
 					nonFK = float64(categoryFK.HashUniqueCount.Value()) > float64(categoryPK.HashUniqueCount.Value())*ratio
 					if nonFK {
 						tracelog.Info(funcName, packageName,
-							"Column %v is not FK to %v for DataCategory %v: HashUniqueCountFK > DataCategory.HashUniqueCountPK*ratio(%v); %v > %v",
+							"Column %v is not FKColumn to %v for DataCategory %v: HashUniqueCountFK > DataCategory.HashUniqueCountPK*ratio(%v); %v > %v",
 							colFK, colPK, categoryFK.Key, ratio,
 							categoryFK.HashUniqueCount.Value(),
 							uint64(float64(categoryPK.HashUniqueCount.Value())*ratio),
@@ -537,13 +538,13 @@ func testBitsetCompare() (err error) {
 			}
 		}
 
-		// FK Hash unique count has to be less than PK Hash unique count
+		// FKColumn Hash unique count has to be less than PKColumn Hash unique count
 		{
 			ratio := 1.2
 			nonFK = float64(colFK.HashUniqueCount.Value()) > float64(colPK.HashUniqueCount.Value())*ratio
 			if nonFK {
 				tracelog.Info(funcName, packageName,
-					"Column %v is not FK to %v. HashUniqueCountFK > HashUniqueCountPK*ratio(%v); %v > %v",
+					"Column %v is not FKColumn to %v. HashUniqueCountFK > HashUniqueCountPK*ratio(%v); %v > %v",
 					colFK, colPK, ratio,
 					colPK.HashUniqueCount.Value(),
 					uint64(float64(colPK.HashUniqueCount.Value())*ratio),
@@ -578,7 +579,7 @@ func testBitsetCompare() (err error) {
 		nonPK = uint64(col.TableInfo.RowCount.Value()) != totalNonNullCount
 		if nonPK {
 			tracelog.Info(funcName, packageName,
-				"Column %v is not PK. TotalRowCount != TotalNotNullCount. %v != %v",
+				"Column %v is not PKColumn. TotalRowCount != TotalNotNullCount. %v != %v",
 				col, uint64(col.TableInfo.RowCount.Value()), totalNonNullCount,
 			)
 			return true, nil
@@ -587,7 +588,7 @@ func testBitsetCompare() (err error) {
 		nonPK = col.TotalRowCount.Value() == col.HashUniqueCount.Value()
 		if nonPK {
 			tracelog.Info(packageName, funcName,
-				"Columns %v is not part of a complex PK. set of UniqueHashCount == TotalRowCount. %v == %v",
+				"Columns %v is not part of a complex PKColumn. set of UniqueHashCount == TotalRowCount. %v == %v",
 				col,
 				col.HashUniqueCount.Value(),
 				col.TotalRowCount.Value(),
@@ -622,9 +623,9 @@ func testBitsetCompare() (err error) {
 		}
 
 		/*if leftNonPK {
-			fmt.Printf("%v.%v is not a single PK", leftColumn.TableInfo, leftColumn.ColumnName);
+			fmt.Printf("%v.%v is not a single PKColumn", leftColumn.TableInfo, leftColumn.ColumnName);
 		} else {
-			fmt.Printf("%v.%v is a single PK", leftColumn.TableInfo, leftColumn.ColumnName);
+			fmt.Printf("%v.%v is a single PKColumn", leftColumn.TableInfo, leftColumn.ColumnName);
 		}*/
 
 		for rightIndex := leftIndex + 1; rightIndex < len(columnToProcess); rightIndex++ {
@@ -659,8 +660,8 @@ func testBitsetCompare() (err error) {
 				}
 				if !rightNonFK {
 					pair := &keyColumnPairType{
-						PK: leftColumn,
-						FK: rightColumn,
+						PKColumn: leftColumn,
+						FKColumn: rightColumn,
 					}
 					pairsFilteredByFeatures = append(pairsFilteredByFeatures, pair)
 				}
@@ -672,8 +673,8 @@ func testBitsetCompare() (err error) {
 				}
 				if !leftNonFK {
 					pair := &keyColumnPairType{
-						PK: rightColumn,
-						FK: leftColumn,
+						PKColumn: rightColumn,
+						FKColumn: leftColumn,
 					}
 					pairsFilteredByFeatures = append(pairsFilteredByFeatures, pair)
 				}
@@ -683,16 +684,15 @@ func testBitsetCompare() (err error) {
 	}
 
 	sort.Slice(
-			pairsFilteredByFeatures,
-			func(i, j int) bool {
-				if pairsFilteredByFeatures[i].PK.HashUniqueCount.Value() == pairsFilteredByFeatures[j].PK.HashUniqueCount.Value() {
-					return pairsFilteredByFeatures[i].PK.Id.Value() < pairsFilteredByFeatures[j].PK.HashUniqueCount.Value()
-				} else {
-					return pairsFilteredByFeatures[i].PK.HashUniqueCount.Value() < pairsFilteredByFeatures[j].PK.HashUniqueCount.Value()
-				}
-			},
+		pairsFilteredByFeatures,
+		func(i, j int) bool {
+			if pairsFilteredByFeatures[i].PKColumn.HashUniqueCount.Value() == pairsFilteredByFeatures[j].PKColumn.HashUniqueCount.Value() {
+				return pairsFilteredByFeatures[i].PKColumn.Id.Value() < pairsFilteredByFeatures[j].PKColumn.HashUniqueCount.Value()
+			} else {
+				return pairsFilteredByFeatures[i].PKColumn.HashUniqueCount.Value() < pairsFilteredByFeatures[j].PKColumn.HashUniqueCount.Value()
+			}
+		},
 	)
-
 
 	var lastPKColumn *dataflow.ColumnInfoType
 
@@ -723,7 +723,7 @@ func testBitsetCompare() (err error) {
 		result := cardinality == dataCategoryFK.Stats.ItemBitsetCardinality
 		if !result {
 			tracelog.Info(funcName, packageName,
-				"Column %v is not FK to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Content values %v != %v",
+				"Column %v is not FKColumn to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Content values %v != %v",
 				dataCategoryFK.Column, dataCategoryPK.Column, dataCategoryFK.Key,
 				cardinality, dataCategoryFK.Stats.ItemBitsetCardinality,
 			)
@@ -759,7 +759,7 @@ func testBitsetCompare() (err error) {
 		result := cardinality == dataCategoryFK.Stats.HashBitsetCardinality
 		if !result {
 			tracelog.Info(funcName, packageName,
-				"Column %v is not FK to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Hash values %v != %v",
+				"Column %v is not FKColumn to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Hash values %v != %v",
 				dataCategoryFK.Column, dataCategoryPK.Column, dataCategoryFK.Key,
 				cardinality, dataCategoryFK.Stats.HashBitsetCardinality,
 			)
@@ -774,15 +774,15 @@ func testBitsetCompare() (err error) {
 
 		for _, pair := range pairs {
 			if lastPKColumn != nil {
-				if lastPKColumn != pair.PK {
+				if lastPKColumn != pair.PKColumn {
 					lastPKColumn.ResetBitset(dataflow.ItemBitsetSuffix)
 				}
 			}
 			ctx, ctxCancelFunc := context.WithCancel(context.Background())
 			var result = true
-			for dataCategoryKey, dataCategoryFK := range pair.FK.Categories {
-				if dataCategoryPK, found := pair.PK.Categories[dataCategoryKey]; !found {
-					err = fmt.Errorf("The second pass for column pair PK:%v - FK:%v doesn't reveal datacategory for the key code %v.", pair.PK, pair.FK, dataCategoryKey)
+			for dataCategoryKey, dataCategoryFK := range pair.FKColumn.Categories {
+				if dataCategoryPK, found := pair.PKColumn.Categories[dataCategoryKey]; !found {
+					err = fmt.Errorf("The second pass for column pair PKColumn:%v - FKColumn:%v doesn't reveal datacategory for the key code %v.", pair.PKColumn, pair.FKColumn, dataCategoryKey)
 					tracelog.Error(err, packageName, funcName)
 					ctxCancelFunc()
 					return
@@ -828,12 +828,12 @@ func testBitsetCompare() (err error) {
 	)
 
 	for _, pair := range pairsFilteredByFeatures {
-		pair.PK.ResetBitset(dataflow.ItemBitsetSuffix)
-		pair.FK.ResetBitset(dataflow.ItemBitsetSuffix)
+		pair.PKColumn.ResetBitset(dataflow.ItemBitsetSuffix)
+		pair.FKColumn.ResetBitset(dataflow.ItemBitsetSuffix)
 	}
 	if false {
 		for _, pair := range pairsFilteredByContent {
-			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+			fmt.Printf("PKColumn:%v(%v) - FKColumn:%v(%v)%v\n", pair.PKColumn, pair.PKColumn.HashUniqueCount, pair.FKColumn, pair.FKColumn.HashUniqueCount, pair.FKColumn.Id)
 		}
 	}
 	pairsFilteredByHash, err := traversePairs(pairsFilteredByContent, analyzeHashBitsetFunc)
@@ -849,14 +849,14 @@ func testBitsetCompare() (err error) {
 	//	fmt.Println(bruteForcePairCount, len(pairsFilteredByHash), float64(len(pairsFilteredByHash))*100/float64(bruteForcePairCount))
 
 	for _, pair := range pairsFilteredByContent {
-		pair.PK.ResetBitset(dataflow.HashBitsetSuffix)
-		pair.FK.ResetBitset(dataflow.HashBitsetSuffix)
+		pair.PKColumn.ResetBitset(dataflow.HashBitsetSuffix)
+		pair.FKColumn.ResetBitset(dataflow.HashBitsetSuffix)
 	}
 
 	if true {
 		fmt.Printf("List of pairs after filtration:\n")
 		for _, pair := range pairsFilteredByHash {
-			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+			fmt.Printf("PKColumn:%v(%v) - FKColumn:%v(%v)%v\n", pair.PKColumn, pair.PKColumn.HashUniqueCount, pair.FKColumn, pair.FKColumn.HashUniqueCount, pair.FKColumn.Id)
 		}
 
 	}
@@ -875,7 +875,7 @@ func testBitsetCompare() (err error) {
 		}
 
 		for _, pair := range pairsFilteredByHash {
-			appendToColumnMap(pair.PK)
+			appendToColumnMap(pair.PKColumn)
 		}
 
 		for table, columns := range columnMap {
@@ -891,7 +891,7 @@ func testBitsetCompare() (err error) {
 			}
 
 			sort.Slice(columns, func(i, j int) bool {
-				if columns[i].HashUniqueCount.Value()  == columns[j].HashUniqueCount.Value() {
+				if columns[i].HashUniqueCount.Value() == columns[j].HashUniqueCount.Value() {
 					return columns[i].Id.Value() > columns[j].Id.Value()
 				}
 				return columns[i].HashUniqueCount.Value() > columns[j].HashUniqueCount.Value()
@@ -904,7 +904,7 @@ func testBitsetCompare() (err error) {
 		}
 
 		if true {
-			//appendToColumnMap(pair.FK)
+			//appendToColumnMap(pair.FKColumn)
 			//columns := make([]*dataflow.ColumnInfoType,0)
 
 		}
@@ -916,7 +916,7 @@ func testBitsetCompare() (err error) {
 			for table, columns := range columnMap {
 				columnToTrack  = make(map[int]int)
 				for _, column := range columns {
-					//fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pa
+					//fmt.Printf("PKColumn:%v(%v) - FKColumn:%v(%v)%v\n", pa
 
 					dataMap = make(map[string][]byte)
 					for index := range table.Columns {
@@ -958,15 +958,15 @@ func testBitsetCompare() (err error) {
 	if true {
 		//TODO: Assume real data count doesn't differ to hash data count
 		for _, pair := range pairsFilteredByHash {
-			pair.PK.UniqueRowCount = pair.PK.HashUniqueCount
-			pair.FK.UniqueRowCount = pair.FK.HashUniqueCount
+			pair.PKColumn.UniqueRowCount = pair.PKColumn.HashUniqueCount
+			pair.FKColumn.UniqueRowCount = pair.FKColumn.HashUniqueCount
 		}
 
 		type tablePairType struct {
-			PKT, FKT int64
+			PKTableId, FKTableId int64
 		}
 		printColumnArray := func(arr []*ComplexPKCombinationType) {
-			if len(arr) ==0 {
+			if len(arr) == 0 {
 				fmt.Println("No column combinations left")
 				return
 			}
@@ -977,14 +977,15 @@ func testBitsetCompare() (err error) {
 		_ = printColumnArray
 
 		tablePairMap := make(map[tablePairType][]*keyColumnPairType)
-		tableCPKeys := make(map[int64]map[string]*ComplexPKCombinationType)
-		_ = tableCPKeys
 
 		for _, pair := range pairsFilteredByHash {
-			/*if !(pair.PK.TableInfo.TableName.Value() == "TX" && pair.FK.TableInfo.TableName.Value() == "TX_ITEM") {
+			/*if !(pair.PKColumn.TableInfo.TableName.Value() == "TX" && pair.FKColumn.TableInfo.TableName.Value() == "TX_ITEM") {
 				continue
 			}*/
-			tablePair := tablePairType{PKT: pair.PK.TableInfo.Id.Value(), FKT: pair.FK.TableInfo.Id.Value()}
+			tablePair := tablePairType{
+				PKTableId: pair.PKColumn.TableInfo.Id.Value(),
+				FKTableId: pair.FKColumn.TableInfo.Id.Value(),
+			}
 			if arr, found := tablePairMap[tablePair]; !found {
 				arr = make([]*keyColumnPairType, 0, 10)
 				arr = append(arr, pair)
@@ -1009,7 +1010,7 @@ func testBitsetCompare() (err error) {
 
 		for _, columnPairs := range tablePairMap {
 			if len(columnPairs) > 1 {
-				fmt.Printf("\nPK:%v) - FK:%v:\n", columnPairs[0].PK.TableInfo, columnPairs[0].FK.TableInfo)
+				fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
 				var SortedPKCols []*dataflow.ColumnInfoType
 				ComplexPK1 := make([]*ComplexPKCombinationType, 0, 10)
 				_ = ComplexPK1
@@ -1017,7 +1018,7 @@ func testBitsetCompare() (err error) {
 				{
 					pkCols := make(map[*dataflow.ColumnInfoType]bool)
 					for _, columnPair := range columnPairs {
-						pkCols[columnPair.PK] = true
+						pkCols[columnPair.PKColumn] = true
 					}
 
 					SortedPKCols = make([]*dataflow.ColumnInfoType, 0, len(pkCols))
@@ -1029,13 +1030,6 @@ func testBitsetCompare() (err error) {
 						return SortedPKCols[i].UniqueRowCount.Value() > SortedPKCols[j].UniqueRowCount.Value()
 					})
 
-					//buildCombinations := func() {
-					/*printColumns:= func(arr[]*dataflow.ColumnInfoType) {
-							for _,col:= range arr {
-								fmt.Printf("%v,",col)
-							}
-							fmt.Printf("\n,")
-					}*/
 
 					for {
 						if len(SortedPKCols) == 0 {
@@ -1089,7 +1083,7 @@ func testBitsetCompare() (err error) {
 						ComplexPK2 = append(ComplexPK2, columnCombination)
 					} else {
 						tracelog.Info(packageName, funcName,
-							"Column permutation %v data volume is insufficient to fill the table row count volume. %v < %v",
+							"Data volume of сolumn permutation %v is insufficient to fill the table row count. %v < %v",
 							columnCombination.columns,
 							columnCombination.cardinality,
 							columnCombination.columns[0].TableInfo.RowCount.Value(),
@@ -1097,21 +1091,34 @@ func testBitsetCompare() (err error) {
 					}
 				}
 
+				tableCPKs := make(map[*dataflow.TableInfoType]map[string]*ComplexPKCombinationType)
+				_ = tableCPKs
+
+				for _, columnCombination := range ComplexPK2 {
+					table := columnCombination.columns[0].TableInfo
+					if collectedColumnCombinations, cccFound := tableCPKs[table];!cccFound {
+						collectedColumnCombinations = make(map[string]*ComplexPKCombinationType)
+						collectedColumnCombinations[columnCombination.ColumnIndexString()] = columnCombination
+						tableCPKs[table] = collectedColumnCombinations
+					}
+				}
+
 				//ComplexPK3 := make([]*ComplexPKCombinationType, 0, len(ComplexPK2))
 				var currentPKTable *dataflow.TableInfoType
-				if len(ComplexPK2) > 0 {
-					for _, columnCombination := range ComplexPK2 {
-						if currentPKTable == nil {
-							currentPKTable = columnCombination.columns[0].TableInfo
-						}
-						columnCombination.columnPositions = make([]int, len(columnCombination.columns))
-						columnCombination.firstPassBitset = sparsebitset.New(0)
-						columnCombination.duplicateBitset = sparsebitset.New(0)
-						columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
-						for keyColumnIndex, pkc := range columnCombination.columns {
-							for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
-								if pkc.Id.Value() == pkc.TableInfo.Columns[tableColumnIndex].Id.Value() {
-									columnCombination.columnPositions[keyColumnIndex] = tableColumnIndex
+				if len(tableCPKs) > 0 {
+					//for _, columnCombination := range ComplexPK2 {
+					for table, columnCombinationMap := range tableCPKs {
+						currentPKTable = table
+						for _, columnCombination :=  range columnCombinationMap {
+							columnCombination.columnPositions = make([]int, len(columnCombination.columns))
+							columnCombination.firstPassBitset = sparsebitset.New(0)
+							columnCombination.duplicateBitset = sparsebitset.New(0)
+							columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+							for keyColumnIndex, pkc := range columnCombination.columns {
+								for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
+									if pkc.Id.Value() == pkc.TableInfo.Columns[tableColumnIndex].Id.Value() {
+										columnCombination.columnPositions[keyColumnIndex] = tableColumnIndex
+									}
 								}
 							}
 						}
@@ -1126,8 +1133,8 @@ func testBitsetCompare() (err error) {
 						for _, columnCombination := range ComplexPK2 {
 
 							/*if columnCombination.dataDuplicationFound {
-							continue
-						}*/
+								continue
+							}*/
 
 							hashMethod := fnv.New32()
 							for _, index := range columnCombination.columnPositions {
@@ -1154,7 +1161,7 @@ func testBitsetCompare() (err error) {
 							}
 
 							if prevSet {
-								columnCombination.duplicateBitset.Set(uint64(hashValue));
+								columnCombination.duplicateBitset.Set(uint64(hashValue))
 								if duplicates, found := columnCombination.duplicatesByHash[hashValue]; !found {
 									if !verificationMode {
 										duplicates = make([]*ComplexPKDupDataType, 0, 3)
@@ -1186,7 +1193,7 @@ func testBitsetCompare() (err error) {
 									}
 								}
 								if len(ComplexPK2) == 0 {
-									return dataflow.ReadDumpActionAbort,nil
+									return dataflow.ReadDumpActionAbort, nil
 								}
 							}
 						}
@@ -1194,15 +1201,15 @@ func testBitsetCompare() (err error) {
 					}
 
 					/*file,err := os.OpenFile(fmt.Sprintf("%v%c%v.dup.data",
-					dr.Config.BuildBinaryDump,
-						os.PathSeparator,
-							columnCombination.ColumnIndexString(),
-							),
-								os.O_APPEND
-				)
-				if os.IsNotExist(err) {
+						dr.Config.BuildBinaryDump,
+							os.PathSeparator,
+								columnCombination.ColumnIndexString(),
+								),
+									os.O_APPEND
+					)
+					if os.IsNotExist(err) {
 
-				}*/
+					}*/
 					tracelog.Info(packageName, funcName, "First pass for %v ", currentPKTable)
 
 					result, _, err := dr.ReadAstraDump(
@@ -1251,20 +1258,18 @@ func testBitsetCompare() (err error) {
 						}
 					}
 
-
 					//columnCombination.duplicatesByHash = nil
 					//tracelog.Info(packageName, funcName,
 					//	"Data of column combination %v is not unique!",
 					//	columnCombination.columns,
 					//	)
 					/*	continue
-				} else if err != nil {
-					//columnCombination.duplicatesByHash = nil
-					return err
-				}*/
+						} else if err != nil {
+							//columnCombination.duplicatesByHash = nil
+							return err
+						}*/
 
-
-					fmt.Printf("\nPK:%v - FK:%v:\n", columnPairs[0].PK.TableInfo, columnPairs[0].FK.TableInfo)
+					fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
 					printColumnArray(ComplexPK2)
 				}
 
@@ -1292,7 +1297,7 @@ func testBitsetCompare() (err error) {
 
 	/*
 		for _, pair := range pairsFilteredByFeatures {
-			fmt.Printf("PK:%v(%v) - FK:%v(%v)%v\n", pair.PK, pair.PK.HashUniqueCount, pair.FK, pair.FK.HashUniqueCount, pair.FK.Id)
+			fmt.Printf("PKColumn:%v(%v) - FKColumn:%v(%v)%v\n", pair.PKColumn, pair.PKColumn.HashUniqueCount, pair.FKColumn, pair.FKColumn.HashUniqueCount, pair.FKColumn.Id)
 		}*/
 
 	/*processTable := func(runContext context.Context) (err error) {

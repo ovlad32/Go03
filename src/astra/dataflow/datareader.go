@@ -41,15 +41,14 @@ type AstraConfigType struct {
 	LogBaseFileKeepDay      int    `json:"log-base-file-keep-day"`
 }
 
-
 type TableDumpConfigType struct {
-	Path            string
-	GZip            bool
-	ColumnSeparator byte
-	LineSeparator   byte
-	BufferSize      int
-	StartReadingAtByte  uint64
-	StartReadingAtLine  uint64
+	Path               string
+	GZip               bool
+	ColumnSeparator    byte
+	LineSeparator      byte
+	BufferSize         int
+	StartReadingAtByte uint64
+	StartReadingAtLine uint64
 }
 
 func defaultTableDumpConfig() *TableDumpConfigType {
@@ -62,8 +61,6 @@ func defaultTableDumpConfig() *TableDumpConfigType {
 	}
 }
 
-
-
 type DataReaderType struct {
 	Config     *AstraConfigType
 	Repository *Repository
@@ -71,7 +68,7 @@ type DataReaderType struct {
 	//	blockStores    map[string]*DataCategoryStore
 }
 
-func (dr *DataReaderType)TableDumpConfig() *TableDumpConfigType {
+func (dr *DataReaderType) TableDumpConfig() *TableDumpConfigType {
 	return &TableDumpConfigType{
 		GZip:            dr.Config.AstraDataGZip,
 		Path:            dr.Config.AstraDumpPath,
@@ -81,47 +78,42 @@ func (dr *DataReaderType)TableDumpConfig() *TableDumpConfigType {
 	}
 }
 
-
 var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
 
-type ReadDumpActionType int;
+type ReadDumpActionType int
 
 var (
 	ReadDumpActionContinue ReadDumpActionType = 0
 	ReadDumpActionAbort    ReadDumpActionType = 1
 )
 
-type ReadDumpResultType int;
+type ReadDumpResultType int
+
 var (
-	ReadDumpResultOk ReadDumpResultType = 0
-	ReadDumpResultError ReadDumpResultType = 1
-	ReadDumpResultAbortedByContext ReadDumpResultType = 2
+	ReadDumpResultOk                     ReadDumpResultType = 0
+	ReadDumpResultError                  ReadDumpResultType = 1
+	ReadDumpResultAbortedByContext       ReadDumpResultType = 2
 	ReadDumpResultAbortedByRowProcessing ReadDumpResultType = 3
 )
-
-
-
-
-
 
 func (dr DataReaderType) ReadAstraDump(
 	ctx context.Context,
 	table *TableInfoType,
-	rowProcessingFunc func(context.Context, uint64,uint64, [][]byte) (ReadDumpActionType,error),
+	rowProcessingFunc func(context.Context, uint64, uint64, [][]byte) (ReadDumpActionType, error),
 	cfg *TableDumpConfigType,
 ) (result ReadDumpResultType, lineNumber uint64, err error) {
 	funcName := "DataReaderType.readAstraDump"
 	var x0D = []byte{0x0D}
 
 	if rowProcessingFunc == nil {
-		return ReadDumpResultError,0, fmt.Errorf("Row processing function must be defined!")
+		return ReadDumpResultError, 0, fmt.Errorf("Row processing function must be defined!")
 	}
 
 	gzFile, err := os.Open(cfg.Path + table.PathToFile.Value())
 
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "for table %v", table)
-		return ReadDumpResultError,0, err
+		return ReadDumpResultError, 0, err
 	}
 	defer gzFile.Close()
 
@@ -167,19 +159,19 @@ func (dr DataReaderType) ReadAstraDump(
 			line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
 			if err == io.EOF {
 				//tracelog.Info(packageName, funcName, "EOF has been reached in %v ", cfg.Path+table.PathToFile.Value())
-				return ReadDumpResultOk,lineNumber, nil
+				return ReadDumpResultOk, lineNumber, nil
 			} else if err != nil {
 				tracelog.Errorf(err, packageName, funcName, "Error while reading slice from %v", cfg.Path+table.PathToFile.Value())
-				return ReadDumpResultError,lineNumber, err
+				return ReadDumpResultError, lineNumber, err
 			}
 
 			originalLineLength := len(line)
 
-			if line[originalLineLength - 1] == cfg.LineSeparator {
-				line = line[:originalLineLength - 1]
+			if line[originalLineLength-1] == cfg.LineSeparator {
+				line = line[:originalLineLength-1]
 			}
-			if line[originalLineLength - 2] == x0D[0] {
-				line = line[:originalLineLength - 2]
+			if line[originalLineLength-2] == x0D[0] {
+				line = line[:originalLineLength-2]
 			}
 
 			metadataColumnCount := len(table.Columns)
@@ -207,7 +199,7 @@ func (dr DataReaderType) ReadAstraDump(
 
 			if err != nil {
 				//tracelog.Errorf(err, packageName, funcName, "Error while processing %v", table)
-				return ReadDumpResultError,lineNumber, err
+				return ReadDumpResultError, lineNumber, err
 			}
 			if rowResult == ReadDumpActionAbort {
 				return ReadDumpResultAbortedByRowProcessing, lineNumber, nil
@@ -216,7 +208,7 @@ func (dr DataReaderType) ReadAstraDump(
 		}
 	}
 
-	return ReadDumpResultOk,lineNumber, nil
+	return ReadDumpResultOk, lineNumber, nil
 }
 
 func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoType) (err error) {
@@ -227,7 +219,7 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 	var lineProcessed uint64
 
 	started = time.Now()
-	processRowContent := func(ctx context.Context, lineNumber, DataPosition uint64,  rowData [][]byte) (result ReadDumpActionType, err error) {
+	processRowContent := func(ctx context.Context, lineNumber, DataPosition uint64, rowData [][]byte) (result ReadDumpActionType, err error) {
 		for columnNumber, column := range table.Columns {
 			columnData := column.NewColumnData(rowData[columnNumber])
 			if columnData == nil {
@@ -256,7 +248,7 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 				//fmt.Println(stats.HeapAlloc,stats.HeapSys,stats.HeapInuse)
 			}
 		}
-		return ReadDumpActionContinue,nil
+		return ReadDumpActionContinue, nil
 	}
 
 	_, linesRead, err := dr.ReadAstraDump(

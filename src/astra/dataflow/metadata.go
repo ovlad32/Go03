@@ -10,7 +10,6 @@ import (
 	"os"
 )
 
-
 type ColumnInfoType struct {
 	*metadata.ColumnInfoType
 	TableInfo *TableInfoType
