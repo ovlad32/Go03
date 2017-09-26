@@ -1184,7 +1184,7 @@ func testBitsetCompare() (err error) {
 
 						for index, position := range columnCombination.columnPositions {
 							dataLength := len(copiedDataMap[position])
-							cumulativeDataLength = cumulativeDataLength + dataLength;
+							cumulativeDataLength = cumulativeDataLength + uint64(dataLength);
 							if copied, isDataCopied := copiedDataMap[position]; !isDataCopied {
 								copied = make([]byte, dataLength)
 								copy(copied,data[position])
