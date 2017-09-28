@@ -47,8 +47,11 @@ type TableDumpConfigType struct {
 	ColumnSeparator    byte
 	LineSeparator      byte
 	BufferSize         int
-	StartReadingAtByte uint64
-	StartReadingAtLine uint64
+	MoveToByte struct {
+		Position uint64
+		FirstLineAs uint64
+	}
+	MoveToLine uint64
 }
 
 func defaultTableDumpConfig() *TableDumpConfigType {
@@ -104,7 +107,13 @@ func (dr DataReaderType) ReadAstraDump(
 ) (result ReadDumpResultType, lineNumber uint64, err error) {
 	funcName := "DataReaderType.readAstraDump"
 	var x0D = []byte{0x0D}
-
+	if (cfg.MoveToLine > 0 && cfg.MoveToByte.Position>0) {
+		return ReadDumpResultError,0,fmt.Errorf (
+			"Mixture of mutually exceptional parameters cfg.MoveToLine > %v && cfg.MoveToByte.Position>%v !",
+				cfg.MoveToLine,
+					cfg.MoveToByte.Position,
+						)
+	}
 	if rowProcessingFunc == nil {
 		return ReadDumpResultError, 0, fmt.Errorf("Row processing function must be defined!")
 	}
@@ -144,12 +153,15 @@ func (dr DataReaderType) ReadAstraDump(
 	defer file.Close()
 
 	bufferedFile := bufio.NewReaderSize(file, cfg.BufferSize)
-	if cfg.StartReadingAtByte > 0 {
-		bufferedFile.Discard(int(cfg.StartReadingAtByte))
-	}
 
 	lineNumber = uint64(0)
 	dataPosition := uint64(0)
+	if cfg.MoveToByte.Position > 0 {
+		bufferedFile.Discard(int(cfg.MoveToByte.Position))
+		lineNumber = cfg.MoveToByte.FirstLineAs;
+		dataPosition = cfg.MoveToByte.Position;
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -190,19 +202,19 @@ func (dr DataReaderType) ReadAstraDump(
 			}
 
 			var rowResult ReadDumpActionType
-			if cfg.StartReadingAtLine <= lineNumber {
+			if lineNumber >= cfg.MoveToLine {
 				rowResult, err = rowProcessingFunc(ctx, lineNumber, dataPosition, lineColumns)
-			}
 
-			lineNumber++
-			dataPosition += uint64(originalLineLength)
+				if err != nil {
+					//tracelog.Errorf(err, packageName, funcName, "Error while processing %v", table)
+					return ReadDumpResultError, lineNumber, err
+				}
+				if rowResult == ReadDumpActionAbort {
+					return ReadDumpResultAbortedByRowProcessing, lineNumber, nil
+				}
 
-			if err != nil {
-				//tracelog.Errorf(err, packageName, funcName, "Error while processing %v", table)
-				return ReadDumpResultError, lineNumber, err
-			}
-			if rowResult == ReadDumpActionAbort {
-				return ReadDumpResultAbortedByRowProcessing, lineNumber, nil
+				lineNumber++
+				dataPosition += uint64(originalLineLength)
 			}
 
 		}
