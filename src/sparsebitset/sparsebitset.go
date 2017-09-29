@@ -205,10 +205,10 @@ func (a *blockAry) setBit(n uint64) (wasSet bool) {
 	off, bit := offsetBits(n)
 	value := uint64(1) << bit
 	if prevValue, found := (*a)[off]; !found {
-		(*a)[off] = (1 << bit)
+		(*a)[off] = (uint64(1) << bit)
 		return false
 	} else {
-		if wasSet = (prevValue & value) == value; !wasSet {
+		if wasSet = (prevValue & value) > 0; !wasSet {
 			(*a)[off] = prevValue | value
 		}
 	}
@@ -1026,16 +1026,16 @@ func (b *BitSet) MergeFrom(ctx context.Context, r io.Reader) (int64, error) {
 }
 
 func (b *BitSet) Test(n uint64) bool {
-	if n == 0 {
+	/*if n == 0 {
 		return false
-	}
+	}*/
 
 	off, bit := offsetBits(n)
 
 	if v, found := b.set[off]; !found {
 		return false
 	} else {
-		return (v & (1 << bit)) > 0
+		return (v & (uint64(1) << bit)) > 0
 	}
 }
 

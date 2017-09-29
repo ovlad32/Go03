@@ -312,7 +312,7 @@ func (ca ColumnArrayType) ColumnIdString() (result string) {
 
 type ComplexPKDupDataType struct {
 	ColumnCombinationKey string
-	Data       [][]byte
+	Data       []*[]byte
 	LineNumber uint64
 }
 
@@ -1135,10 +1135,12 @@ func testBitsetCompare() (err error) {
 
 				//bs := sparsebitset.New(0)
 		for currentPkTable, columnCombinationMap := range tableCPKs {
-
+			if currentPkTable.TableName.Value() != "TX" {
+				continue;
+			}
 			cumulativeSavedDataLength := uint64(0);
 			LineNumberToCheckBySlaveHorseTo := uint64(0);
-
+			leadChan, slaveChan := make(chan interface{}),make(chan interface{},1)
 
 			leadingHorseConfig := &dataflow.TableDumpConfigType{
 				GZip:            dr.Config.AstraDataGZip,
@@ -1151,29 +1153,56 @@ func testBitsetCompare() (err error) {
 			(*slaveHorseConfig) = (*leadingHorseConfig);
 			var leadingHorseResult dataflow.ReadDumpResultType;
 			var slaveHorseResult dataflow.ReadDumpResultType;
-
-
+			var columnCombinationMapToCheck map[string]*ComplexPKCombinationType
+			horsesContext,horsesCancelFunc := context.WithCancel( context.Background())
 
 			LeadingHorse := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
-				var truncateCombinations= false
-				if cumulativeSavedDataLength > 100*1024 {
-					leadingHorseConfig.MoveToByte.Position = DataPosition
-					leadingHorseConfig.MoveToByte.FirstLineAs = LineNumber
-					tracelog.Info(packageName, funcName,
-						"STOP!",
-					)
-					return dataflow.ReadDumpActionAbort, nil
+				var truncateCombinations = false
+				if LineNumber == 0 {
+					fmt.Println("Column combination(s) to check duplicates:")
+					for _, columnCombination := range (columnCombinationMap) {
+						fmt.Printf("%v,%v [", columnCombination.columns, len(columnCombination.duplicatesByHash))
+						for h, v := range columnCombination.duplicatesByHash {
+							fmt.Printf("%v:", h)
+							for _, a := range v {
+								fmt.Printf("%v,", a.LineNumber)
+							}
+						}
+						fmt.Printf("]\n")
+					}
+					fmt.Printf("\n\n")
 				}
+				if cumulativeSavedDataLength > 1024*1024 {
+					LineNumberToCheckBySlaveHorseTo = LineNumber
+					for columnCombinationKey, columnCombination := range (columnCombinationMap) {
+						if len(columnCombination.duplicatesByHash) > 0 {
+							columnCombinationMapToCheck[columnCombinationKey] = columnCombination
+						}
+					}
+					///
 
+					slaveChan<-true
+					slaveChan<-true
+					<-leadChan
+					tracelog.Info(packageName, funcName, "Lead Horse continues processing %v from line %v with %v column combinations",
+						currentPkTable, LineNumber,
+						len(columnCombinationMap),
+					)
+					/*leadingHorseConfig.MoveToByte.Position = DataPosition
+					leadingHorseConfig.MoveToByte.FirstLineAs = LineNumber
+					for columnCombinationKey, columnCombination := range (columnCombinationMap) {
+							if len(columnCombination.duplicatesByHash)>0 {
+								columnCombinationMapToCheck[columnCombinationKey] = columnCombination
+							}
+					}
+					return dataflow.ReadDumpActionAbort, nil*/
+				}
+			columns:
 				for columnCombinationMapKey, columnCombination := range columnCombinationMap {
-
-					/*if columnCombination.dataDuplicationFound {
-						continue
-					}*/
-
 					firstHashMethod := fnv.New32()
-					for _, index := range columnCombination.columnPositions {
-						firstHashMethod.Write(data[index])
+
+					for _, position := range columnCombination.columnPositions {
+						firstHashMethod.Write(data[position])
 					}
 
 					if !columnCombination.firstPassBitset.Set(uint64(firstHashMethod.Sum32())) {
@@ -1186,30 +1215,40 @@ func testBitsetCompare() (err error) {
 					}
 
 					hashValue := secondHashMethod.Sum32()
+
 					columnCombination.duplicateBitset.Set(uint64(hashValue))
 
-					var copiedDataMap map[int][]byte
+					var copiedDataMap map[int]*[]byte
 					if copiedDataMap == nil {
-						copiedDataMap = make(map[int][]byte)
+						copiedDataMap = make(map[int]*[]byte)
 					}
 
 					addToDuplicateByHash := func(duplicates []*ComplexPKDupDataType) {
 						newDup := &ComplexPKDupDataType{
 							ColumnCombinationKey: columnCombinationMapKey,
-							Data:                 make([][]byte, len(columnCombination.columns)),
+							Data:                 make([]*[]byte, len(columnCombination.columns)),
 							LineNumber:           LineNumber,
 						}
-
+						// Rough estimation of memory consumption
+						//8 -  ref to columnCombinationMapKey
+						//24+8N: (Slice internally (3*8)+ 8*count of Ref to columns)
+						//8 - lineNumber
+						//8 - ref for columnCombination.duplicatesByHash
+						//8 - hashValue
+						//24 +len(dataCopy):
+						//16 ~  Map system internals
+						cumulativeSavedDataLength = cumulativeSavedDataLength +
+							uint64(8+24+8*len(columnCombination.columns)+8+8+8);
 						for index, position := range columnCombination.columnPositions {
-							if copied, isDataCopied := copiedDataMap[position]; !isDataCopied {
+							if dataCopyRef, isDataCopied := copiedDataMap[position]; !isDataCopied {
 								dataLength := len(data[position])
-								cumulativeSavedDataLength = cumulativeSavedDataLength + uint64(dataLength);
-								copied = make([]byte, dataLength)
-								copy(copied, data[position])
-								copiedDataMap[position] = copied
-								newDup.Data[index] = copied
+								cumulativeSavedDataLength = cumulativeSavedDataLength + 24 + uint64(dataLength) + 16;
+								dataCopy := make([]byte, dataLength)
+								copy(dataCopy, data[position])
+								copiedDataMap[position] = &dataCopy
+								newDup.Data[index] = &dataCopy
 							} else {
-								newDup.Data[index] = copiedDataMap[position]
+								newDup.Data[index] = dataCopyRef
 							}
 						}
 						duplicates = append(duplicates, newDup)
@@ -1217,43 +1256,36 @@ func testBitsetCompare() (err error) {
 					}
 
 					if duplicates, found := columnCombination.duplicatesByHash[hashValue]; !found {
-						//if !verificationMode {
 						duplicates = make([]*ComplexPKDupDataType, 0, 3)
 						addToDuplicateByHash(duplicates)
-						//}
 					} else {
 						for _, dup := range duplicates {
 							countDifferentPieces := 0;
 							if dup.ColumnCombinationKey == columnCombinationMapKey {
 								for index, position := range columnCombination.columnPositions {
-									result := bytes.Compare(dup.Data[index], data[position])
+									result := bytes.Compare(*dup.Data[index], data[position])
 									if result != 0 {
 										countDifferentPieces++
 									}
 								}
+								if countDifferentPieces == 0 {
+									truncateCombinations = true
+									tracelog.Info(packageName, funcName, "Lead Horse:Data duplication found for columns %v in lines %v and %v", columnCombination.columns, dup.LineNumber,LineNumber)
+									delete(columnCombinationMap, columnCombinationMapKey)
+									delete(columnCombinationMapToCheck, columnCombinationMapKey)
+									continue columns
+								}
 							}
-							if countDifferentPieces == 0 {
-								// TODO:DUPLICATE!
-								truncateCombinations = true
-								tracelog.Info(packageName, funcName, "Data duplication found for columns %v in line %v", columnCombination.columns, LineNumber)
-								columnCombination.dataDuplicationFound = true
-							}
-
-							//return DataDuplicateFoundError;
-
 						}
 						if !columnCombination.dataDuplicationFound {
 							addToDuplicateByHash(duplicates)
+						} else {
+
 						}
 					}
 				}
 
 				if truncateCombinations {
-					for columnCombinationKey, columnCombination := range (columnCombinationMap) {
-						if columnCombination.dataDuplicationFound {
-							delete(columnCombinationMap, columnCombinationKey)
-						}
-					}
 					if len(columnCombinationMap) == 0 {
 						tracelog.Info(packageName, funcName,
 							"There is no column combination available for %v to check",
@@ -1266,25 +1298,38 @@ func testBitsetCompare() (err error) {
 			}
 
 			SlaveHorse := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
-				var truncateCombinations= false
+				var truncateCombinations = false
 				if LineNumberToCheckBySlaveHorseTo == LineNumber {
 					return dataflow.ReadDumpActionAbort, nil
 				}
-
-				for columnCombinationMapKey, columnCombination := range columnCombinationMap {
+			columns:
+				for columnCombinationMapKey, columnCombination := range columnCombinationMapToCheck {
 
 					secondHashMethod := fnv.New32a()
-					for _, index := range columnCombination.columnPositions {
-						secondHashMethod.Write(data[index])
+					for _, position := range columnCombination.columnPositions {
+						secondHashMethod.Write(data[position])
 					}
 					hashValue := secondHashMethod.Sum32()
+					/*if LineNumber == 341932 && currentPkTable.TableName.Value() == "TX_ITEM" {
+						fmt.Printf("!!: %v%v\n",columnCombination.columns,hashValue)
+						if hashValue == 3509682044 {
+							fmt.Println(-1)
+						}
+						if hashValue == 353756200 {
+							fmt.Println(-2)
+						}
+						if hashValue == 374838707 {
+							fmt.Println(-3)
+						}
+
+					}*/
 					if !columnCombination.duplicateBitset.Test(uint64(hashValue)) {
 						continue;
 					}
 
-					firstHashMethod := fnv.New32a()
-					for _, index := range columnCombination.columnPositions {
-						firstHashMethod.Write(data[index])
+					firstHashMethod := fnv.New32()
+					for _, position := range columnCombination.columnPositions {
+						firstHashMethod.Write(data[position])
 					}
 					if !columnCombination.firstPassBitset.Test(uint64(firstHashMethod.Sum32())) {
 						continue;
@@ -1293,19 +1338,28 @@ func testBitsetCompare() (err error) {
 					if duplicates, found := columnCombination.duplicatesByHash[hashValue]; found {
 						for _, dup := range duplicates {
 							countDifferentPieces := 0;
-							if dup.LineNumber != LineNumber && dup.ColumnCombinationKey == columnCombinationMapKey {
+							if dup.LineNumber == LineNumber {
+								continue
+							}
+							if dup.ColumnCombinationKey == columnCombinationMapKey {
 								for index, position := range columnCombination.columnPositions {
-									result := bytes.Compare(dup.Data[index], data[position])
+									result := bytes.Compare(*dup.Data[index], data[position])
 									if result != 0 {
 										countDifferentPieces++
 									}
 								}
-							}
-							if countDifferentPieces == 0 {
-								// TODO:DUPLICATE!
-								truncateCombinations = true
-								tracelog.Info(packageName, funcName, "Data duplication found for columns %v in line %v", columnCombination.columns, LineNumber)
-								columnCombination.dataDuplicationFound = true
+								if countDifferentPieces == 0 {
+									// TODO:DUPLICATE!
+									truncateCombinations = true
+									tracelog.Info(packageName, funcName, "Slave Horse:Data duplication found for columns %v in lines %v and %v", columnCombination.columns, LineNumber, dup.LineNumber)
+									delete(columnCombinationMap, columnCombinationMapKey)
+									delete(columnCombinationMapToCheck, columnCombinationMapKey)
+									continue columns
+									/*columnCombination.dataDuplicationFound = true
+									columnCombination.duplicatesByHash = nil
+									columnCombination.firstPassBitset = nil
+									columnCombination.duplicateBitset = nil*/
+								}
 							}
 							//return DataDuplicateFoundError;
 						}
@@ -1313,13 +1367,13 @@ func testBitsetCompare() (err error) {
 				}
 
 				if truncateCombinations {
-					for columnCombinationKey, columnCombination := range (columnCombinationMap) {
+					/*for columnCombinationKey, columnCombination := range (columnCombinationMap) {
 						if columnCombination.dataDuplicationFound {
 							delete(columnCombinationMap, columnCombinationKey)
 							runtime.GC()
 						}
 
-					}
+					}*/
 					if len(columnCombinationMap) == 0 {
 						tracelog.Info(packageName, funcName,
 							"There is no column combination available for %v to check",
@@ -1341,60 +1395,211 @@ func testBitsetCompare() (err error) {
 				if os.IsNotExist(err) {
 
 				}*/
-		tracelog.Info(packageName, funcName, "First pass for %v ", currentPkTable)
-
-		horses:
-		for {
 			cumulativeSavedDataLength = 0
-			if leadingHorseConfig.MoveToByte.FirstLineAs == 0 {
-				tracelog.Info(packageName, funcName, "Leading horse starts %v ", currentPkTable)
-			} else {
-				tracelog.Info(packageName, funcName, "Leading horse continues %v from line #%v", currentPkTable,leadingHorseConfig.MoveToByte.FirstLineAs)
-			}
-			leadingHorseResult, LineNumberToCheckBySlaveHorseTo, err = dr.ReadAstraDump(
-				context.TODO(),
-				currentPkTable,
-				LeadingHorse,
-				leadingHorseConfig,
-			)
 
-			if err != nil {
-				//columnCombination.duplicatesByHash = nil
-				tracelog.Errorf(err,packageName,funcName,"err!")
-				return err
-			}
 
-			switch leadingHorseResult {
-			case dataflow.ReadDumpResultOk, dataflow.ReadDumpResultAbortedByRowProcessing:
-				if leadingHorseResult == dataflow.ReadDumpResultOk {
-					//TODO: to check if needed
-					LineNumberToCheckBySlaveHorseTo = LineNumberToCheckBySlaveHorseTo + 1;
-				}
-				tracelog.Info(packageName, funcName, "Slave horse works on %v up to the line %v", currentPkTable,LineNumberToCheckBySlaveHorseTo)
-				slaveHorseResult, _, err = dr.ReadAstraDump(
-					context.TODO(),
-					currentPkTable,
-					SlaveHorse,
-					slaveHorseConfig,
+			go func(){
+
+				leadingHorseResult = dataflow.ReadDumpResultError;
+
+				tracelog.Info(packageName, funcName, "Lead Horse starts processing %v  with %v column combinations",
+					currentPkTable, len(columnCombinationMap),
 				)
-				if len(columnCombinationMap) == 0 {
-					tracelog.Info(packageName, funcName, "len(columnCombinationMap) == 0")
-					break horses;
+
+				columnCombinationMapToCheck = make(map[string]*ComplexPKCombinationType)
+
+				result,_ , err := dr.ReadAstraDump(
+					horsesContext,
+					currentPkTable,
+					LeadingHorse,
+					leadingHorseConfig,
+				)
+				slaveChan <-result
+				slaveChan <-err
+				close(slaveChan)
+
+
+				return
+			}()
+
+
+			horses2:
+			for {
+				chanLoop:
+				for {
+					if unresolved, open := <-slaveChan; open {
+						switch val := unresolved.(type) {
+						case bool:
+							break chanLoop
+						case error:
+							err = val;
+							if err != nil{
+								return err
+							}
+						case dataflow.ReadDumpResultType:
+							leadingHorseResult = val;
+						}
+					}
+
+
 				}
+
+
+				if len(columnCombinationMapToCheck) > 0 {
+					tracelog.Info(packageName, funcName, "Slave Horse works on %v up to the line %v with %v column combinations", currentPkTable, LineNumberToCheckBySlaveHorseTo, len(columnCombinationMapToCheck))
+
+					/*fmt.Println("Column combination(s) of checking duplicates:")
+					for _, columnCombination := range (columnCombinationMapToCheck) {
+						fmt.Printf("%v,%v [", columnCombination.columns, len(columnCombination.duplicatesByHash))
+						for h, v := range columnCombination.duplicatesByHash {
+							fmt.Printf("%v:", h)
+							for _, a := range v {
+								fmt.Printf("%v,", a.LineNumber)
+							}
+						}
+						fmt.Printf("]\n")
+					}
+					fmt.Printf("\n\n")*/
+
+					slaveHorseResult, _, err = dr.ReadAstraDump(
+						horsesContext,
+						currentPkTable,
+						SlaveHorse,
+						slaveHorseConfig,
+					)
+
+					if err != nil {
+						tracelog.Errorf(err, packageName, funcName, "err!")
+						horsesCancelFunc()
+						if _, open := <- slaveChan;open {
+							cumulativeSavedDataLength = 0
+							leadChan <- true
+						} else{
+							close(leadChan)
+						}
+						return err
+					} else {
+						for _, columnCombination := range (columnCombinationMap) {
+							columnCombination.duplicateBitset = sparsebitset.New(0)
+							columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+							runtime.GC()
+						}
+						if _, open := <- slaveChan;open {
+							cumulativeSavedDataLength = 0
+							leadChan <- true
+						} else{
+							close(leadChan)
+							break horses2;
+						}
+					}
+				} else {
+					slaveHorseResult = dataflow.ReadDumpResultOk
+					break horses2
+				}
+			}
+			if leadingHorseResult == dataflow.ReadDumpResultOk && slaveHorseResult == dataflow.ReadDumpResultOk {
+
+			}
+
+			if false {
+			horses:
+				for {
+					cumulativeSavedDataLength = 0
+					columnCombinationMapToCheck = make(map[string]*ComplexPKCombinationType)
+
+					if leadingHorseConfig.MoveToByte.FirstLineAs == 0 {
+						tracelog.Info(packageName, funcName, "Lead horse starts processing %v  with %v column combinations",
+							currentPkTable, len(columnCombinationMap),
+						)
+
+					} else {
+						tracelog.Info(packageName, funcName, "Lead horse continues processing %v from line %v with %v column combinations",
+							currentPkTable, leadingHorseConfig.MoveToByte.FirstLineAs,
+							len(columnCombinationMap),
+						)
+					}
+					if len(columnCombinationMap) > 0 {
+						/*fmt.Println("Column combination(s) of checking duplicates:")
+					for _, columnCombination := range (columnCombinationMap) {
+						fmt.Printf("%v,%v\n",columnCombination.columns,len(columnCombination.duplicatesByHash))
+					}
+					fmt.Printf("\n\n")*/
+						leadingHorseResult, LineNumberToCheckBySlaveHorseTo, err = dr.ReadAstraDump(
+							context.TODO(),
+							currentPkTable,
+							LeadingHorse,
+							leadingHorseConfig,
+						)
+						if err != nil {
+							tracelog.Errorf(err, packageName, funcName, "err!")
+							return err
+						}
+					} else {
+						leadingHorseResult = dataflow.ReadDumpResultOk
+					}
+
+					switch leadingHorseResult {
+					case dataflow.ReadDumpResultOk, dataflow.ReadDumpResultAbortedByRowProcessing:
+						if leadingHorseResult == dataflow.ReadDumpResultOk {
+							//TODO: to check if needed
+							LineNumberToCheckBySlaveHorseTo = LineNumberToCheckBySlaveHorseTo + 1;
+						}
+						if len(columnCombinationMapToCheck) > 0 {
+							tracelog.Info(packageName, funcName, "Slave horse is seeking for duplicates on %v up to the line %v with %v column combinations", currentPkTable, LineNumberToCheckBySlaveHorseTo, len(columnCombinationMapToCheck))
+
+							/*fmt.Println("Column combination(s) of checking duplicates:")
+							for _, columnCombination := range (columnCombinationMapToCheck) {
+								fmt.Printf("%v,%v [", columnCombination.columns, len(columnCombination.duplicatesByHash))
+								for h, v := range columnCombination.duplicatesByHash {
+									fmt.Printf("%v:", h)
+									for _, a := range v {
+										fmt.Printf("%v,", a.LineNumber)
+									}
+								}
+								fmt.Printf("]\n")
+							}
+							fmt.Printf("\n\n") */
+
+							slaveHorseResult, _, err = dr.ReadAstraDump(
+								context.TODO(),
+								currentPkTable,
+								SlaveHorse,
+								slaveHorseConfig,
+							)
+							if err != nil {
+								tracelog.Errorf(err, packageName, funcName, "err!")
+								return err
+							}
+						} else {
+							slaveHorseResult = dataflow.ReadDumpResultOk
+						}
+
+						if len(columnCombinationMap) == 0 {
+							tracelog.Info(packageName, funcName, "len(columnCombinationMap) == 0")
+							break horses;
+						}
+
+						for _, columnCombination := range (columnCombinationMap) {
+							columnCombination.duplicateBitset = sparsebitset.New(0)
+							columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+							runtime.GC()
+						}
+
+						if leadingHorseResult == dataflow.ReadDumpResultOk && slaveHorseResult == dataflow.ReadDumpResultOk {
+							break horses;
+						}
+
+					}
+				}
+			}
+			if len(columnCombinationMap)>0 {
+				fmt.Println("Column combination(s) after checking duplicates:")
 				for _, columnCombination := range (columnCombinationMap) {
-					columnCombination.duplicateBitset = sparsebitset.New(0)
-					columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
-					runtime.GC()
+					fmt.Println(columnCombination.columns)
 				}
-
-				if leadingHorseResult == dataflow.ReadDumpResultOk && slaveHorseResult == dataflow.ReadDumpResultOk {
-					break horses;
-				}
-
+				fmt.Printf("\n\n")
 			}
 		}
-
-
 		/*
 		if len(columnCombinationMap) > 0 {
 
@@ -1426,9 +1631,8 @@ func testBitsetCompare() (err error) {
 				//fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
 				//printColumnArray(columnCombinationMap)
 
-			fmt.Println(columnCombinationMap)
+
 		}
-	}
 	/*
 		map[]
 		sort.slice

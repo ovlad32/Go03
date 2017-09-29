@@ -157,9 +157,15 @@ func (dr DataReaderType) ReadAstraDump(
 	lineNumber = uint64(0)
 	dataPosition := uint64(0)
 	if cfg.MoveToByte.Position > 0 {
-		bufferedFile.Discard(int(cfg.MoveToByte.Position))
+		discarded,err := bufferedFile.Discard(int(cfg.MoveToByte.Position))
+		if err != nil {
+			return ReadDumpResultError,0, err
+		}
+		if uint64(discarded) != cfg.MoveToByte.Position {
+			tracelog.Info(packageName,funcName,"Discarded %v expected %v",discarded,cfg.MoveToByte.Position)
+		}
 		lineNumber = cfg.MoveToByte.FirstLineAs;
-		dataPosition = cfg.MoveToByte.Position;
+		dataPosition = uint64(discarded);
 	}
 
 	for {
