@@ -215,6 +215,27 @@ func (a *blockAry) setBit(n uint64) (wasSet bool) {
 	return
 }
 
+
+func (a *blockAry) clearBit(n uint64) (wasSet bool) {
+	off, bit := offsetBits(n)
+	value := uint64(1) << bit
+	notValue := ^uint64(1) << bit
+	if prevValue, found := (*a)[off]; !found {
+		return false
+	} else {
+		if wasSet = (prevValue & value) > 0; wasSet {
+			curValue := prevValue & notValue
+			if curValue > 0 {
+				(*a)[off] = curValue
+			} else {
+				delete((*a),off)
+			}
+		}
+	}
+	return
+}
+
+
 /*
 // clearBit sets the bit at the given position to `0`.
 func (a blockAry) clearBit(n uint64) (blockAry, error) {
@@ -318,19 +339,13 @@ func (b *BitSet) Set(n uint64) (wasSet bool) {
 	return b.set.setBit(n)
 }
 
-/*
-// Clear sets the bit at the given position to `0`.
-func (b *BitSet) Clear(n uint64) *BitSet {
-	ary, err := b.set.clearBit(n)
-	if err != nil {
-		log.Println(err)
-		return nil
-	}
 
-	b.set = ary
-	return b
+// Clear sets the bit at the given position to `0`.
+func (b *BitSet) Clear(n uint64) (wasSet bool) {
+	return b.set.clearBit(n)
 }
 
+/*
 // SetTo sets the bit at the given position to the given value.
 func (b *BitSet) SetTo(n uint64, val bool) *BitSet {
 	if val {
