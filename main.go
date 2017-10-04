@@ -25,6 +25,7 @@ import (
 	"io"
 	"sort"
 	"sparsebitset"
+	"unsafe"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -362,8 +363,7 @@ type ComplexPKCombinationType struct {
 	columnPositions       []int
 	lastSortedColumnIndex int
 	cardinality           uint64
-	first16       *sparsebitset.BitSet
-	second16       *sparsebitset.BitSet
+	firstBitset       *sparsebitset.BitSet
 	duplicateBitset       *sparsebitset.BitSet
 	duplicatesByHash      map[uint32][]*ComplexPKDupDataType
 	dataBucket []*CPKBitsetBucketType
@@ -1292,8 +1292,7 @@ func testBitsetCompare() (err error) {
 
 		for _, columnCombinationMap := range tableCPKs {
 			for _, columnCombination := range columnCombinationMap {
-				columnCombination.first16 = sparsebitset.New(0)
-				columnCombination.second16 = sparsebitset.New(0)
+				columnCombination.firstBitset = sparsebitset.New(0)
 				columnCombination.duplicateBitset = sparsebitset.New(0)
 				columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
 				columnCombination.columnPositions = make([]int, len(columnCombination.columns))
@@ -1332,14 +1331,12 @@ func testBitsetCompare() (err error) {
 			var columnCombinationMapToCheck map[string]*ComplexPKCombinationType
 			horsesContext, horsesCancelFunc := context.WithCancel(context.Background())
 
-			var removedKeys map[string]bool = make(map[string]bool)
-			var passedKeys map[string]bool = make(map[string]bool)
 
+			/*
 			var  buckets map[string]*CPKBitsetBucketType;
 			var LineNumberLimit uint64 = 1000000
 			var hits uint64 = uint64(0)
 			var loses uint64 = uint64(0)
-
 
 			SlicingHorse :=  func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
 				 if LineNumber >= LineNumberLimit {
@@ -1389,8 +1386,9 @@ func testBitsetCompare() (err error) {
 
 				return dataflow.ReadDumpActionContinue, nil
 			}
+			*/
 
-
+			/*
 			VanguardHorse :=  func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
 				var truncateCombinations bool
 				var copiedDataMap map[int]*[]byte
@@ -1406,7 +1404,7 @@ func testBitsetCompare() (err error) {
 					}
 
 					hashValue := hashMethod.Sum32()
-					if !columnCombination.first16.Set(uint64(hashValue )) {
+					if !columnCombination.firstBitset.Set(uint64(hashValue )) {
 						continue
 					}
 
@@ -1421,7 +1419,7 @@ func testBitsetCompare() (err error) {
 								columnCombination.HashPoolPointer = 0;
 							}
 							prevHashValue := columnCombination.hashPool[columnCombination.HashPoolPointer]
-							columnCombination.first16.Clear(uint64(prevHashValue))
+							columnCombination.firstBitset.Clear(uint64(prevHashValue))
 							delete(columnCombination.duplicatesByHash,uint32(prevHashValue))
 							columnCombination.hashPool[columnCombination.HashPoolPointer] = hashValue
 							runtime.GC()
@@ -1465,9 +1463,6 @@ func testBitsetCompare() (err error) {
 								var result int
 								if len(*dup.Data[index]) == len(data[position]) {
 									result = bytes.Compare(*dup.Data[index], data[position])
-									/*if result == 0 {
-										fmt.Println(*dup.Data[index], data[position])
-									}*/
 								} else {
 									result = 1
 								}
@@ -1504,7 +1499,7 @@ func testBitsetCompare() (err error) {
 					}
 				}
 				return dataflow.ReadDumpActionContinue, nil
-			}
+			} */
 
 			LeadHorse := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
 				var truncateCombinations = false
@@ -1530,6 +1525,8 @@ func testBitsetCompare() (err error) {
 						if len(columnCombination.duplicatesByHash) > 0 {
 							columnCombinationMapToCheck[columnCombinationKey] = columnCombination
 						}
+						fmt.Printf("%v.duplicatesByHash %v\n",columnCombination.columns,unsafe.Sizeof(columnCombination.duplicatesByHash))
+
 					}
 					///
 
@@ -1550,19 +1547,14 @@ func testBitsetCompare() (err error) {
 				}
 			var copiedDataMap map[int]*[]byte
 			copiedDataMap = make(map[int]*[]byte)
-			kermit :=  fnv.New32()
-			xmodem :=  fnv.New32a()
+			firstHashMethod :=  fnv.New32()
 			columns:
 				for columnCombinationMapKey, columnCombination := range columnCombinationMap {
-					kermit.Reset()
-					xmodem.Reset()
-
+					firstHashMethod.Reset()
 					for _, position := range columnCombination.columnPositions {
-						kermit.Write(data[position])
-						xmodem.Write(data[position])
+						firstHashMethod.Write(data[position])
 					}
-					hv1 := kermit.Sum32();
-					hv2 := xmodem.Sum32();
+					hv1 := firstHashMethod.Sum32();
 
 					/*if hv1 == 3610059225 {
 						fmt.Printf("- %v -\n", hv1)
@@ -1572,7 +1564,7 @@ func testBitsetCompare() (err error) {
 					}*/
 
 
-					if !columnCombination.first16.Set(uint64(hv1)) && !columnCombination.second16.Set(uint64(hv2)) {
+					if !columnCombination.firstBitset.Set(uint64(hv1)) {
 						continue
 					}
 					/*if LineNumber>=3352097 {
@@ -1701,13 +1693,11 @@ func testBitsetCompare() (err error) {
 				if LineNumberToCheckBySlaveHorseTo == LineNumber {
 					return dataflow.ReadDumpActionAbort, nil
 				}
-				kermit :=  fnv.New32()
-				xmodem :=  fnv.New32a()
+				firstHashMethod :=  fnv.New32()
 				secondHashMethod := fnv.New32a()
 			columns:
 				for columnCombinationMapKey, columnCombination := range columnCombinationMapToCheck {
-					kermit.Reset()
-					xmodem.Reset()
+					firstHashMethod.Reset()
 					secondHashMethod.Reset()
 
 					for _, position := range columnCombination.columnPositions {
@@ -1730,15 +1720,12 @@ func testBitsetCompare() (err error) {
 					if !columnCombination.duplicateBitset.Test(uint64(hashValue)) {
 						continue
 					}
-					kermit.Reset()
-					xmodem.Reset()
-
+					firstHashMethod.Reset()
 
 					for _, position := range columnCombination.columnPositions {
-						kermit.Write(data[position])
-						xmodem.Write(data[position])
+						firstHashMethod.Write(data[position])
 					}
-					if !columnCombination.first16.Test(uint64(kermit.Sum32())) && !columnCombination.second16.Test(uint64(xmodem.Sum32())) {
+					if !columnCombination.firstBitset.Test(uint64(firstHashMethod.Sum32()))  {
 						continue
 					}
 
@@ -1798,7 +1785,7 @@ func testBitsetCompare() (err error) {
 			}*/
 
 
-			if false {
+			/*if false {
 				columnCombinationMapToCheck = make(map[string]*ComplexPKCombinationType)
 
 				for columnCombinationMapKey, c := range columnCombinationMap {
@@ -1813,9 +1800,9 @@ func testBitsetCompare() (err error) {
 					leadHorseConfig,
 				)
 				return
-			}
+			}*/
 
-			if false {
+			/*if false {
 
 
 				keys := make([]string, 0, len(columnCombinationMap))
@@ -1883,22 +1870,6 @@ func testBitsetCompare() (err error) {
 							} else{
 								break;
 							}
-							/*if count == -1 {
-								count = len(columnCombinationMap[key].columns)
-								columnCombinationMapToCheck[key] = columnCombinationMap[key]
-								columnsAdded = columnsAdded + count
-								fmt.Println(columnCombinationMap[key].columns)
-							} else if count > len(columnCombinationMap[key].columns) {
-								break
-							} else {
-								if len(columnCombinationMap[key].columns) + columnsAdded <= 128 {
-									columnsAdded = columnsAdded + len(columnCombinationMap[key].columns)
-									columnCombinationMapToCheck[key] = columnCombinationMap[key]
-									fmt.Println(columnCombinationMap[key].columns)
-								} else {
-									break;
-								}
-							};*/
 						}
 					}
 					if len(columnCombinationMapToCheck) == 0 {
@@ -1930,8 +1901,7 @@ func testBitsetCompare() (err error) {
 					if len(columnCombinationMapToCheck) > 0 {
 						for key, columnCombination := range columnCombinationMapToCheck {
 							passedKeys[key] = true
-							columnCombination.first16 = nil
-							columnCombination.second16 = nil
+							columnCombination.firstBitset = nil
 							columnCombination.duplicateBitset = nil
 							columnCombination.hashPool = nil
 							columnCombination.duplicatesByHash = nil
@@ -1944,13 +1914,12 @@ func testBitsetCompare() (err error) {
 						delete(columnCombinationMap,key)
 					}
 				}
-			}
+			} */
 
 
 			if len(columnCombinationMap) > 0{
 				for _, columnCombination := range columnCombinationMap {
-					columnCombination.first16 = sparsebitset.New(0)
-					columnCombination.second16 = sparsebitset.New(0)
+					columnCombination.firstBitset = sparsebitset.New(0)
 					columnCombination.duplicateBitset = sparsebitset.New(0)
 					columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
 				}
@@ -1959,8 +1928,114 @@ func testBitsetCompare() (err error) {
 			cumulativeSavedDataLength = 0
 
 			go func() {
+				removedKeys := make(map[string]bool)
+				passedKeys := make(map[string]bool)
 
-				leadHorseResult = dataflow.ReadDumpResultError
+				keys := make([]string, 0, len(columnCombinationMap))
+				for columnCombinationMapKey, _ := range columnCombinationMap {
+					keys = append(keys, columnCombinationMapKey)
+				}
+				sort.Slice(keys, func(i, j int) bool {
+					if len(columnCombinationMap[keys[i]].columns) == len(columnCombinationMap[keys[j]].columns) {
+						return keys[i] > keys[j]
+					} else {
+						return len(columnCombinationMap[keys[i]].columns) > len(columnCombinationMap[keys[j]].columns)
+					}
+				})
+
+				for {
+					var allProcessed bool = true;
+					tracelog.Info(packageName,funcName,
+						"Column combinations: total %v, found duplicates in:%v, ready for the next test: %v, leftover: %v;  ",
+						len(keys),len(removedKeys),len(passedKeys),
+						len(keys) - len(removedKeys) - len(passedKeys),
+					)
+					for _, key := range keys {
+						if _, found := passedKeys[key]; found {
+							continue;
+						}
+						if _, found := removedKeys[key]; found {
+							continue;
+						}
+						allProcessed = false;
+						break;
+					}
+					if allProcessed {
+						break;
+					}
+
+					var count int = -1;
+					var columnsAdded int = 0
+					columnCombinationMapToCheck = make(map[string]*ComplexPKCombinationType)
+
+					for _, key := range keys {
+						if _, found := passedKeys[key]; found {
+							continue;
+						}
+						if _, found := removedKeys[key]; found {
+							continue;
+						}
+						var found bool = false;
+						for removedKey,_ := range removedKeys {
+							if columnCombinationMap[key].columns.isSubset(columnCombinationMap[removedKey].columns) {
+								tracelog.Info(packageName,funcName,
+									"Combination %v is subset of already checked %v. Skipped ",
+									columnCombinationMap[key].columns,
+									columnCombinationMap[removedKey].columns,
+								)
+								removedKeys[key] = true
+								found = true
+							}
+						}
+						if !found {
+							count  = len(columnCombinationMap[key].columns)
+							if count + columnsAdded <= 16 {
+								columnsAdded = columnsAdded +count
+								columnCombinationMapToCheck[key] = columnCombinationMap[key]
+								fmt.Println(columnCombinationMap[key].columns)
+							} else{
+								break;
+							}
+						}
+					}
+					if len(columnCombinationMapToCheck) == 0 {
+						continue;
+					}
+					tracelog.Info(packageName, funcName, "Vanguard Horse starts processing %v  with %v column combinations",
+						currentPkTable, len(columnCombinationMapToCheck),
+					)
+
+					{
+						var columns map[int64]bool = make(map[int64]bool)
+						for _,columnCombination := range(columnCombinationMapToCheck) {
+							for _,column := range columnCombination.columns {
+								columns[column.Id.Value()] = true
+							}
+							columnCombination.HashPoolPointer = -1;
+							columnCombination.hashPool = make([]uint32, 0, len(columns)*256)
+						}
+					}
+
+					dr.ReadAstraDump(
+						horsesContext,
+						currentPkTable,
+						LeadHorse,
+						leadHorseConfig,
+					)
+
+					if len(columnCombinationMapToCheck) > 0 {
+						slaveChan <- true
+						<-leadChan
+					}
+
+				}
+				for key, _:= range columnCombinationMap{
+					if _,found := removedKeys[key]; found {
+						delete(columnCombinationMap,key)
+					}
+				}
+				/***/
+
 
 				tracelog.Info(packageName, funcName, "Lead Horse starts processing %v  with %v column combinations",
 					currentPkTable, len(columnCombinationMap),
