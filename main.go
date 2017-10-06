@@ -1202,7 +1202,7 @@ func testBitsetCompare() (err error) {
 				var SortedPKColumns []*dataflow.ColumnInfoType
 				SortedPKColumns = make([]*dataflow.ColumnInfoType, 0, len(uniqueColumns))
 
-				for column, _ := range uniqueColumns {
+				for column := range uniqueColumns {
 					SortedPKColumns = append(SortedPKColumns, column)
 				}
 
@@ -1930,16 +1930,18 @@ func testBitsetCompare() (err error) {
 			go func() {
 				removedKeys := make(map[string]bool)
 				passedKeys := make(map[string]bool)
+				processedKeys := make(map[string]bool)
 
-				keys := make([]string, 0, len(columnCombinationMap))
+				keyList := make([]string, 0, len(columnCombinationMap))
 				for columnCombinationMapKey, _ := range columnCombinationMap {
-					keys = append(keys, columnCombinationMapKey)
+					keyList = append(keyList, columnCombinationMapKey)
 				}
-				sort.Slice(keys, func(i, j int) bool {
-					if len(columnCombinationMap[keys[i]].columns) == len(columnCombinationMap[keys[j]].columns) {
-						return keys[i] > keys[j]
+
+				sort.Slice(keyList, func(i, j int) bool {
+					if len(columnCombinationMap[keyList[i]].columns) == len(columnCombinationMap[keyList[j]].columns) {
+						return keyList[i] > keyList[j]
 					} else {
-						return len(columnCombinationMap[keys[i]].columns) > len(columnCombinationMap[keys[j]].columns)
+						return len(columnCombinationMap[keyList[i]].columns) > len(columnCombinationMap[keyList[j]].columns)
 					}
 				})
 
@@ -1947,14 +1949,11 @@ func testBitsetCompare() (err error) {
 					var allProcessed bool = true;
 					tracelog.Info(packageName,funcName,
 						"Column combinations: total %v, found duplicates in:%v, ready for the next test: %v, leftover: %v;  ",
-						len(keys),len(removedKeys),len(passedKeys),
-						len(keys) - len(removedKeys) - len(passedKeys),
+						len(keyList),len(removedKeys),len(passedKeys),
+						len(keyList) - len(removedKeys) - len(passedKeys),
 					)
-					for _, key := range keys {
-						if _, found := passedKeys[key]; found {
-							continue;
-						}
-						if _, found := removedKeys[key]; found {
+					for _, key := range keyList {
+						if _, found := processedKeys[key]; found {
 							continue;
 						}
 						allProcessed = false;
@@ -1966,38 +1965,41 @@ func testBitsetCompare() (err error) {
 
 					var count int = -1;
 					var columnsAdded int = 0
+
 					columnCombinationMapToCheck = make(map[string]*ComplexPKCombinationType)
 
-					for _, key := range keys {
-						if _, found := passedKeys[key]; found {
-							continue;
-						}
-						if _, found := removedKeys[key]; found {
-							continue;
-						}
-						var found bool = false;
-						for removedKey,_ := range removedKeys {
-							if columnCombinationMap[key].columns.isSubset(columnCombinationMap[removedKey].columns) {
-								tracelog.Info(packageName,funcName,
-									"Combination %v is subset of already checked %v. Skipped ",
-									columnCombinationMap[key].columns,
-									columnCombinationMap[removedKey].columns,
-								)
-								removedKeys[key] = true
-								found = true
-							}
-						}
-						if !found {
-							count  = len(columnCombinationMap[key].columns)
-							if count + columnsAdded <= 16 {
-								columnsAdded = columnsAdded +count
-								columnCombinationMapToCheck[key] = columnCombinationMap[key]
-								fmt.Println(columnCombinationMap[key].columns)
-							} else{
-								break;
+					for removedKey, passed := range processedKeys {
+						if !passed {
+							for key := range columnCombinationMap {
+								if columnCombinationMap[key].columns.isSubset(columnCombinationMap[removedKey].columns) {
+									tracelog.Info(packageName,funcName,
+										"Combination %v is subset of already checked %v. Skipped ",
+										columnCombinationMap[key].columns,
+										columnCombinationMap[removedKey].columns,
+									)
+									processedKeys[key] = false
+								}
 							}
 						}
 					}
+
+					runKeys := make(map[string]bool)
+					for _, key := range keyList {
+						if  _, found := processedKeys[key]; found {
+							continue;
+						}
+						count  = len(columnCombinationMap[key].columns)
+						if count + columnsAdded <= 16 {
+							columnsAdded = columnsAdded +count
+							columnCombinationMapToCheck[key] = columnCombinationMap[key]
+							runKeys[key] = true
+							fmt.Println(columnCombinationMap[key].columns)
+						} else{
+							break;
+						}
+					}
+
+
 					if len(columnCombinationMapToCheck) == 0 {
 						continue;
 					}
@@ -2005,16 +2007,6 @@ func testBitsetCompare() (err error) {
 						currentPkTable, len(columnCombinationMapToCheck),
 					)
 
-					{
-						var columns map[int64]bool = make(map[int64]bool)
-						for _,columnCombination := range(columnCombinationMapToCheck) {
-							for _,column := range columnCombination.columns {
-								columns[column.Id.Value()] = true
-							}
-							columnCombination.HashPoolPointer = -1;
-							columnCombination.hashPool = make([]uint32, 0, len(columns)*256)
-						}
-					}
 
 					dr.ReadAstraDump(
 						horsesContext,
@@ -2023,25 +2015,27 @@ func testBitsetCompare() (err error) {
 						leadHorseConfig,
 					)
 
+					for key := range runKeys {
+						_, exists := columnCombinationMapToCheck[key]
+						processedKeys[key] = exists
+						if !exists {
+							delete(columnCombinationMap,key)
+						}
+
+					}
+
 					if len(columnCombinationMapToCheck) > 0 {
 						slaveChan <- true
 						<-leadChan
 					}
 
 				}
-				for key, _:= range columnCombinationMap{
-					if _,found := removedKeys[key]; found {
-						delete(columnCombinationMap,key)
-					}
-				}
-				/***/
 
 
 				tracelog.Info(packageName, funcName, "Lead Horse starts processing %v  with %v column combinations",
 					currentPkTable, len(columnCombinationMap),
 				)
 
-				columnCombinationMapToCheck = make(map[string]*ComplexPKCombinationType)
 
 				result, _, err := dr.ReadAstraDump(
 					horsesContext,
