@@ -25,7 +25,6 @@ import (
 	"io"
 	"sort"
 	"sparsebitset"
-	"unsafe"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -1507,7 +1506,7 @@ func testBitsetCompare() (err error) {
 				var truncateCombinations = false
 				if LineNumber == 0 {
 					fmt.Println("Column combination(s) to check duplicates:")
-					for _, columnCombination := range columnCombinationMap {
+					for _, columnCombination := range columnCombinationMapForFirstPass {
 						fmt.Printf("--%v\n ", columnCombination.columns)
 						columns := make([]string,0,len(columnCombination.columns))
 						for _, c := range columnCombination.columns {
@@ -1523,11 +1522,11 @@ func testBitsetCompare() (err error) {
 
 				if cumulativeSavedDataLength > 1024*1024 {
 					LineNumberToCheckBySlaveHorseTo = LineNumber
-					for columnCombinationKey, columnCombination := range columnCombinationMap {
+					for columnCombinationKey, columnCombination := range columnCombinationMapForFirstPass {
 						if len(columnCombination.duplicatesByHash) > 0 {
 							columnCombinationMapForSecondPass[columnCombinationKey] = columnCombination
 						}
-						fmt.Printf("%v.duplicatesByHash %v\n",columnCombination.columns,unsafe.Sizeof(columnCombination.duplicatesByHash))
+						//fmt.Printf("%v.duplicatesByHash %v\n",columnCombination.columns,unsafe.Sizeof(columnCombination.duplicatesByHash))
 
 					}
 					///
@@ -1536,7 +1535,7 @@ func testBitsetCompare() (err error) {
 					<-leadChan
 					tracelog.Info(packageName, funcName, "Lead Horse continues processing %v from line %v with %v column combinations",
 						currentPkTable, LineNumber,
-						len(columnCombinationMap),
+						len(columnCombinationMapForFirstPass),
 					)
 					/*leadHorseConfig.MoveToByte.Position = DataPosition
 					leadHorseConfig.MoveToByte.FirstLineAs = LineNumber
@@ -1616,7 +1615,6 @@ func testBitsetCompare() (err error) {
 					if newDuplicate {
 						duplicates := make([]*ComplexPKDupDataType, 0, 3)
 						addToDuplicateByHash(duplicates)
-						columnCombinationMapForSecondPass[columnCombinationMapKey] =  columnCombination
 						if false {
 							fmt.Printf("--------%v ---\n", hv1)
 							for _, position := range columnCombination.columnPositions {
@@ -1670,7 +1668,7 @@ func testBitsetCompare() (err error) {
 				}
 
 				if truncateCombinations {
-					if len(columnCombinationMap) == 0 {
+					if len(columnCombinationMapForFirstPass) == 0 {
 						tracelog.Info(packageName, funcName,
 							"There is no column combination available for %v to check",
 							currentPkTable,
@@ -2036,32 +2034,16 @@ func testBitsetCompare() (err error) {
 					if len(columnCombinationMapForSecondPass) > 0 {
 						slaveChan <- true
 						<-leadChan
+					} else {
+						slaveChan <- false
+						slaveChan <- result
+						slaveChan <- err
+						close(slaveChan)
+
+						return
 					}
 
 				}
-
-
-				tracelog.Info(packageName, funcName, "Lead Horse starts processing %v  with %v column combinations",
-					currentPkTable, len(columnCombinationMap),
-				)
-
-
-				result, _, err := dr.ReadAstraDump(
-					horsesContext,
-					currentPkTable,
-					LeadHorse,
-					leadHorseConfig,
-				)
-				if len(columnCombinationMapForSecondPass) > 0 {
-					slaveChan <- true
-					<-leadChan
-				}
-				slaveChan <- false
-				slaveChan <- result
-				slaveChan <- err
-				close(slaveChan)
-
-				return
 			}()
 
 		horses2:
