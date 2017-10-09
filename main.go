@@ -1328,7 +1328,9 @@ func testBitsetCompare() (err error) {
 			(*slaveHorseConfig) = (*leadHorseConfig)
 			var leadHorseResult dataflow.ReadDumpResultType
 			var slaveHorseResult dataflow.ReadDumpResultType
-			var columnCombinationMapToCheck map[string]*ComplexPKCombinationType
+			var columnCombinationMapForFirstPass map[string]*ComplexPKCombinationType
+			var columnCombinationMapForSecondPass map[string]*ComplexPKCombinationType
+
 			horsesContext, horsesCancelFunc := context.WithCancel(context.Background())
 
 
@@ -1523,7 +1525,7 @@ func testBitsetCompare() (err error) {
 					LineNumberToCheckBySlaveHorseTo = LineNumber
 					for columnCombinationKey, columnCombination := range columnCombinationMap {
 						if len(columnCombination.duplicatesByHash) > 0 {
-							columnCombinationMapToCheck[columnCombinationKey] = columnCombination
+							columnCombinationMapForSecondPass[columnCombinationKey] = columnCombination
 						}
 						fmt.Printf("%v.duplicatesByHash %v\n",columnCombination.columns,unsafe.Sizeof(columnCombination.duplicatesByHash))
 
@@ -1556,20 +1558,11 @@ func testBitsetCompare() (err error) {
 					}
 					hv1 := firstHashMethod.Sum32();
 
-					/*if hv1 == 3610059225 {
-						fmt.Printf("- %v -\n", hv1)
-						for _, position := range columnCombination.columnPositions {
-							fmt.Printf("%v, ", data[position])
-						}
-					}*/
 
 
 					if !columnCombination.firstBitset.Set(uint64(hv1)) {
 						continue
 					}
-					/*if LineNumber>=3352097 {
-						LineNumber = LineNumber
-					}*/
 
 					secondHashMethod := fnv.New32a()
 					for _, position := range columnCombination.columnPositions {
@@ -1659,8 +1652,7 @@ func testBitsetCompare() (err error) {
 								if countDifferentPieces == 0 {
 									truncateCombinations = true
 									tracelog.Info(packageName, funcName, "Lead Horse:Data duplication found for columns %v in lines %v and %v", columnCombination.columns, dup.LineNumber, LineNumber)
-									delete(columnCombinationMap, columnCombinationMapKey)
-									delete(columnCombinationMapToCheck, columnCombinationMapKey)
+									delete(columnCombinationMapForFirstPass, columnCombinationMapKey)
 									continue columns
 								} else {
 									fmt.Printf("--------%v ---\n",hashValue)
@@ -1696,7 +1688,7 @@ func testBitsetCompare() (err error) {
 				firstHashMethod :=  fnv.New32()
 				secondHashMethod := fnv.New32a()
 			columns:
-				for columnCombinationMapKey, columnCombination := range columnCombinationMapToCheck {
+				for columnCombinationMapKey, columnCombination := range columnCombinationMapForSecondPass {
 					firstHashMethod.Reset()
 					secondHashMethod.Reset()
 
@@ -1747,7 +1739,8 @@ func testBitsetCompare() (err error) {
 									truncateCombinations = true
 									tracelog.Info(packageName, funcName, "Slave Horse:Data duplication found for columns %v in lines %v and %v", columnCombination.columns, LineNumber, dup.LineNumber)
 									delete(columnCombinationMap, columnCombinationMapKey)
-									delete(columnCombinationMapToCheck, columnCombinationMapKey)
+									delete(columnCombinationMapForFirstPass, columnCombinationMapKey)
+									delete(columnCombinationMapForSecondPass, columnCombinationMapKey)
 									continue columns
 								}
 						}
@@ -1762,7 +1755,7 @@ func testBitsetCompare() (err error) {
 						}
 
 					}*/
-					if len(columnCombinationMapToCheck) == 0 {
+					if len(columnCombinationMapForSecondPass) == 0 {
 						tracelog.Info(packageName, funcName,
 							"There is no column combination available for %v to check",
 							currentPkTable,
@@ -1928,9 +1921,8 @@ func testBitsetCompare() (err error) {
 			cumulativeSavedDataLength = 0
 
 			go func() {
-				removedKeys := make(map[string]bool)
-				passedKeys := make(map[string]bool)
 				processedKeys := make(map[string]bool)
+
 
 				keyList := make([]string, 0, len(columnCombinationMap))
 				for columnCombinationMapKey, _ := range columnCombinationMap {
@@ -1945,13 +1937,27 @@ func testBitsetCompare() (err error) {
 					}
 				})
 
+
+
 				for {
 					var allProcessed bool = true;
-					tracelog.Info(packageName,funcName,
-						"Column combinations: total %v, found duplicates in:%v, ready for the next test: %v, leftover: %v;  ",
-						len(keyList),len(removedKeys),len(passedKeys),
-						len(keyList) - len(removedKeys) - len(passedKeys),
-					)
+					{ var removed,processed int = 0,0
+						for _, exists := range processedKeys {
+							if exists {
+								processed++
+							} else {
+								removed++
+							}
+						}
+
+						tracelog.Info(packageName,funcName,
+							"Column combinations: total %v, found duplicates in: %v, ready for exact test: %v, leftover: %v;  ",
+							len(keyList),removed, processed,
+							len(keyList) - removed - processed,
+						)
+					}
+
+
 					for _, key := range keyList {
 						if _, found := processedKeys[key]; found {
 							continue;
@@ -1966,9 +1972,8 @@ func testBitsetCompare() (err error) {
 					var count int = -1;
 					var columnsAdded int = 0
 
-					columnCombinationMapToCheck = make(map[string]*ComplexPKCombinationType)
 
-					for removedKey, passed := range processedKeys {
+					for removedKey, passed := range removedKeys {
 						if !passed {
 							for key := range columnCombinationMap {
 								if columnCombinationMap[key].columns.isSubset(columnCombinationMap[removedKey].columns) {
@@ -1983,7 +1988,10 @@ func testBitsetCompare() (err error) {
 						}
 					}
 
-					runKeys := make(map[string]bool)
+					columnCombinationMapForFirstPass = make(map[string]*ComplexPKCombinationType)
+					columnCombinationMapForSecondPass = make(map[string]*ComplexPKCombinationType)
+					processingKeys := make(map[string]bool)
+
 					for _, key := range keyList {
 						if  _, found := processedKeys[key]; found {
 							continue;
@@ -1991,8 +1999,8 @@ func testBitsetCompare() (err error) {
 						count  = len(columnCombinationMap[key].columns)
 						if count + columnsAdded <= 16 {
 							columnsAdded = columnsAdded +count
-							columnCombinationMapToCheck[key] = columnCombinationMap[key]
-							runKeys[key] = true
+							columnCombinationMapForFirstPass[key] = columnCombinationMap[key]
+							processingKeys[key] = true
 							fmt.Println(columnCombinationMap[key].columns)
 						} else{
 							break;
@@ -2000,11 +2008,11 @@ func testBitsetCompare() (err error) {
 					}
 
 
-					if len(columnCombinationMapToCheck) == 0 {
+					if len(columnCombinationMapForFirstPass) == 0 {
 						continue;
 					}
-					tracelog.Info(packageName, funcName, "Vanguard Horse starts processing %v  with %v column combinations",
-						currentPkTable, len(columnCombinationMapToCheck),
+					tracelog.Info(packageName, funcName, "Leading Horse starts processing %v  with %v column combinations",
+						currentPkTable, len(columnCombinationMapForFirstPass),
 					)
 
 
@@ -2015,8 +2023,8 @@ func testBitsetCompare() (err error) {
 						leadHorseConfig,
 					)
 
-					for key := range runKeys {
-						_, exists := columnCombinationMapToCheck[key]
+					for key := range processingKeys {
+						_, exists := columnCombinationMapForFirstPass[key]
 						processedKeys[key] = exists
 						if !exists {
 							delete(columnCombinationMap,key)
@@ -2024,7 +2032,7 @@ func testBitsetCompare() (err error) {
 
 					}
 
-					if len(columnCombinationMapToCheck) > 0 {
+					if len(columnCombinationMapForSecondPass) > 0 {
 						slaveChan <- true
 						<-leadChan
 					}
