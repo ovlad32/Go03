@@ -2,9 +2,7 @@ package dataflow
 
 import (
 	"astra/nullable"
-	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"github.com/goinggo/tracelog"
 	"math"
@@ -161,8 +159,54 @@ func composeBistsetFileFullPath(pathToDir, fileName string) string {
 	return fullPathFileName
 }
 
-func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
-	funcName := "DataCategoryType.WriteHashBitsetToDisk"
+type dataCategoryBitSetWrapperType struct {
+	*DataCategoryType
+	suffix BitsetFileSuffixType
+	pathToDir string
+	cancelContext context.Context
+}
+
+func (w dataCategoryBitSetWrapperType) Description() string{
+	return fmt.Sprintf("%v",w.suffix)
+}
+func (w dataCategoryBitSetWrapperType) BitSet() (*sparsebitset.BitSet, error){
+	switch w.suffix {
+	case HashBitsetSuffix:
+		return w.Stats.HashBitset,nil
+	case ItemBitsetSuffix:
+		return w.Stats.ItemBitset,nil
+	}
+	return nil,fmt.Errorf("unknown datacategory bitset suffix %v ",w.suffix)
+}
+
+func (w dataCategoryBitSetWrapperType) PathToDir() (string){
+	return w.pathToDir
+}
+func (w dataCategoryBitSetWrapperType) Context() (context.Context){
+	return w.cancelContext
+}
+
+func (w dataCategoryBitSetWrapperType) FullPathFileName() (string,error) {
+	return fmt.Sprintf("%v.%v.%v.bitset",
+		w.Column.Id.String(),
+		w.Key,
+		w.suffix,
+	), nil
+}
+
+func (dataCategory *DataCategoryType) WriteBitsetToDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
+
+	return WriteBitsetToFile(
+		&dataCategoryBitSetWrapperType{
+			DataCategoryType:dataCategory,
+			suffix:suffix,
+			pathToDir:pathToDir,
+			cancelContext:ctx,
+			},
+		)
+
+
+	/*funcName := "DataCategoryType.WriteHashBitsetToDisk"
 
 	tracelog.Started(packageName, funcName)
 
@@ -210,10 +254,29 @@ func (dataCategory DataCategoryType) WriteBitsetToDisk(ctx context.Context, path
 
 	tracelog.Completed(packageName, funcName)
 
-	return err
+	return err*/
 }
 
+
 func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
+
+	err = ReadBitsetFromFile(
+		&dataCategoryBitSetWrapperType{
+			DataCategoryType:dataCategory,
+			suffix:suffix,
+			pathToDir:pathToDir,
+			cancelContext:ctx,
+		},
+	)
+	if err == nil {
+		if suffix == HashBitsetSuffix {
+				dataCategory.Stats.HashBitsetCardinality = dataCategory.Stats.HashBitset.Cardinality()
+		} else {
+				dataCategory.Stats.ItemBitsetCardinality = dataCategory.Stats.ItemBitset.Cardinality()
+		}
+	}
+	return err
+/*
 	funcName := "DataCategoryType.ReadBitsetFromDisk"
 
 	tracelog.Started(packageName, funcName)
@@ -259,7 +322,7 @@ func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pa
 
 	tracelog.Completed(packageName, funcName)
 
-	return err
+	return err*/
 }
 
 func (dataCategory DataCategoryType) ResetBitset(suffixType BitsetFileSuffixType) {
