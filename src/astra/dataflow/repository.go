@@ -372,14 +372,14 @@ type ComplexKeyInfoType struct {
 
 type ComplexKeyColumnInfoType struct {
 	Id nullable.NullInt64
-	KeyId nullable.NullInt64
+	KeyInfoId nullable.NullInt64
 	ColumnInfoId nullable.NullInt64
 	Position nullable.NullInt64
 	ComplexKey *ComplexKeyInfoType
 }
 
 
-func (h2 Repository) ckrdKey(whereFunc func() string) (result []*ComplexKeyInfoType, err error) {
+func (h2 Repository) complexKey(whereFunc func() string) (result []*ComplexKeyInfoType, err error) {
 
 	tx, err := h2.IDb.Begin()
 	if err != nil {
@@ -424,9 +424,26 @@ func (h2 Repository) ckrdKey(whereFunc func() string) (result []*ComplexKeyInfoT
 	return
 }
 
+func (h2 Repository) ComplexKeysByTable(table *TableInfoType) (result []*ComplexKeyInfoType, err error) {
+	result, err = h2.complexKey(func() string {
+		return fmt.Sprintf(" WHERE TABLE_INFO_ID = %v", table.Id.Value())
+	})
+	if err != nil {
+		return
+	}
+	for _, key := range result {
+		key.TableInfo = table
+		key.Columns, err = h2.ComplexKeyColumnsByKey(key)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
 
 
-func (h2 Repository) ckrdKeyColumn(whereFunc func() string) (result []*ComplexKeyColumnInfoType, err error) {
+
+func (h2 Repository) complexKeyColumn(whereFunc func() string) (result []*ComplexKeyColumnInfoType, err error) {
 
 	tx, err := h2.IDb.Begin()
 	if err != nil {
@@ -438,7 +455,7 @@ func (h2 Repository) ckrdKeyColumn(whereFunc func() string) (result []*ComplexKe
 
 	query := "SELECT " +
 		" ID " +
-		", KEY_ID " +
+		", KEY_INFO_ID " +
 		", COLUMN_INFO_ID " +
 		", POSITION " +
 		" FROM CKRD_KEY_COLUMN_INFO t "
@@ -455,7 +472,7 @@ func (h2 Repository) ckrdKeyColumn(whereFunc func() string) (result []*ComplexKe
 		var row ComplexKeyColumnInfoType
 		err = rws.Scan(
 			&row.Id,
-			&row.KeyId,
+			&row.KeyInfoId,
 			&row.ColumnInfoId,
 			&row.Position,
 		)
@@ -466,6 +483,21 @@ func (h2 Repository) ckrdKeyColumn(whereFunc func() string) (result []*ComplexKe
 	}
 	return
 }
+
+func (h2 Repository) ComplexKeyColumnsByKey(key *ComplexKeyInfoType) (result []*ComplexKeyColumnInfoType, err error) {
+	result,err = h2.complexKeyColumn(func() string {
+		return fmt.Sprintf(" WHERE KEY_INFO_ID = %v", key.Id.Value())
+	})
+	if err != nil {
+		return
+	}
+	for _, keyColumn := range result {
+		keyColumn.ComplexKey = key;
+	}
+	return
+}
+
+
 
 func (h2 Repository) NewComplexKeyInfoId() (result nullable.NullInt64,err error) {
 	tx, err := h2.IDb.Begin()
@@ -492,17 +524,17 @@ func (h2 Repository) PersistComplexKey(key *ComplexKeyInfoType) (err error) {
 	if !key.Id.Valid() {
 		key.Id, err = h2.NewComplexKeyInfoId()
 		if err != nil {
-			err = fmt.Errorf(" acqiring a new key info Id to persist a new ComplexKeyInfo: %v", err)
+			err = fmt.Errorf(" acquiring a new key info Id to persist a new ComplexKeyInfo: %v", err)
 			return
 		}
 		_, err = tx.Exec(
 			fmt.Sprintf("insert into ckrd_key_info(id,key_type,table_info_id,column_count,processing_stage,reference_to) values(%v,%v,%v,%v,%v,%v)",
-				key.Id.Value(),
+				key.Id,
 				key.KeyType.SQLString(),
-				key.TableInfoId.Value(),
-				key.ColumnCount.Value(),
+				key.TableInfoId,
+				key.ColumnCount,
 				key.ProcessingStage.SQLString(),
-				key.ReferenceTo.Value(),
+				key.ReferenceTo,
 			),
 		)
 		if err != nil {
@@ -521,5 +553,89 @@ func (h2 Repository) PersistComplexKey(key *ComplexKeyInfoType) (err error) {
 		}
 	}
 
+	tx.Commit()
+
+
 	return
 }
+
+func (h2 Repository) PersistComplexKeyColumns(key *ComplexKeyInfoType)(err error) {
+	ids := make(map[int64]bool)
+	for _, column := range key.Columns {
+		err = h2.PersistComplexKeyColumn(column)
+		if err != nil {
+			return
+		}
+		ids[column.Id.Value()] = true;
+	}
+	txc, err := h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+	rows, err := txc.Query(fmt.Sprintf("select id from ckrd_key_column_info where key_info_id = %v", key.Id))
+	if err != nil {
+		return
+	}
+	var id nullable.NullInt64
+	if rows.Next() {
+		err = rows.Scan(&id)
+		if err != nil {
+			return
+		}
+
+		if _, found := ids[id.Value()]; !found {
+			txd, err := h2.IDb.Begin();
+			if err != nil {
+				return err
+			}
+			_, err = txd.Exec("delete from ckrd_key_column_info where id = %v", id)
+			if err != nil {
+				return err
+			}
+			txd.Commit();
+		}
+	}
+
+	return
+}
+
+
+func (h2 Repository) PersistComplexKeyColumn(key *ComplexKeyColumnInfoType) (err error) {
+	tx, err := h2.IDb.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if !key.Id.Valid() {
+		key.Id, err = h2.NewComplexKeyInfoId()
+		if err != nil {
+			err = fmt.Errorf(" acquiring a new key info Id to persist a new ComplexKeyColumnInfo: %v", err)
+			return
+		}
+		_, err = tx.Exec(
+			fmt.Sprintf("insert into ckrd_key_column_info(id,key_info_id,column_info_id,position) values(%v,%v,%v,%v)",
+				key.Id,
+				key.KeyInfoId,
+				key.ColumnInfoId,
+				key.Position,
+			),
+		)
+		if err != nil {
+			err = fmt.Errorf(" inserting a new ComplexKeyColumnInfo: %v", err)
+			return
+		}
+	} else {
+		_, err = tx.Exec(
+			fmt.Sprintf("update ckrd_key_column_info set column_info_id = %v,position = %v where id = %v",
+				key.ColumnInfoId, key.Position, key.Id,
+			),
+		)
+		if err != nil {
+			err = fmt.Errorf(" updating ComplexKeyInfo with id = %v: %v", key.Id.Value(), err)
+			return
+		}
+	}
+	tx.Commit();
+	return
+}
+

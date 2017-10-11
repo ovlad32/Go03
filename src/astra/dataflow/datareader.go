@@ -407,28 +407,24 @@ func NewInstance() (result *DataReaderType, err error) {
 
 
 type BitsetWrapperInterface interface {
-	Context() context.Context
-	PathToDir() string
-	FullPathFileName() (string,error)
+	FileName() (string,error)
 	BitSet() (*sparsebitset.BitSet,error)
 	Description() string
 }
 
 
-func WriteBitsetToFile( wrapper BitsetWrapperInterface ) (err error){
+func WriteBitsetToFile(cancelContext context.Context,pathToDir string, wrapper BitsetWrapperInterface ) (err error){
 	funcName := "DataFlow::WriteBitSetToFile"
 	tracelog.Started(packageName, funcName)
 
 	description := fmt.Errorf("writting %v bitset data",wrapper.Description())
-	pathToDir := wrapper.PathToDir()
-
 	if pathToDir == "" {
 		err = fmt.Errorf("%v: given path is empty ",description)
 		tracelog.Error(err, packageName, funcName)
 		return err
 	}
 
-	fileName, err := wrapper.FullPathFileName()
+	fileName, err := wrapper.FileName()
 	if err != nil {
 		err = fmt.Errorf("%v: %v",description,err)
 		tracelog.Error(err, packageName, funcName)
@@ -441,7 +437,6 @@ func WriteBitsetToFile( wrapper BitsetWrapperInterface ) (err error){
 		return err
 	}
 
-	cancelContext := wrapper.Context()
 	if cancelContext == nil {
 		err = fmt.Errorf("%v: given cancel context is not initialized",description)
 		tracelog.Error(err, packageName, funcName)
@@ -503,12 +498,11 @@ func WriteBitsetToFile( wrapper BitsetWrapperInterface ) (err error){
 
 
 
-func ReadBitsetFromFile(wrapper BitsetWrapperInterface) (err error) {
+func ReadBitsetFromFile(cancelContext context.Context,pathToDir string, wrapper BitsetWrapperInterface) (err error) {
 	funcName := "DataFlow::ReadBitSetFromFile"
 	tracelog.Started(packageName, funcName)
 
 	description := fmt.Errorf("reading %v bitset data",wrapper.Description())
-	pathToDir := wrapper.PathToDir()
 
 	if pathToDir == "" {
 		err = fmt.Errorf("%v: given path is empty ",description)
@@ -516,7 +510,7 @@ func ReadBitsetFromFile(wrapper BitsetWrapperInterface) (err error) {
 		return err
 	}
 
-	fileName, err := wrapper.FullPathFileName()
+	fileName, err := wrapper.FileName()
 	if err != nil {
 		err = fmt.Errorf("%v: %v",description,err)
 		tracelog.Error(err, packageName, funcName)
@@ -529,7 +523,6 @@ func ReadBitsetFromFile(wrapper BitsetWrapperInterface) (err error) {
 		return err
 	}
 
-	cancelContext := wrapper.Context()
 	if cancelContext == nil {
 		err = fmt.Errorf("%v: given cancel context is not initialized",description)
 		tracelog.Error(err, packageName, funcName)

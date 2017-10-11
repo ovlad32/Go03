@@ -162,8 +162,6 @@ func composeBistsetFileFullPath(pathToDir, fileName string) string {
 type dataCategoryBitSetWrapperType struct {
 	*DataCategoryType
 	suffix BitsetFileSuffixType
-	pathToDir string
-	cancelContext context.Context
 }
 
 func (w dataCategoryBitSetWrapperType) Description() string{
@@ -179,14 +177,7 @@ func (w dataCategoryBitSetWrapperType) BitSet() (*sparsebitset.BitSet, error){
 	return nil,fmt.Errorf("unknown datacategory bitset suffix %v ",w.suffix)
 }
 
-func (w dataCategoryBitSetWrapperType) PathToDir() (string){
-	return w.pathToDir
-}
-func (w dataCategoryBitSetWrapperType) Context() (context.Context){
-	return w.cancelContext
-}
-
-func (w dataCategoryBitSetWrapperType) FullPathFileName() (string,error) {
+func (w dataCategoryBitSetWrapperType) FileName() (string,error) {
 	return fmt.Sprintf("%v.%v.%v.bitset",
 		w.Column.Id.String(),
 		w.Key,
@@ -197,11 +188,11 @@ func (w dataCategoryBitSetWrapperType) FullPathFileName() (string,error) {
 func (dataCategory *DataCategoryType) WriteBitsetToDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
 
 	return WriteBitsetToFile(
+		ctx,
+		pathToDir,
 		&dataCategoryBitSetWrapperType{
 			DataCategoryType:dataCategory,
 			suffix:suffix,
-			pathToDir:pathToDir,
-			cancelContext:ctx,
 			},
 		)
 
@@ -261,11 +252,11 @@ func (dataCategory *DataCategoryType) WriteBitsetToDisk(ctx context.Context, pat
 func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pathToDir string, suffix BitsetFileSuffixType) (err error) {
 
 	err = ReadBitsetFromFile(
+		ctx,
+		pathToDir,
 		&dataCategoryBitSetWrapperType{
 			DataCategoryType:dataCategory,
 			suffix:suffix,
-			pathToDir:pathToDir,
-			cancelContext:ctx,
 		},
 	)
 	if err == nil {
