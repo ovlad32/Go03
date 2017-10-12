@@ -299,6 +299,11 @@ type keyColumnPairType struct {
 	PKColumn *dataflow.ColumnInfoType
 	FKColumn *dataflow.ColumnInfoType
 }
+func (pair keyColumnPairType) TablePairKeyString() string {
+	return strconv.FormatInt(int64(pair.PKColumn.TableInfo.Id.Value()),16)+
+		"-" +
+		strconv.FormatInt(int64(pair.FKColumn.TableInfo.Id.Value()),16)
+}
 
 /*
 type keyColumnPairArrayType []*keyColumnPairType
@@ -333,14 +338,22 @@ func (ca ColumnArrayType) Map() (result map[*dataflow.ColumnInfoType]bool) {
 	}
 	return
 }
-func (ca ColumnArrayType) isSubset(another ColumnArrayType) bool {
+func (ca ColumnArrayType) isSubsetOf(another ColumnArrayType) bool {
+	if len(ca) == 0 {
+		return false
+	}
+	if len(ca)>len(another) {
+		return false
+	}
+
 ext:
-	for _, theirColumn := range another {
-		for _, curColumn := range ca {
+	for _, curColumn := range ca {
+		for _, theirColumn := range another {
 			if curColumn.Id.Value() == theirColumn.Id.Value() {
 				continue ext
 			}
 		}
+		//Our column has not been found in their set
 		return false
 	}
 	return true
@@ -359,12 +372,16 @@ type CPKBitsetBucketType struct {
 
 type ComplexPKCombinationType struct {
 	columns               ColumnArrayType
+	refColumns			  ColumnArrayType
 	columnPositions       []int
+	refColumnPositions	  []int
+
 	lastSortedColumnIndex int
 	cardinality           uint64
 	firstBitset           *sparsebitset.BitSet
 	duplicateBitset       *sparsebitset.BitSet
 	duplicatesByHash      map[uint32][]*ComplexPKDupDataType
+	//duplicateLengths      [][]int
 	//dataBucket            []*CPKBitsetBucketType
 	ComplexKeyInfoId     int64
 
@@ -399,7 +416,30 @@ func (pkc ComplexPKCombinationType) ColumnIndexString() (result string) {
 	}
 	return result
 }
+/*
 
+func (pkc ComplexPKCombinationType) SameColumnLengthsAt(columnLengths []int) (at int) {
+	var combinationFound = false
+	at = -1;
+	if len(columnLengths) == 0 || len(pkc.duplicateLengths)==0 {
+		return
+	}
+	for index := range pkc.duplicateLengths {
+		combinationFound = true
+		for position := range pkc.duplicateLengths[index] {
+			if pkc.duplicateLengths[index][position] != columnLengths[position] {
+				combinationFound = false
+				break
+			}
+		}
+		if combinationFound {
+			at = index
+			break;
+		}
+	}
+	return
+}
+*/
 /*
 
 func (pkc ComplexPKCombinationType) Flush(directory string) {
@@ -1101,50 +1141,7 @@ func testBitsetCompare() (err error) {
 			//columns := make([]*dataflow.ColumnInfoType,0)
 
 		}
-		//columnMap
-		/*
-				var dataMap map[string][]byte
-			var columnToTrack map[int]int
 
-			for table, columns := range columnMap {
-				columnToTrack  = make(map[int]int)
-				for _, column := range columns {
-					//fmt.Printf("PKColumn:%v(%v) - FKColumn:%v(%v)%v\n", pa
-
-					dataMap = make(map[string][]byte)
-					for index := range table.Columns {
-						if column == table.Columns[index] {
-							columnToTrack[index] = 0
-						}
-					}
-
-					p1 := func(context context.Context, i uint64, rawData [][]byte) error {
-						data := string(rawData[columnIndex])
-						if len(data) > 0 {
-							dataMap[data] = true
-						}
-						return nil
-					}
-
-					dr.ReadAstraDump(
-						context.TODO(),
-						table,
-						p1,
-						&dataflow.TableDumpConfigType{
-							Path:            dr.Config.AstraDumpPath,
-							GZip:            dr.Config.AstraDataGZip,
-							ColumnSeparator: dr.Config.AstraColumnSeparator,
-							LineSeparator:   dr.Config.AstraLineSeparator,
-							BufferSize:      dr.Config.AstraReaderBufferSize,
-						},
-					)
-					if len(dataMap) > 0 {
-
-					}
-
-				}
-				fmt.Printf("\n")
-			}*/
 
 	}
 
@@ -1155,9 +1152,8 @@ func testBitsetCompare() (err error) {
 			pair.FKColumn.UniqueRowCount = pair.FKColumn.HashUniqueCount
 		}
 
-		type tablePairType struct {
-			PKTableId, FKTableId int64
-		}
+		type tablePairType []*keyColumnPairType
+
 		printColumnArray := func(arr []*ComplexPKCombinationType) {
 			if len(arr) == 0 {
 				fmt.Println("No column combinations left")
@@ -1169,22 +1165,24 @@ func testBitsetCompare() (err error) {
 		}
 		_ = printColumnArray
 
-		tablePairMap := make(map[tablePairType][]*keyColumnPairType)
+		tablePairMap := make(map[string][]*keyColumnPairType)
 
 		for _, pair := range pairsFilteredByHash {
 			/*if !(pair.PKColumn.TableInfo.TableName.Value() == "TX" && pair.FKColumn.TableInfo.TableName.Value() == "TX_ITEM") {
 				continue
 			}*/
-			tablePair := tablePairType{
-				PKTableId: pair.PKColumn.TableInfo.Id.Value(),
-				FKTableId: pair.FKColumn.TableInfo.Id.Value(),
-			}
-			if arr, found := tablePairMap[tablePair]; !found {
+
+			tablePairKey := pair.TablePairKeyString()
+
+
+			if arr, found := tablePairMap[tablePairKey]; !found {
 				arr = make([]*keyColumnPairType, 0, 10)
 				arr = append(arr, pair)
-				tablePairMap[tablePair] = arr
+				tablePairMap[tablePairKey] = arr
+				fmt.Printf("%v append 1 ",pair.PKColumn,pair.FKColumn)
 			} else {
-				tablePairMap[tablePair] = append(arr, pair)
+				tablePairMap[tablePairKey] = append(arr, pair)
+				fmt.Printf("%v append 2 ",pair.PKColumn,pair.FKColumn)
 			}
 		}
 
@@ -1202,7 +1200,19 @@ func testBitsetCompare() (err error) {
 		}
 
 		ComplexPKStage1 := make([]*ComplexPKCombinationType, 0, 10)
+
 		tableCPKs := make(map[*dataflow.TableInfoType]map[string]*ComplexPKCombinationType)
+
+		for _, columnPairs := range tablePairMap {
+			if len(columnPairs) > 1 {
+				fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
+			}
+			for _,pair := range columnPairs{
+				fmt.Printf("%v - %v -- %v\n",pair.PKColumn,pair.FKColumn,pair.TablePairKeyString())
+			}
+		}
+		fmt.Printf("-------------------")
+
 		for _, columnPairs := range tablePairMap {
 			if len(columnPairs) > 1 {
 				fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
@@ -1310,6 +1320,7 @@ func testBitsetCompare() (err error) {
 				columnCombination.firstBitset = sparsebitset.New(0)
 				columnCombination.duplicateBitset = sparsebitset.New(0)
 				columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+				//columnCombination.duplicateLengths = make([][]int,0,100)
 				columnCombination.columnPositions = make([]int, len(columnCombination.columns))
 				for keyColumnIndex, pkc := range columnCombination.columns {
 					for tableColumnIndex := 0; tableColumnIndex < len(pkc.TableInfo.Columns); tableColumnIndex++ {
@@ -1325,7 +1336,7 @@ func testBitsetCompare() (err error) {
 
 		//bs := sparsebitset.New(0)
 		for currentPkTable, columnCombinationMap := range tableCPKs {
-			if currentPkTable.TableName.Value() != "TX_ITEM" {
+			if currentPkTable.TableName.Value() != "TX" {
 				continue //_ITEM_REVERSED
 			}
 			cumulativeSavedDataLength := uint64(0)
@@ -1379,10 +1390,12 @@ func testBitsetCompare() (err error) {
 
 					slaveChan <- true
 					<-leadChan
-					tracelog.Info(packageName, funcName, "Lead Horse continues processing %v from line %v with %v column combinations",
-						currentPkTable, LineNumber,
-						len(columnCombinationMapForLeadHorse),
-					)
+					if len(columnCombinationMapForLeadHorse)> 0 {
+						tracelog.Info(packageName, funcName, "Lead Horse continues processing %v from line %v with %v column combinations",
+							currentPkTable, LineNumber,
+							len(columnCombinationMapForLeadHorse),
+						)
+					}
 					/*leadHorseConfig.MoveToByte.Position = DataPosition
 					leadHorseConfig.MoveToByte.FirstLineAs = LineNumber
 					for columnCombinationKey, columnCombination := range (columnCombinationMap) {
@@ -1433,13 +1446,15 @@ func testBitsetCompare() (err error) {
 						//16 ~  Map system internals
 						cumulativeSavedDataLength = cumulativeSavedDataLength +
 							uint64(8+24+8*len(columnCombination.columns)+8+8+8)
+						columnLengths := make([]int, len(columnCombination.columns))
 						for index, position := range columnCombination.columnPositions {
+							dataLength := len(data[position])
+							columnLengths[index] = dataLength
 							pointer := pData[index]
 							if pointer != nil {
 								newDup.Data[index] = pointer
 							} else {
 								if dataCopyRef, isDataCopied := copiedDataMap[position]; !isDataCopied {
-									dataLength := len(data[position])
 									cumulativeSavedDataLength = cumulativeSavedDataLength + 24 + uint64(dataLength) + 16
 									//fmt.Printf("%v\n",unsafe.Sizeof(*newDup))
 
@@ -1452,6 +1467,15 @@ func testBitsetCompare() (err error) {
 								}
 							}
 						}
+						{
+							//index := columnCombination.SameColumnLengthsAt(columnLengths)
+							//if index<0 {
+							//	columnCombination.duplicateLengths = append(columnCombination.duplicateLengths, columnLengths)
+							//	tracelog.Info(packageName,funcName,"accepted lengths %v",columnLengths)
+							//}
+						}
+
+
 						duplicates = append(duplicates, newDup)
 						columnCombination.duplicatesByHash[hashValue] = duplicates
 					}
@@ -1532,6 +1556,19 @@ func testBitsetCompare() (err error) {
 				secondHashMethod := fnv.New32a()
 			columns:
 				for columnCombinationMapKey, columnCombination := range columnCombinationMapForSlaveHorse {
+
+					/*{ columnLengths := make([]int,len(columnCombination.columns))
+						for index, position := range columnCombination.columnPositions {
+							columnLengths[index] = len(data[position])
+						}
+						indexAt := columnCombination.SameColumnLengthsAt(columnLengths)
+						if indexAt< 0 {
+							continue
+						}
+					}*/
+
+
+
 					firstHashMethod.Reset()
 					secondHashMethod.Reset()
 
@@ -1581,6 +1618,9 @@ func testBitsetCompare() (err error) {
 								// TODO:DUPLICATE!
 								truncateCombinations = true
 								tracelog.Info(packageName, funcName, "Slave Horse:Data duplication found for columns %v in lines %v and %v", columnCombination.columns, LineNumber, dup.LineNumber)
+								columnCombination.firstBitset= nil
+								columnCombination.duplicatesByHash = nil
+								columnCombination.duplicateBitset = nil
 								delete(columnCombinationMapForLeadHorse, columnCombinationMapKey)
 								delete(columnCombinationMapForSlaveHorse, columnCombinationMapKey)
 								continue columns
@@ -1613,13 +1653,16 @@ func testBitsetCompare() (err error) {
 					columnCombination.firstBitset = sparsebitset.New(0)
 					columnCombination.duplicateBitset = sparsebitset.New(0)
 					columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+					//columnCombination.duplicateLengths = make([][]int,0,100)
 				}
 			}
 
 			cumulativeSavedDataLength = 0
 
 			go func() {
+
 				processedKeys := make(map[string]bool)
+
 
 				keyList := make([]string, 0, len(columnCombinationMap))
 				for columnCombinationMapKey, _ := range columnCombinationMap {
@@ -1634,6 +1677,7 @@ func testBitsetCompare() (err error) {
 					}
 				})
 
+				mainLoopLeadHorse:
 				for {
 					var allProcessed bool = true
 					{
@@ -1661,22 +1705,23 @@ func testBitsetCompare() (err error) {
 						break
 					}
 					if allProcessed {
-						break
+						break mainLoopLeadHorse
 					}
-
-					var count int = -1
-					var columnsAdded int = 0
 
 					for removedKey, passed := range processedKeys {
 						if !passed {
 							for key := range columnCombinationMap {
-								if key != removedKey && columnCombinationMap[key].columns.isSubset(columnCombinationMap[removedKey].columns) {
-									tracelog.Info(packageName, funcName,
-										"Combination %v is subset of already checked %v. Skipped ",
-										columnCombinationMap[key].columns,
-										columnCombinationMap[removedKey].columns,
-									)
-									processedKeys[key] = false
+								if _,found := processedKeys[key]; found {
+									continue;
+								} else {
+									if key != removedKey && columnCombinationMap[key].columns.isSubsetOf(columnCombinationMap[removedKey].columns) {
+										tracelog.Info(packageName, funcName,
+											"Combination %v is subset of already checked and rejected %v. Skipped ",
+											columnCombinationMap[key].columns,
+											columnCombinationMap[removedKey].columns,
+										)
+										processedKeys[key] = false
+									}
 								}
 							}
 						}
@@ -1690,23 +1735,23 @@ func testBitsetCompare() (err error) {
 						if _, found := processedKeys[key]; found {
 							continue
 						}
-						count = len(columnCombinationMap[key].columns)
-						if count+columnsAdded <= 16 {
-							columnsAdded = columnsAdded + count
-							columnCombinationMapForLeadHorse[key] = columnCombinationMap[key]
-							processingKeys[key] = true
-							fmt.Println(columnCombinationMap[key].columns)
-						} else {
-							break
+						if len(processingKeys)>2 {
+							break;
 						}
+						columnCombinationMapForLeadHorse[key] = columnCombinationMap[key]
+						processingKeys[key] = true
 					}
 
 					if len(columnCombinationMapForLeadHorse) == 0 {
 						continue
 					}
-					tracelog.Info(packageName, funcName, "Leading Horse starts processing %v  with %v column combinations",
+
+					tracelog.Info(packageName, funcName, "Leading Horse starts processing %v with %v column combinations:",
 						currentPkTable, len(columnCombinationMapForLeadHorse),
 					)
+					for _,columnCombination := range columnCombinationMapForLeadHorse {
+						tracelog.Info(packageName,funcName,"%v",columnCombination.columns)
+					}
 
 					dr.ReadAstraDump(
 						horsesContext,
@@ -1723,6 +1768,7 @@ func testBitsetCompare() (err error) {
 							columnCombination.firstBitset = nil
 							columnCombination.duplicateBitset = nil
 							columnCombination.duplicatesByHash = nil
+						//	columnCombination.duplicateLengths = nil
 						}
 
 					}
@@ -1734,8 +1780,6 @@ func testBitsetCompare() (err error) {
 							columnCombination, exists := columnCombinationMapForSlaveHorse[key]
 							processedKeys[key] = exists
 							if exists {
-								columnCombination.duplicateBitset = sparsebitset.New(0)
-								columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
 								complexKey := &dataflow.ComplexKeyInfoType{
 									TableInfo:currentPkTable,
 									TableInfoId:currentPkTable.Id,
@@ -1748,7 +1792,7 @@ func testBitsetCompare() (err error) {
 								err = dr.Repository.PersistComplexKey(complexKey);
 								if err != nil {
 									tracelog.Error(err,packageName,funcName)
-									return
+									break mainLoopLeadHorse
 								}
 
 								for position, column:= range columnCombination.columns {
@@ -1764,14 +1808,14 @@ func testBitsetCompare() (err error) {
 								err = dr.Repository.PersistComplexKeyColumns(complexKey);
 								if err != nil {
 									tracelog.Error(err,packageName,funcName)
-									return
+									break mainLoopLeadHorse
 								}
 
 								columnCombination.ComplexKeyInfoId = complexKey.Id.Value()
 								err = dataflow.WriteBitsetToFile(horsesContext,dr.Config.BitsetPath,columnCombination)
 								if err != nil {
 									tracelog.Error(err,packageName,funcName)
-									return
+									break mainLoopLeadHorse
 								}
 								columnCombination.firstBitset = nil
 							} else {
@@ -1779,24 +1823,25 @@ func testBitsetCompare() (err error) {
 								columnCombination.firstBitset = nil
 								columnCombination.duplicateBitset = nil
 								columnCombination.duplicatesByHash = nil
+								//columnCombination.duplicateLengths = nil
 							}
 						}
 
 					} else {
-
-						for key,exists := range processedKeys {
-							if !exists{
-								delete(columnCombinationMap,key)
-							}
-						}
-						slaveChan <- false
-						slaveChan <- dataflow.ReadDumpResultOk
-						slaveChan <- err
-						close(slaveChan)
-						return
+						break mainLoopLeadHorse
 					}
+				} //mainLoopLeadHorse
 
+				for key,exists := range processedKeys {
+					if !exists{
+						delete(columnCombinationMap,key)
+					}
 				}
+				slaveChan <- false
+				slaveChan <- dataflow.ReadDumpResultOk
+				slaveChan <- err
+				close(slaveChan)
+
 			}()
 
 		horses2:
@@ -1875,6 +1920,7 @@ func testBitsetCompare() (err error) {
 						for _, columnCombination := range columnCombinationMap {
 							columnCombination.duplicateBitset = sparsebitset.New(0)
 							columnCombination.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+							//columnCombination.duplicateLengths = make([][]int,0,100)
 							runtime.GC()
 						}
 						//if _, open := <-slaveChan; open {
