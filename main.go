@@ -575,6 +575,9 @@ func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pa
 
 func testBitsetCompare() (err error) {
 	funcName := "testBitsetCompare"
+	var floatNumericKeyAllowed bool = false
+
+
 	metadataIds := make(map[int64]bool)
 
 	if *argMetadataIds != string(-math.MaxInt64) {
@@ -617,6 +620,13 @@ func testBitsetCompare() (err error) {
 			exTable := dataflow.ExpandFromMetadataTable(table)
 			for _, column := range exTable.Columns {
 				column.Categories, err = dr.Repository.DataCategoryByColumnId(column)
+				if ! floatNumericKeyAllowed {
+					for _, category := range column.Categories {
+						if category.IsNumeric.Value() && !category.IsInteger.Value() {
+							continue
+						}
+					}
+				}
 				column.HashUniqueCount = nullable.NullInt64{}
 				column.NonNullCount = nullable.NullInt64{}
 				columnToProcess = append(columnToProcess, column)
@@ -1179,10 +1189,8 @@ func testBitsetCompare() (err error) {
 				arr = make([]*keyColumnPairType, 0, 10)
 				arr = append(arr, pair)
 				tablePairMap[tablePairKey] = arr
-				fmt.Printf("%v append 1 ",pair.PKColumn,pair.FKColumn)
 			} else {
 				tablePairMap[tablePairKey] = append(arr, pair)
-				fmt.Printf("%v append 2 ",pair.PKColumn,pair.FKColumn)
 			}
 		}
 
@@ -1202,28 +1210,62 @@ func testBitsetCompare() (err error) {
 		ComplexPKStage1 := make([]*ComplexPKCombinationType, 0, 10)
 
 		tableCPKs := make(map[*dataflow.TableInfoType]map[string]*ComplexPKCombinationType)
+		if false {
+			for _, columnPairs := range tablePairMap {
+				if len(columnPairs) > 1 {
+					fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
+					for _, pair := range columnPairs {
+						fmt.Printf("%v - %v -- %v\n", pair.PKColumn, pair.FKColumn, pair.TablePairKeyString())
+					}
+					fmt.Printf("++++++\n")
+				}
 
-		for _, columnPairs := range tablePairMap {
-			if len(columnPairs) > 1 {
-				fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
 			}
-			for _,pair := range columnPairs{
-				fmt.Printf("%v - %v -- %v\n",pair.PKColumn,pair.FKColumn,pair.TablePairKeyString())
-			}
+			fmt.Printf("-------------------")
 		}
-		fmt.Printf("-------------------")
 
 		for _, columnPairs := range tablePairMap {
 			if len(columnPairs) > 1 {
 				fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
 
 				//* Collecting possible PK columns
-				uniqueColumns := make(map[*dataflow.ColumnInfoType]bool)
+				uniqueColumns := make(map[*dataflow.ColumnInfoType][]*keyColumnPairType)
 
 				for _, columnPair := range columnPairs {
-					uniqueColumns[columnPair.PKColumn] = true
+					if pairs,found := uniqueColumns[columnPair.PKColumn]; !found {
+						pairs := make([]*keyColumnPairType,0,10)
+						pairs = append(pairs,columnPair)
+						uniqueColumns[columnPair.PKColumn] = pairs
+					} else {
+						pairs = append(pairs,columnPair)
+						uniqueColumns[columnPair.PKColumn] = pairs
+					}
 				}
 
+				if false {
+					if len(uniqueColumns)> 2 {
+						pkTable := columnPairs[0].PKColumn.TableInfo
+
+						TotalNonNullColumn := 0;
+						for _,column := range pkTable.Columns {
+							if column.NonNullCount.Value() > 0 {
+								TotalNonNullColumn ++
+							}
+						}
+
+
+						if TotalNonNullColumn>0 {
+							coverRatio := float64(len(uniqueColumns)) / float64(TotalNonNullColumn)
+
+							if coverRatio > .8 {
+								tracelog.Info(packageName, funcName, "Percentage of non-empty columns is too high %v. Probably %v is data a slice of %v. Skipped %v,%v",
+									coverRatio, columnPairs[0].FKColumn.TableInfo, pkTable,len(uniqueColumns),TotalNonNullColumn)
+								continue;
+							}
+						}
+					}
+
+				}
 				var SortedPKColumns []*dataflow.ColumnInfoType
 				SortedPKColumns = make([]*dataflow.ColumnInfoType, 0, len(uniqueColumns))
 
@@ -1660,6 +1702,7 @@ func testBitsetCompare() (err error) {
 			cumulativeSavedDataLength = 0
 
 			go func() {
+				processKeysPerPass := 5
 
 				processedKeys := make(map[string]bool)
 
@@ -1735,7 +1778,7 @@ func testBitsetCompare() (err error) {
 						if _, found := processedKeys[key]; found {
 							continue
 						}
-						if len(processingKeys)>2 {
+						if len(processingKeys) >= processKeysPerPass {
 							break;
 						}
 						columnCombinationMapForLeadHorse[key] = columnCombinationMap[key]
