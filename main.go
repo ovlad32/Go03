@@ -677,13 +677,19 @@ func testBitsetCompare() (err error) {
 			exTable := dataflow.ExpandFromMetadataTable(table)
 			for _, column := range exTable.Columns {
 				column.Categories, err = dr.Repository.DataCategoryByColumnId(column)
-				if ! floatNumericKeyAllowed {
+				if !floatNumericKeyAllowed {
+					floatValuesExist := false
+					allNumericValues := true;
 					for _, category := range column.Categories {
-						if category.IsNumeric.Value() && !category.IsInteger.Value() {
+						floatValuesExist = floatValuesExist || (category.IsNumeric.Value() && !category.IsInteger.Value())
+						allNumericValues = allNumericValues && category.IsNumeric.Value()
+					}
+
+					if allNumericValues && floatValuesExist {
+						tracelog.Info(packageName,funcName,"Column %v skipped due to its float numeric content",column)
 							continue
 						}
 					}
-				}
 				column.HashUniqueCount = nullable.NullInt64{}
 				column.NonNullCount = nullable.NullInt64{}
 				columnToProcess = append(columnToProcess, column)
@@ -1433,8 +1439,8 @@ func testBitsetCompare() (err error) {
 
 		//bs := sparsebitset.New(0)
 		for currentPkTable, columnCombinationMap := range tableCPKs {
-			if currentPkTable.TableName.Value() != "TX" {
-					continue //_ITEM_REVERSED
+			if currentPkTable.TableName.Value() != "TX_FAIL" {
+			//		continue //_ITEM_REVERSED
 			}
 
 			storedKeys,err  := dr.Repository.ComplexKeysByTable(currentPkTable)
@@ -1490,6 +1496,7 @@ func testBitsetCompare() (err error) {
 				var truncateCombinations = false
 				if LineNumber == 0 {
 					fmt.Println("Column combination(s) to check duplicates:")
+					statements :=  make([]string, 0, len(columnCombinationMapForLeadHorse))
 					for _, columnCombination := range columnCombinationMapForLeadHorse {
 						fmt.Printf("--%v\n ", columnCombination.columns)
 						columns := make([]string, 0, len(columnCombination.columns))
@@ -1497,9 +1504,15 @@ func testBitsetCompare() (err error) {
 							columns = append(columns, c.ColumnName.Value())
 						}
 						s := strings.Join(columns, ", ")
-						fmt.Printf("select '%v' from dual where not exists (select %v,count(*) as ccount from %v.%v group by %v having count(*)>1) union all \n ",
+						statements = append(statements, fmt.Sprintf("select '%v' from dual where not exists (select %v,count(*) as ccount from %v.%v group by %v having count(*)>1)  ",
 							s, s, currentPkTable.SchemaName.Value(),
-							currentPkTable.TableName.Value(), s)
+							currentPkTable.TableName.Value(), s),
+						)
+
+					}
+					{
+						s := strings.Join(statements,"union all \n")
+						fmt.Println(s)
 					}
 					fmt.Printf("\n")
 				}
@@ -1510,10 +1523,7 @@ func testBitsetCompare() (err error) {
 						if len(columnCombination.duplicatesByHash) > 0 {
 							columnCombinationMapForSlaveHorse[columnCombinationKey] = columnCombination
 						}
-						//fmt.Printf("%v.duplicatesByHash %v\n",columnCombination.columns,unsafe.Sizeof(columnCombination.duplicatesByHash))
-
 					}
-					///
 
 					slaveChan <- true
 					<-leadChan
@@ -1661,7 +1671,7 @@ func testBitsetCompare() (err error) {
 
 			SlaveHorse := func(ctc context.Context, LineNumber, DataPosition uint64, data [][]byte) (result dataflow.ReadDumpActionType, err error) {
 				var truncateCombinations = false
-				if LineNumberToCheckBySlaveHorseTo == LineNumber {
+				if LineNumberToCheckBySlaveHorseTo > 0 && LineNumberToCheckBySlaveHorseTo == LineNumber  {
 					return dataflow.ReadDumpActionAbort, nil
 				}
 				firstHashMethod := fnv.New32()
@@ -1837,7 +1847,8 @@ func testBitsetCompare() (err error) {
 					)
 
 					for _, columnCombination := range columnCombinationMapForLeadHorse {
-						tracelog.Info(packageName, funcName, "%v", columnCombination.columns)
+						_ = columnCombination
+					//	tracelog.Info(packageName, funcName, "%v", columnCombination.columns)
 					}
 
 					dr.ReadAstraDump(
@@ -1847,16 +1858,38 @@ func testBitsetCompare() (err error) {
 						leadHorseConfig,
 					)
 
+					LineNumberToCheckBySlaveHorseTo = 0
+					for columnCombinationKey, columnCombination := range columnCombinationMapForLeadHorse {
+						if len(columnCombination.duplicatesByHash) > 0 {
+							columnCombinationMapForSlaveHorse[columnCombinationKey] = columnCombination
+						}
+					}
+
 					for key := range processingKeys {
 						_, exists := columnCombinationMapForLeadHorse[key]
 						processedKeys[key] = exists
+						columnCombination := columnCombinationMap[key]
+						complexKey  := columnCombination.NewComplexKeyInfo();
 						if !exists {
-							columnCombination := columnCombinationMap[key]
-							columnCombination.Reset()
-
-							complexKey  := columnCombination.NewComplexKeyInfo();
 							complexKey.ProcessingStage = nullable.NewNullString("u")
 							err = dr.Repository.PersistComplexKey(complexKey);
+							if err != nil {
+								columnCombination.Reset()
+								tracelog.Error(err, packageName, funcName)
+								break mainLoopLeadHorse
+							}
+						} else if _,exists = columnCombinationMapForSlaveHorse[key]; !exists {
+							complexKey.ProcessingStage = nullable.NewNullString("B")
+							err = dr.Repository.PersistComplexKey(complexKey);
+							if err != nil {
+								tracelog.Error(err, packageName, funcName)
+								columnCombination.Reset()
+								break mainLoopLeadHorse
+							}
+							columnCombination.ComplexKeyInfoId = complexKey.Id.Value()
+
+							err = dataflow.WriteBitsetToFile(horsesContext, dr.Config.BitsetPath, columnCombination)
+							columnCombination.Reset()
 							if err != nil {
 								tracelog.Error(err, packageName, funcName)
 								break mainLoopLeadHorse
@@ -1872,25 +1905,28 @@ func testBitsetCompare() (err error) {
 						<-leadChan //Wait until Slave finishes
 
 						for key := range processingKeys {
+
 							_, exists := columnCombinationMapForSlaveHorse[key]
+
 							processedKeys[key] = exists
 							columnCombination := columnCombinationMap[key]
 							complexKey  := columnCombination.NewComplexKeyInfo();
 							if !exists {
+								columnCombination.Reset()
 								complexKey.ProcessingStage = nullable.NewNullString("u")
-
 								err = dr.Repository.PersistComplexKey(complexKey);
 								if err != nil {
 									tracelog.Error(err, packageName, funcName)
 									break mainLoopLeadHorse
 								}
 
-							}else {
+							}else if _,exists = columnCombinationMapForLeadHorse[key]; exists {
 								complexKey.ProcessingStage = nullable.NewNullString("B")
 
 								err = dr.Repository.PersistComplexKey(complexKey);
 								if err != nil {
 									tracelog.Error(err, packageName, funcName)
+									columnCombination.Reset()
 									break mainLoopLeadHorse
 								}
 
@@ -1898,12 +1934,12 @@ func testBitsetCompare() (err error) {
 								columnCombination.ComplexKeyInfoId = complexKey.Id.Value()
 
 								err = dataflow.WriteBitsetToFile(horsesContext, dr.Config.BitsetPath, columnCombination)
+								columnCombination.Reset()
 								if err != nil {
 									tracelog.Error(err, packageName, funcName)
 									break mainLoopLeadHorse
 								}
 							}
-							columnCombination.Reset()
 						}
 					}
 				} //mainLoopLeadHorse
