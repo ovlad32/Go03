@@ -12,11 +12,11 @@ const VarcharMax = 4000
 
 type Repository struct {
 	*metadata.Repository
+	cacheInt64 map[string]map[int64]uintptr
 }
 
 func (h2 Repository) PersistDataCategory(ctx context.Context, dataCategory *DataCategoryType) (err error) {
 	funcName := "Repository.SaveColumnCategories"
-
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		tracelog.Errorf(err, packageName, funcName, "Begin transaction...")
@@ -374,6 +374,7 @@ type ComplexKeyColumnInfoType struct {
 	Id nullable.NullInt64
 	KeyInfoId nullable.NullInt64
 	ColumnInfoId nullable.NullInt64
+	ColumnInfo *ColumnInfoType
 	Position nullable.NullInt64
 	ComplexKey *ComplexKeyInfoType
 }
@@ -493,13 +494,20 @@ func (h2 Repository) ComplexKeyColumnsByKey(key *ComplexKeyInfoType) (result []*
 	}
 	for _, keyColumn := range result {
 		keyColumn.ComplexKey = key;
+		if key.TableInfo != nil {
+			for _,tableColumn := range key.TableInfo.Columns {
+				if keyColumn.ColumnInfoId.Value() == tableColumn.Id.Value() {
+					keyColumn.ColumnInfo = tableColumn
+				}
+			}
+		}
 	}
 	return
 }
 
 
 
-func (h2 Repository) NewComplexKeyInfoId() (result nullable.NullInt64,err error) {
+func (h2 Repository) newComplexKeyInfoId() (result nullable.NullInt64,err error) {
 	tx, err := h2.IDb.Begin()
 	if err != nil {
 		err = fmt.Errorf("begin transaction of getting a new complex key id: %v",err)
@@ -522,7 +530,7 @@ func (h2 Repository) PersistComplexKey(key *ComplexKeyInfoType) (err error) {
 	}
 	defer tx.Rollback()
 	if !key.Id.Valid() {
-		key.Id, err = h2.NewComplexKeyInfoId()
+		key.Id, err = h2.newComplexKeyInfoId()
 		if err != nil {
 			err = fmt.Errorf(" acquiring a new key info Id to persist a new ComplexKeyInfo: %v", err)
 			return
@@ -553,7 +561,22 @@ func (h2 Repository) PersistComplexKey(key *ComplexKeyInfoType) (err error) {
 		}
 	}
 
+
+		for _,column := range key.Columns {
+			if column.ComplexKey == key {
+				column.KeyInfoId = nullable.NewNullInt64(key.Id.Value())
+			}
+		}
+
 	tx.Commit()
+	//TODO: THEY HAVE TO BE IN THE SAME DB TRANSACTION!
+
+	err = h2.PersistComplexKeyColumns(key);
+	if err != nil {
+		err = fmt.Errorf(" updating ComplexKeyInfo with id = %v: %v", key.Id.Value(), err)
+		return
+	}
+
 
 
 	return
@@ -572,6 +595,8 @@ func (h2 Repository) PersistComplexKeyColumns(key *ComplexKeyInfoType)(err error
 	if err != nil {
 		return
 	}
+
+
 	rows, err := txc.Query(fmt.Sprintf("select id from ckrd_key_column_info where key_info_id = %v", key.Id))
 	if err != nil {
 		return
@@ -607,7 +632,7 @@ func (h2 Repository) PersistComplexKeyColumn(key *ComplexKeyColumnInfoType) (err
 	}
 	defer tx.Rollback()
 	if !key.Id.Valid() {
-		key.Id, err = h2.NewComplexKeyInfoId()
+		key.Id, err = h2.newComplexKeyInfoId()
 		if err != nil {
 			err = fmt.Errorf(" acquiring a new key info Id to persist a new ComplexKeyColumnInfo: %v", err)
 			return

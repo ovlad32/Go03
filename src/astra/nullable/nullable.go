@@ -9,29 +9,29 @@ import (
 
 //-------------------------------------------------------------------------------
 type NullString struct {
-	internal sql.NullString
+	InternalValue sql.NullString
 }
 
 func NewNullString(value string) (result NullString) {
-	result.internal.String = value
-	result.internal.Valid = true
+	result.InternalValue.String = value
+	result.InternalValue.Valid = true
 	return
 }
 
 func (n *NullString) Scan(value interface{}) error {
-	return n.internal.Scan(value)
+	return n.InternalValue.Scan(value)
 }
 
 func (n *NullString) Value() string {
-	return n.internal.String
+	return n.InternalValue.String
 }
 func (n *NullString) Valid() bool {
-	return n.internal.Valid
+	return n.InternalValue.Valid
 }
 
 func (n NullString) String() (result string) {
 	if n.Valid() {
-		result = n.internal.String
+		result = n.InternalValue.String
 	} else {
 		result = "null"
 	}
@@ -40,7 +40,7 @@ func (n NullString) String() (result string) {
 
 func (n NullString) SQLString() (result string) {
 	if n.Valid() {
-		result = "'" + strings.Replace(n.internal.String, "'", "''", -1) + "'"
+		result = "'" + strings.Replace(n.InternalValue.String, "'", "''", -1) + "'"
 	} else {
 		result = "null"
 	}
@@ -48,8 +48,8 @@ func (n NullString) SQLString() (result string) {
 }
 
 func (s NullString) MarshalJSON() ([]byte, error) {
-	if s.internal.Valid {
-		return json.Marshal(s.internal.String)
+	if s.InternalValue.Valid {
+		return json.Marshal(s.InternalValue.String)
 	} else {
 		return json.Marshal(nil)
 	}
@@ -57,39 +57,39 @@ func (s NullString) MarshalJSON() ([]byte, error) {
 
 //-------------------------------------------------------------------------------
 type NullInt64 struct {
-	internal sql.NullInt64
+	InternalValue sql.NullInt64
 }
 
 func NewNullInt64(val int64) (result NullInt64) {
-	result.internal.Int64 = val
-	result.internal.Valid = true
+	result.InternalValue.Int64 = val
+	result.InternalValue.Valid = true
 	return
 }
 
 func (n *NullInt64) Scan(value interface{}) error {
-	return n.internal.Scan(value)
+	return n.InternalValue.Scan(value)
 }
 
 func (n NullInt64) Value() int64 {
-	return n.internal.Int64
+	return n.InternalValue.Int64
 }
 func (n NullInt64) Valid() bool {
-	return n.internal.Valid
+	return n.InternalValue.Valid
 }
 func (n NullInt64) String() string {
 	if n.Valid() {
-		return fmt.Sprintf("%v", n.internal.Int64)
+		return fmt.Sprintf("%v", n.InternalValue.Int64)
 	}
 	return "null"
 }
 
 func (n *NullInt64) Reference() *int64 {
-	return &(n.internal.Int64)
+	return &(n.InternalValue.Int64)
 }
 
 func (n *NullInt64) MarshalJSON() ([]byte, error) {
 	if n.Valid() {
-		return json.Marshal(n.internal.Int64)
+		return json.Marshal(n.InternalValue.Int64)
 	} else {
 		return json.Marshal(nil)
 	}
@@ -97,39 +97,39 @@ func (n *NullInt64) MarshalJSON() ([]byte, error) {
 
 //-------------------------------------------------------------------------------
 type NullFloat64 struct {
-	internal sql.NullFloat64
+	InternalValue sql.NullFloat64
 }
 
 func NewNullFloat64(val float64) (result NullFloat64) {
-	result.internal.Float64 = val
-	result.internal.Valid = true
+	result.InternalValue.Float64 = val
+	result.InternalValue.Valid = true
 	return
 }
 
 func (n *NullFloat64) Scan(value interface{}) error {
-	return n.internal.Scan(value)
+	return n.InternalValue.Scan(value)
 }
 
 func (n *NullFloat64) Value() float64 {
-	return n.internal.Float64
+	return n.InternalValue.Float64
 }
 func (n *NullFloat64) Valid() bool {
-	return n.internal.Valid
+	return n.InternalValue.Valid
 }
 func (n NullFloat64) String() string {
 	if n.Valid() {
-		return fmt.Sprintf("%v", n.internal.Float64)
+		return fmt.Sprintf("%v", n.InternalValue.Float64)
 	}
 	return "null"
 }
 
 func (v *NullFloat64) Reference() *float64 {
-	return &v.internal.Float64
+	return &v.InternalValue.Float64
 }
 
 func (n NullFloat64) MarshalJSON() ([]byte, error) {
-	if n.internal.Valid {
-		return json.Marshal(n.internal.Float64)
+	if n.InternalValue.Valid {
+		return json.Marshal(n.InternalValue.Float64)
 	} else {
 		return json.Marshal(nil)
 	}
@@ -137,40 +137,40 @@ func (n NullFloat64) MarshalJSON() ([]byte, error) {
 
 //-------------------------------------------------------------------------------
 type NullBool struct {
-	internal sql.NullBool
+	InternalValue sql.NullBool
 }
 
 func NewNullBool(val bool) (result NullBool) {
-	result.internal.Bool = val
-	result.internal.Valid = true
+	result.InternalValue.Bool = val
+	result.InternalValue.Valid = true
 	return
 }
 
 func (n NullBool) String() string {
 	if n.Valid() {
-		return fmt.Sprintf("%v", n.internal.Bool)
+		return fmt.Sprintf("%v", n.InternalValue.Bool)
 	}
 	return "null"
 }
 
 func (n *NullBool) Scan(value interface{}) error {
-	return n.internal.Scan(value)
+	return n.InternalValue.Scan(value)
 }
 func (n *NullBool) Value() bool {
-	return n.internal.Bool
+	return n.InternalValue.Bool
 }
 
 func (n *NullBool) Valid() bool {
-	return n.internal.Valid
+	return n.InternalValue.Valid
 }
 
 func (n NullBool) Reference() *bool {
-	return &n.internal.Bool
+	return &n.InternalValue.Bool
 }
 
 func (n NullBool) MarshalJSON() ([]byte, error) {
 	if n.Valid() {
-		return json.Marshal(n.internal.Bool)
+		return json.Marshal(n.InternalValue.Bool)
 	} else {
 		return json.Marshal(nil)
 	}
