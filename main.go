@@ -420,6 +420,7 @@ func (pkc ComplexPKCombinationType) ColumnIndexString() (result string) {
 func (pkc *ComplexPKCombinationType) InitializeInternals() {
 	pkc.ReinitializeInternals()
 	pkc.firstBitset = sparsebitset.New(0)
+	pkc.columnPositions = make([]int, len(pkc.columns))
 	for keyColumnIndex, column := range pkc.columns {
 		for tableColumnIndex := 0; tableColumnIndex < len(column.TableInfo.Columns); tableColumnIndex++ {
 			if column.Id.Value() == column.TableInfo.Columns[tableColumnIndex].Id.Value() {
@@ -430,7 +431,6 @@ func (pkc *ComplexPKCombinationType) InitializeInternals() {
 }
 
 func (pkc *ComplexPKCombinationType) ReinitializeInternals() {
-	pkc.columnPositions = make([]int, len(pkc.columns))
 	pkc.duplicateBitset = sparsebitset.New(0)
 	pkc.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
 }
