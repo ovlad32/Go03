@@ -1973,7 +1973,11 @@ func testBitsetCompare() (err error) {
 				}
 
 				if columnCombinationMapForSlaveHorse != nil && len(columnCombinationMapForSlaveHorse) > 0 {
-					tracelog.Info(packageName, funcName, "Slave Horse works on %v up to the line %v with %v column combinations", currentPkTable, LineNumberToCheckBySlaveHorseTo, len(columnCombinationMapForSlaveHorse))
+					if LineNumberToCheckBySlaveHorseTo == 0 {
+						tracelog.Info(packageName, funcName, "Slave Horse works on %v up to the EOF with %v column combinations", currentPkTable, len(columnCombinationMapForSlaveHorse))
+					} else {
+						tracelog.Info(packageName, funcName, "Slave Horse works on %v up to the line %v with %v column combinations", currentPkTable, LineNumberToCheckBySlaveHorseTo, len(columnCombinationMapForSlaveHorse))
+					}
 
 					slaveHorseResult, _, err = dr.ReadAstraDump(
 						horsesContext,
