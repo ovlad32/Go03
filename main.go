@@ -26,8 +26,7 @@ import (
 	"sort"
 	"sparsebitset"
 	//"github.com/couchbase/moss"
-	"text/template/parse"
-)
+	)
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
 
@@ -629,6 +628,9 @@ func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pa
 func testBitsetCompare() (err error) {
 	funcName := "testBitsetCompare"
 	var floatNumericKeyAllowed bool = false
+	actor,err  := dataflow.NewComplexKeyDiscoverer(&dataflow.ComplexKeyDiscoveryConfigType{
+		CollisionLevel:1.2,
+	})
 
 	metadataIds := make(map[int64]bool)
 
@@ -692,232 +694,28 @@ func testBitsetCompare() (err error) {
 		}
 	}
 
-	PopulateAggregatedStatistics := func(col *dataflow.ColumnInfoType) (err error) {
-		var hashUniqueCount, nonNullCount int64 = 0, 0
-		for _, category := range col.Categories {
-			if !category.HashUniqueCount.Valid() {
-				err = fmt.Errorf("HashUniqueCount statistics is empty in %v", category)
-				tracelog.Error(err, packageName, funcName)
-				return err
-			}
-			if !category.NonNullCount.Valid() {
-				err = fmt.Errorf("NonNullCount statistics is empty in %v", category)
-				tracelog.Error(err, packageName, funcName)
-				return err
-			}
-			hashUniqueCount += category.HashUniqueCount.Value()
-			nonNullCount += category.NonNullCount.Value()
-		}
-
-		col.HashUniqueCount = nullable.NewNullInt64(int64(hashUniqueCount))
-		col.NonNullCount = nullable.NewNullInt64(int64(nonNullCount))
-		return nil
-	}
-
-	CheckIfNonFK := func(colFK, colPK *dataflow.ColumnInfoType) (nonFK bool, err error) {
-		if !colFK.TableInfo.RowCount.Valid() {
-			err = fmt.Errorf("RowCount statistics is empty in %v", colFK.TableInfo)
-			tracelog.Error(err, packageName, funcName)
-			return false, err
-		}
-
-		nonFK = colFK.TableInfo.RowCount.Value() < 2
-		if nonFK {
-			tracelog.Info(funcName, packageName, "Column %v is not FKColumn. RowCount < 2", colFK)
-			return
-		}
-
-		categoryCountFK := len(colFK.Categories)
-		nonFK = categoryCountFK == 0
-		if nonFK {
-			tracelog.Info(funcName, packageName, "Column %v is not FKColumn. DataCategory count  = 0", colFK)
-			return
-		}
-
-		categoryCountPK := len(colPK.Categories)
-
-		nonFK = categoryCountFK == 0 || categoryCountFK > categoryCountPK
-		if nonFK {
-			tracelog.Info(funcName, packageName, "Column %v is not FKColumn to %v. categoryCountFK > categoryCountPK; %v > %v", colFK, colPK, categoryCountFK, categoryCountPK)
-			return
-		}
-
-		for categoryKey, categoryFK := range colFK.Categories {
-			if categoryPK, found := colPK.Categories[categoryKey]; !found {
-				return true, nil
-			} else {
-				if !categoryFK.IsNumeric.Valid() {
-					err = fmt.Errorf("IsNumeric statistics is empty in %v", categoryFK)
-					tracelog.Error(err, packageName, funcName)
-					return
-				}
-				if categoryFK.IsNumeric.Value() {
-					if !categoryFK.IsInteger.Valid() {
-						err = fmt.Errorf("IsInteger statistics is empty in %v", categoryFK)
-						tracelog.Error(err, packageName, funcName)
-						return
-					}
-					if categoryFK.IsInteger.Value() {
-						if !categoryFK.ItemUniqueCount.Valid() {
-							err = fmt.Errorf("ItemUniqueCount statistics is empty in %v", categoryFK)
-							tracelog.Error(err, packageName, funcName)
-							return
-						}
-
-						nonFK = categoryFK.ItemUniqueCount.Value() > categoryPK.ItemUniqueCount.Value()
-						if nonFK {
-							tracelog.Info(funcName, packageName,
-								"Column %v is not FKColumn to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
-								colFK, colPK, categoryFK.Key,
-								categoryFK.ItemUniqueCount.Value(),
-								categoryPK.ItemUniqueCount.Value())
-							return
-						}
-					}
-
-					if !categoryFK.MinNumericValue.Valid() {
-						err = fmt.Errorf("MinNumericValue statistics is empty in %v", categoryFK)
-						tracelog.Error(err, packageName, funcName)
-						return
-					}
-					if !categoryFK.MaxNumericValue.Valid() {
-						err = fmt.Errorf("MaxNumericValue statistics is empty in %v", categoryFK)
-						tracelog.Error(err, packageName, funcName)
-						return
-					}
-					if !categoryPK.MinNumericValue.Valid() {
-						err = fmt.Errorf("MinNumericValue statistics is empty in %v", categoryPK)
-						tracelog.Error(err, packageName, funcName)
-						return
-					}
-					if !categoryPK.MaxNumericValue.Valid() {
-						err = fmt.Errorf("MaxNumericValue statistics is empty in %v", categoryPK)
-						tracelog.Error(err, packageName, funcName)
-						return
-					}
-					nonFK = categoryFK.MaxNumericValue.Value() > categoryPK.MaxNumericValue.Value()
-					if nonFK {
-						tracelog.Info(funcName, packageName,
-							"Column %v is not FKColumn to %v for DataCategory %v:  MaxNumericValueFK > MaxNumericValuePK; %v > %v",
-							colFK, colPK, categoryFK.Key,
-							categoryFK.MaxNumericValue.Value(),
-							categoryPK.MaxNumericValue.Value())
-						return
-					}
-					nonFK = categoryFK.MinNumericValue.Value() < categoryPK.MinNumericValue.Value()
-					if nonFK {
-						tracelog.Info(funcName, packageName,
-							"Column %v is not FKColumn to %v for DataCategory %v: MinNumericValueFK < MinNumericValuePK; %v < %v",
-							colFK, colPK, categoryFK.Key,
-							categoryFK.MinNumericValue.Value(),
-							categoryPK.MinNumericValue.Value())
-						return
-					}
-				} else {
-					nonFK = categoryFK.ItemUniqueCount.Value() > categoryPK.ItemUniqueCount.Value()
-					if nonFK {
-						tracelog.Info(funcName, packageName,
-							"Column %v is not FKColumn to %v for DataCategory %v: ItemUniqueCountFK > ItemUniqueCountPK; %v > %v",
-							colFK, colPK, categoryFK.Key,
-							categoryFK.ItemUniqueCount.Value(),
-							categoryPK.ItemUniqueCount.Value())
-						return
-					}
-					ratio := 1.2
-					nonFK = float64(categoryFK.HashUniqueCount.Value()) > float64(categoryPK.HashUniqueCount.Value())*ratio
-					if nonFK {
-						tracelog.Info(funcName, packageName,
-							"Column %v is not FKColumn to %v for DataCategory %v: HashUniqueCountFK > DataCategory.HashUniqueCountPK*ratio(%v); %v > %v",
-							colFK, colPK, categoryFK.Key, ratio,
-							categoryFK.HashUniqueCount.Value(),
-							uint64(float64(categoryPK.HashUniqueCount.Value())*ratio),
-						)
-						return
-					}
-				}
-
-			}
-		}
-
-		// FKColumn Hash unique count has to be less than PKColumn Hash unique count
-		{
-			ratio := 1.2
-			nonFK = float64(colFK.HashUniqueCount.Value()) > float64(colPK.HashUniqueCount.Value())*ratio
-			if nonFK {
-				tracelog.Info(funcName, packageName,
-					"Column %v is not FKColumn to %v. HashUniqueCountFK > HashUniqueCountPK*ratio(%v); %v > %v",
-					colFK, colPK, ratio,
-					colPK.HashUniqueCount.Value(),
-					uint64(float64(colPK.HashUniqueCount.Value())*ratio),
-				)
-				return true, nil
-			}
-		}
-
-		return false, nil
-	}
-	CheckIfNonPK := func(col *dataflow.ColumnInfoType) (nonPK bool, err error) {
-		// Null existence
-		if !col.TableInfo.RowCount.Valid() {
-			err = fmt.Errorf("RowCount statistics is empty in %v", col.TableInfo)
-			tracelog.Error(err, packageName, funcName)
-			return false, err
-		}
-
-		nonPK = col.TableInfo.RowCount.Value() < 2
-		if nonPK {
-			return
-		}
-		var totalNonNullCount uint64 = 0
-		for _, category := range col.Categories {
-			if !category.NonNullCount.Valid() {
-				err = fmt.Errorf("NonNullCount statistics is empty in %v", category)
-				tracelog.Error(err, packageName, funcName)
-				return false, err
-			}
-			totalNonNullCount += uint64(category.NonNullCount.Value())
-		}
-		nonPK = uint64(col.TableInfo.RowCount.Value()) != totalNonNullCount
-		if nonPK {
-			tracelog.Info(funcName, packageName,
-				"Column %v is not PKColumn. TotalRowCount != TotalNotNullCount. %v != %v",
-				col, uint64(col.TableInfo.RowCount.Value()), totalNonNullCount,
-			)
-			return true, nil
-		}
-
-		nonPK = col.TotalRowCount.Value() == col.HashUniqueCount.Value()
-		if nonPK {
-			tracelog.Info(packageName, funcName,
-				"Columns %v is not part of a complex PKColumn. set of UniqueHashCount == TotalRowCount. %v == %v",
-				col,
-				col.HashUniqueCount.Value(),
-				col.TotalRowCount.Value(),
-			)
-			return true, nil
-		}
-		return false, nil
-	}
 
 	pairsFilteredByFeatures := make([]*keyColumnPairType, 0, 1000)
 	var bruteForcePairCount int = 0
+	var explanation string
+
 	NonPKColumns := make(map[*dataflow.ColumnInfoType]bool)
 
 	for leftIndex, leftColumn := range columnToProcess {
 		if !leftColumn.NonNullCount.Valid() {
-			err = PopulateAggregatedStatistics(leftColumn)
+			err = leftColumn.AggregateDataCategoryStatistics()
 			if err != nil {
 				return
 			}
 		}
 		var leftNonPK, rightNonPK, columnFound bool
-
 		if leftNonPK, columnFound = NonPKColumns[leftColumn]; !columnFound {
-			leftNonPK, err = CheckIfNonPK(leftColumn)
+			leftNonPK, explanation, err = actor.IsNotParent(leftColumn)
 			if err != nil {
 				return err
 			}
 			if leftNonPK {
+				tracelog.Info(packageName,funcName,explanation)
 				NonPKColumns[leftColumn] = leftNonPK
 			}
 
@@ -934,7 +732,7 @@ func testBitsetCompare() (err error) {
 
 			rightColumn := columnToProcess[rightIndex]
 			if !rightColumn.HashUniqueCount.Valid() {
-				err = PopulateAggregatedStatistics(rightColumn)
+				err = rightColumn.AggregateDataCategoryStatistics()
 				if err != nil {
 					return err
 				}
@@ -942,11 +740,12 @@ func testBitsetCompare() (err error) {
 			}
 			rightNonPK = false
 			if rightNonPK, columnFound = NonPKColumns[rightColumn]; !columnFound {
-				rightNonPK, err = CheckIfNonPK(rightColumn)
+				rightNonPK, explanation, err = actor.IsNotParent(rightColumn)
 				if err != nil {
 					return err
 				}
 				if rightNonPK {
+					tracelog.Info(packageName,funcName,explanation)
 					NonPKColumns[rightColumn] = rightNonPK
 				}
 			}
@@ -955,8 +754,9 @@ func testBitsetCompare() (err error) {
 				continue
 			}
 			if !leftNonPK {
-				rightNonFK, err := CheckIfNonFK(rightColumn, leftColumn)
+				rightNonFK, explanation, err := actor.IsNotChild(rightColumn, leftColumn)
 				if err != nil {
+					tracelog.Info(packageName,funcName,explanation)
 					return err
 				}
 				if !rightNonFK {
@@ -968,8 +768,9 @@ func testBitsetCompare() (err error) {
 				}
 			}
 			if !rightNonPK {
-				leftNonFK, err := CheckIfNonFK(leftColumn, rightColumn)
+				leftNonFK, explanation, err := actor.IsNotChild(leftColumn, rightColumn)
 				if err != nil {
+					tracelog.Info(packageName,funcName,explanation)
 					return err
 				}
 				if !leftNonFK {
@@ -2010,7 +1811,7 @@ func testBitsetCompare() (err error) {
 				fmt.Printf("\n\n")
 			}
 		}
-
+/*
 
 		for table,columnCombinationMap := range tableCPKs {
 			fkCombinations:= make(map[*dataflow.TableInfoType]map[int][]*dataflow.ColumnInfoType)
@@ -2072,7 +1873,7 @@ func testBitsetCompare() (err error) {
 				}
 
 			}
-		}
+		}*/
 	}
 
 	tracelog.Info(packageName, funcName, "Elapsed time: %v", time.Since(start))

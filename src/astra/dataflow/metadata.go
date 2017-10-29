@@ -8,6 +8,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/goinggo/tracelog"
 	"os"
+	"astra/nullable"
 )
 
 type ColumnInfoType struct {
@@ -49,6 +50,31 @@ func (ci *ColumnInfoType) CategoryByKey(key string, initFunc func() (result *Dat
 	return result, err
 }
 
+
+
+func (col *ColumnInfoType) AggregateDataCategoryStatistics() (err error) {
+	funcName := "ColumnInfoType.AggregateDataCategoryStatistics"
+	var hashUniqueCount, nonNullCount int64 = 0, 0
+	for _, category := range col.Categories {
+		if !category.HashUniqueCount.Valid() {
+			err = fmt.Errorf("HashUniqueCount statistics is empty in %v", category)
+			tracelog.Error(err, packageName, funcName)
+			return err
+		}
+		if !category.NonNullCount.Valid() {
+			err = fmt.Errorf("NonNullCount statistics is empty in %v", category)
+			tracelog.Error(err, packageName, funcName)
+			return err
+		}
+		hashUniqueCount += category.HashUniqueCount.Value()
+		nonNullCount += category.NonNullCount.Value()
+	}
+
+	col.HashUniqueCount = nullable.NewNullInt64(int64(hashUniqueCount))
+	col.NonNullCount = nullable.NewNullInt64(int64(nonNullCount))
+	return nil
+}
+
 type tableBinaryType struct {
 	*bufio.Writer
 	dFile         *os.File
@@ -78,9 +104,12 @@ func (t *tableBinaryType) Close() (err error) {
 	return nil
 }
 
+type ColumnInfoArrayType []*ColumnInfoType;
+
+
 type TableInfoType struct {
 	*metadata.TableInfoType
-	Columns       []*ColumnInfoType
+	Columns       ColumnInfoArrayType
 	DataDump      *tableBinaryType
 	HashDump      *tableBinaryType
 	bitSetStorage *bolt.DB
@@ -224,7 +253,7 @@ func (c *ColumnInfoType) IsNumericDataType() bool {
 func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoType) {
 	result = &TableInfoType{
 		TableInfoType: table,
-		Columns:       make([]*ColumnInfoType, 0, len(table.Columns)),
+		Columns:       make(ColumnInfoArrayType, 0, len(table.Columns)),
 	}
 	for index := range table.Columns {
 		result.Columns = append(result.Columns, &ColumnInfoType{
@@ -235,6 +264,9 @@ func ExpandFromMetadataTable(table *metadata.TableInfoType) (result *TableInfoTy
 	}
 	return result
 }
+
+type TableInfoArrayType []*TableInfoType;
+
 
 /*
 
