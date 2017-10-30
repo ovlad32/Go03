@@ -2,7 +2,7 @@ package metadata
 
 import (
 	jsnull "../src/util/jsnull"
-	utils "./../utils"
+	utils "../src/astra/utils"
 	"database/sql"
 	"errors"
 	"fmt"

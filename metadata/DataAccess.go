@@ -3,7 +3,7 @@ package metadata
 import (
 	sparsebitset "../src/sparsebitset"
 	jsnull "../src/util/jsnull"
-	utils "./../utils"
+	utils "../src/astra/utils"
 	"bufio"
 	"bytes"
 	"compress/gzip"

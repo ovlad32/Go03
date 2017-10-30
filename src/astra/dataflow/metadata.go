@@ -9,6 +9,7 @@ import (
 	"github.com/goinggo/tracelog"
 	"os"
 	"astra/nullable"
+	"strconv"
 )
 
 type ColumnInfoType struct {
@@ -106,6 +107,45 @@ func (t *tableBinaryType) Close() (err error) {
 
 type ColumnInfoArrayType []*ColumnInfoType;
 
+
+func (ca ColumnInfoArrayType) ColumnIdString() (result string) {
+	result = ""
+	for index, col := range ca {
+		if index == 0 {
+			result = strconv.FormatInt(int64(col.Id.Value()), 10)
+		} else {
+		}
+		result = result + "-" + strconv.FormatInt(int64(col.Id.Value()), 10)
+	}
+	return result
+}
+func (ca ColumnInfoArrayType) Map() (result map[*ColumnInfoType]bool) {
+	result = make(map[*ColumnInfoType]bool)
+	for _, column := range ca {
+		result[column] = true
+	}
+	return
+}
+func (ca ColumnInfoArrayType) isSubsetOf(another ColumnInfoArrayType) bool {
+	if len(ca) == 0 {
+		return false
+	}
+	if len(ca) > len(another) {
+		return false
+	}
+
+ext:
+	for _, curColumn := range ca {
+		for _, theirColumn := range another {
+			if curColumn.Id.Value() == theirColumn.Id.Value() {
+				continue ext
+			}
+		}
+		//Our column has not been found in their set
+		return false
+	}
+	return true
+}
 
 type TableInfoType struct {
 	*metadata.TableInfoType
