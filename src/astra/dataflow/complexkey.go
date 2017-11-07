@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"astra/nullable"
+	"github.com/goinggo/tracelog"
 )
 
 type ComplexKeyType struct {
@@ -48,17 +49,19 @@ func (pkc ComplexKeyType) ColumnIndexString() (result string) {
 	return result
 }
 
-type ComplexPKCombinationType struct {
+type ComplexKeyColumnCombinationType struct {
 	*ComplexKeyType
 	//	Columns          ColumnArrayType
 	ComplexForeignKeys    map[*TableInfoType][]*ComplexKeyType
-	cardinality           uint64
-	lastSortedColumnIndex int
-	duplicateBitset       *sparsebitset.BitSet
-	duplicatesByHash      map[uint32][]*ComplexPKDupDataType
+	CombinationCardinality           uint64
+	LastSortedColumnIndex int
+	DuplicateBitset       *sparsebitset.BitSet
+	DuplicatesByHash      map[uint32][]*ComplexPKDupDataType
 }
+type ComplexKeyColumnCombinationArrayType []*ComplexKeyColumnCombinationType
+type ComplexKeyColumnCombinationMapType map[string]*ComplexKeyColumnCombinationType
 
-func (pkc *ComplexPKCombinationType) InitializeInternals() {
+func (pkc *ComplexKeyColumnCombinationType) InitializeInternals() {
 	pkc.ReinitializeInternals()
 	pkc.FirstBitset = sparsebitset.New(0)
 	pkc.ColumnPositions = make([]int, len(pkc.Columns))
@@ -71,27 +74,27 @@ func (pkc *ComplexPKCombinationType) InitializeInternals() {
 	}
 }
 
-func (pkc *ComplexPKCombinationType) ReinitializeInternals() {
-	pkc.duplicateBitset = sparsebitset.New(0)
-	pkc.duplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
+func (pkc *ComplexKeyColumnCombinationType) ReinitializeInternals() {
+	pkc.DuplicateBitset = sparsebitset.New(0)
+	pkc.DuplicatesByHash = make(map[uint32][]*ComplexPKDupDataType)
 }
 
-func (pkc *ComplexPKCombinationType) ResetDuplicateStructures() {
-	pkc.duplicateBitset = nil
-	pkc.duplicatesByHash = nil
+func (pkc *ComplexKeyColumnCombinationType) ResetDuplicateStructures() {
+	pkc.DuplicateBitset = nil
+	pkc.DuplicatesByHash = nil
 }
 
 
 
 
 
-func (pkc *ComplexPKCombinationType) Reset() {
+func (pkc *ComplexKeyColumnCombinationType) Reset() {
 	pkc.FirstBitset = nil
-	pkc.duplicateBitset = nil
-	pkc.duplicatesByHash = nil
+	pkc.DuplicateBitset = nil
+	pkc.DuplicatesByHash = nil
 }
 
-func (pkc *ComplexPKCombinationType) NewComplexKeyInfo() *ComplexKeyInfoType {
+func (pkc *ComplexKeyColumnCombinationType) NewComplexKeyInfo() *ComplexKeyInfoType {
 
 	complexKey := &ComplexKeyInfoType{
 		TableInfo:       pkc.Columns[0].TableInfo,
@@ -113,4 +116,27 @@ func (pkc *ComplexPKCombinationType) NewComplexKeyInfo() *ComplexKeyInfoType {
 		)
 	}
 	return complexKey
+}
+
+
+func (self ComplexKeyColumnCombinationMapType) RemoveKeyColumnCombinations(keys[]*ComplexKeyInfoType) {
+	funcName := "ComplexKeyColumnCombinationMapType::RemoveKeyColumnCombinations"
+	for columnCombinationKey, columnCombination := range self {
+		for _, storedKey := range keys {
+			var columnCount int = 0
+			if len(columnCombination.Columns) == len(storedKey.Columns) {
+				for _, testedColumn := range columnCombination.Columns {
+					for _, storedColumn := range storedKey.Columns {
+						if testedColumn.Id.Value() == storedColumn.ColumnInfoId.Value() {
+							columnCount++
+						}
+					}
+				}
+				if columnCount == len(storedKey.Columns) {
+					tracelog.Info(packageName, funcName, "processed Before: %v", columnCombination.Columns)
+					delete(self, columnCombinationKey)
+				}
+			}
+		}
+	}
 }

@@ -2,18 +2,13 @@ package dataflow
 
 import (
 	"astra/metadata"
-	"bufio"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/goinggo/tracelog"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
-	"sparsebitset"
 )
 
 type AstraConfigType struct {
@@ -42,36 +37,12 @@ type AstraConfigType struct {
 	LogBaseFileKeepDay      int    `json:"log-base-file-keep-day"`
 }
 
-type TableDumpConfigType struct {
-	Path               string
-	GZip               bool
-	ColumnSeparator    byte
-	LineSeparator      byte
-	BufferSize         int
-	MoveToByte struct {
-		Position uint64
-		FirstLineAs uint64
-	}
-	MoveToLine uint64
-}
-
-func defaultTableDumpConfig() *TableDumpConfigType {
-	return &TableDumpConfigType{
-		Path:            "./",
-		GZip:            true,
-		ColumnSeparator: 0x1F,
-		LineSeparator:   0x0A,
-		BufferSize:      4096,
-	}
-}
-
 type DataReaderType struct {
 	Config     *AstraConfigType
 	Repository *Repository
-	//blockStoreLock sync.RWMutex
-	//	blockStores    map[string]*DataCategoryStore
 }
 
+/*
 func (dr *DataReaderType) TableDumpConfig() *TableDumpConfigType {
 	return &TableDumpConfigType{
 		GZip:            dr.Config.AstraDataGZip,
@@ -81,154 +52,8 @@ func (dr *DataReaderType) TableDumpConfig() *TableDumpConfigType {
 		BufferSize:      dr.Config.AstraReaderBufferSize,
 	}
 }
-
-var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
-
-type ReadDumpActionType int
-
-var (
-	ReadDumpActionContinue ReadDumpActionType = 0
-	ReadDumpActionAbort    ReadDumpActionType = 1
-)
-
-type ReadDumpResultType int
-
-var (
-	ReadDumpResultOk                     ReadDumpResultType = 0
-	ReadDumpResultError                  ReadDumpResultType = 1
-	ReadDumpResultAbortedByContext       ReadDumpResultType = 2
-	ReadDumpResultAbortedByRowProcessing ReadDumpResultType = 3
-)
-
-func (dr DataReaderType) ReadAstraDump(
-	ctx context.Context,
-	table *TableInfoType,
-	rowProcessingFunc func(context.Context, uint64, uint64, [][]byte) (ReadDumpActionType, error),
-	cfg *TableDumpConfigType,
-) (result ReadDumpResultType, lineNumber uint64, err error) {
-	funcName := "DataReaderType.readAstraDump"
-	var x0D = []byte{0x0D}
-	if (cfg.MoveToLine > 0 && cfg.MoveToByte.Position>0) {
-		return ReadDumpResultError,0,fmt.Errorf (
-			"Mixture of mutually exceptional parameters cfg.MoveToLine > %v && cfg.MoveToByte.Position>%v !",
-				cfg.MoveToLine,
-					cfg.MoveToByte.Position,
-						)
-	}
-	if rowProcessingFunc == nil {
-		return ReadDumpResultError, 0, fmt.Errorf("Row processing function must be defined!")
-	}
-
-	gzFile, err := os.Open(cfg.Path + table.PathToFile.Value())
-
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "for table %v", table)
-		return ReadDumpResultError, 0, err
-	}
-	defer gzFile.Close()
-
-	defaultConfig := defaultTableDumpConfig()
-
-	if cfg.BufferSize == 0 {
-		cfg.BufferSize = defaultConfig.BufferSize
-	}
-
-	if cfg.ColumnSeparator == 0 {
-		cfg.ColumnSeparator = defaultConfig.ColumnSeparator
-	}
-
-	if cfg.LineSeparator == 0 {
-		cfg.LineSeparator = defaultConfig.LineSeparator
-	}
-
-	if cfg.Path == "" {
-		cfg.Path = defaultConfig.Path
-	}
-
-	bf := bufio.NewReaderSize(gzFile, cfg.BufferSize)
-	file, err := gzip.NewReader(bf)
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "for table %v", table)
-		return ReadDumpResultError, 0, err
-	}
-	defer file.Close()
-
-	bufferedFile := bufio.NewReaderSize(file, cfg.BufferSize)
-
-	lineNumber = uint64(0)
-	dataPosition := uint64(0)
-	if cfg.MoveToByte.Position > 0 {
-		discarded,err := bufferedFile.Discard(int(cfg.MoveToByte.Position))
-		if err != nil {
-			return ReadDumpResultError,0, err
-		}
-		if uint64(discarded) != cfg.MoveToByte.Position {
-			tracelog.Info(packageName,funcName,"Discarded %v expected %v",discarded,cfg.MoveToByte.Position)
-		}
-		lineNumber = cfg.MoveToByte.FirstLineAs;
-		dataPosition = uint64(discarded);
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			tracelog.Info(packageName, funcName, "Context.Done signalled while processing table %v", table)
-			return ReadDumpResultAbortedByContext, lineNumber, nil
-		default:
-			line, err := bufferedFile.ReadSlice(cfg.LineSeparator)
-			if err == io.EOF {
-				//tracelog.Info(packageName, funcName, "EOF has been reached in %v ", cfg.Path+table.PathToFile.Value())
-				return ReadDumpResultOk, lineNumber, nil
-			} else if err != nil {
-				tracelog.Errorf(err, packageName, funcName, "Error while reading slice from %v", cfg.Path+table.PathToFile.Value())
-				return ReadDumpResultError, lineNumber, err
-			}
-
-			originalLineLength := len(line)
-
-			if line[originalLineLength-1] == cfg.LineSeparator {
-				line = line[:originalLineLength-1]
-			}
-			if line[originalLineLength-2] == x0D[0] {
-				line = line[:originalLineLength-2]
-			}
-
-			metadataColumnCount := len(table.Columns)
-
-			lineColumns := bytes.Split(line, []byte{cfg.ColumnSeparator})
-			lineColumnCount := len(lineColumns)
-
-			if metadataColumnCount != lineColumnCount {
-				err = fmt.Errorf("Number of column mismatch! Table %v, line %v. Expected #%v, actual #%v",
-					table,
-					lineNumber,
-					metadataColumnCount,
-					lineColumnCount,
-				)
-				return ReadDumpResultError, lineNumber, err
-			}
-
-			var rowResult ReadDumpActionType
-			if lineNumber >= cfg.MoveToLine {
-				rowResult, err = rowProcessingFunc(ctx, lineNumber, dataPosition, lineColumns)
-
-				if err != nil {
-					//tracelog.Errorf(err, packageName, funcName, "Error while processing %v", table)
-					return ReadDumpResultError, lineNumber, err
-				}
-				if rowResult == ReadDumpActionAbort {
-					return ReadDumpResultAbortedByRowProcessing, lineNumber, nil
-				}
-
-				lineNumber++
-				dataPosition += uint64(originalLineLength)
-			}
-
-		}
-	}
-
-	return ReadDumpResultOk, lineNumber, nil
-}
+*/
+//var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
 
 func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoType) (err error) {
 	funcName := "DataReaderType.BuildHashBitset"
@@ -238,7 +63,7 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 	var lineProcessed uint64
 
 	started = time.Now()
-	processRowContent := func(ctx context.Context, lineNumber, DataPosition uint64, rowData [][]byte) (result ReadDumpActionType, err error) {
+	processRowContent := func(ctx context.Context, lineNumber, DataPosition uint64, rowData [][]byte) (result DumpReaderActionType, err error) {
 		for columnNumber, column := range table.Columns {
 			columnData := column.NewColumnData(rowData[columnNumber])
 			if columnData == nil {
@@ -249,43 +74,34 @@ func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoTy
 
 			columnData.DiscoverDataCategory()
 			columnData.Encode()
-			/*
-				if false && columnData.DataCategory.Stats.HashBitset.BinarySize() > 1024*1024*1024 {
-					err = columnData.DataCategory.WriteHashBitsetToDisk(runContext,dr.Config.BinaryDumpPath)
-					if err == nil {
-						//TODO:
-					}
-					columnData.DataCategory.Stats.HashBitset = sparsebitset.New(0)
-				}*/
 			lineProcessed++
 			if time.Since(started).Minutes() >= 1 {
 				tracelog.Info(packageName, funcName, "Processing speed %.0f lps", float64(lineProcessed)/60.0)
 				lineProcessed = 0
 				started = time.Now()
-				//stats := new(runtime.MemStats)
-				//runtime.ReadMemStats(stats)
-				//fmt.Println(stats.HeapAlloc,stats.HeapSys,stats.HeapInuse)
 			}
 		}
-		return ReadDumpActionContinue, nil
+		return DumpReaderActionContinue, nil
 	}
-
-	_, linesRead, err := dr.ReadAstraDump(
-		ctx,
-		table,
-		processRowContent,
-		&TableDumpConfigType{
-			Path:            dr.Config.AstraDumpPath,
-			GZip:            dr.Config.AstraDataGZip,
-			ColumnSeparator: dr.Config.AstraColumnSeparator,
-			LineSeparator:   dr.Config.AstraLineSeparator,
-			BufferSize:      dr.Config.AstraReaderBufferSize,
-		},
-	)
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "Error while reading table %v in line #%v ", table, linesRead)
-	} else {
-		tracelog.Info(packageName, funcName, "Table %v processed. %v have been read", table, linesRead)
+	{
+		cfg := &DumpReaderConfigType{
+			PathToDumpDirectory: dr.Config.AstraDumpPath,
+			GZip:                dr.Config.AstraDataGZip,
+			ColumnSeparator:     dr.Config.AstraColumnSeparator,
+			LineSeparator:       dr.Config.AstraLineSeparator,
+			BufferSize:          dr.Config.AstraReaderBufferSize,
+		}
+		cfg.PopulateWithTableInfo(table)
+		_, linesRead, err := ReadAstraDump(
+			ctx,
+			cfg,
+			processRowContent,
+		)
+		if err != nil {
+			tracelog.Errorf(err, packageName, funcName, "Error while reading table %v in line #%v ", table, linesRead)
+		} else {
+			tracelog.Info(packageName, funcName, "Table %v processed. %v have been read", table, linesRead)
+		}
 	}
 
 	for _, column := range table.Columns {
@@ -401,171 +217,6 @@ func NewInstance() (result *DataReaderType, err error) {
 	}, nil
 
 }
-
-
-
-
-
-type BitsetWrapperInterface interface {
-	FileName() (string,error)
-	BitSet() (*sparsebitset.BitSet,error)
-	Description() string
-}
-
-
-func WriteBitsetToFile(cancelContext context.Context,pathToDir string, wrapper BitsetWrapperInterface ) (err error){
-	funcName := "DataFlow::WriteBitSetToFile"
-	tracelog.Started(packageName, funcName)
-
-	description := fmt.Errorf("writting %v bitset data",wrapper.Description())
-	if pathToDir == "" {
-		err = fmt.Errorf("%v: given path is empty ",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	fileName, err := wrapper.FileName()
-	if err != nil {
-		err = fmt.Errorf("%v: %v",description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	if fileName == "" {
-		err = fmt.Errorf("%v: given full file name is empty",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	if cancelContext == nil {
-		err = fmt.Errorf("%v: given cancel context is not initialized",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	bitSet,err := wrapper.BitSet();
-	if err != nil {
-		err = fmt.Errorf("%v: %v",description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	if bitSet == nil {
-		err = fmt.Errorf("%v: bitset is not initialized",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-
-
-
-	err = os.MkdirAll(pathToDir, 700)
-
-	if err != nil {
-		tracelog.Errorf(err, packageName, funcName, "making directories for path %v: %v", pathToDir, err)
-		return err
-	}
-
-
-
-	fullPathFileName := fmt.Sprintf("%v%c%v", pathToDir, os.PathSeparator, fileName)
-
-	file, err := os.Create(fullPathFileName)
-	if err != nil {
-		err = fmt.Errorf("creating file %v: %v: %v ",fullPathFileName,description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	defer file.Close()
-
-	buffered := bufio.NewWriter(file)
-
-	defer buffered.Flush()
-
-	_, err = bitSet.WriteTo(cancelContext, buffered)
-
-	if err != nil {
-		err = fmt.Errorf("persisting to file %v: %v: %v",fullPathFileName,description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	tracelog.Completed(packageName, funcName)
-
-	return err
-}
-
-
-
-func ReadBitsetFromFile(cancelContext context.Context,pathToDir string, wrapper BitsetWrapperInterface) (err error) {
-	funcName := "DataFlow::ReadBitSetFromFile"
-	tracelog.Started(packageName, funcName)
-
-	description := fmt.Errorf("reading %v bitset data",wrapper.Description())
-
-	if pathToDir == "" {
-		err = fmt.Errorf("%v: given path is empty ",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	fileName, err := wrapper.FileName()
-	if err != nil {
-		err = fmt.Errorf("%v: %v",description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	if fileName == "" {
-		err = fmt.Errorf("%v: given full file name is empty",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	if cancelContext == nil {
-		err = fmt.Errorf("%v: given cancel context is not initialized",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-	bitSet,err := wrapper.BitSet();
-	if err != nil {
-		err = fmt.Errorf("%v: %v",description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	if bitSet == nil {
-		err = fmt.Errorf("%v: bitset is not initialized",description)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-
-	fullPathFileName := composeBistsetFileFullPath(pathToDir, fileName)
-	file, err := os.Open(fullPathFileName)
-	if err != nil {
-		err = fmt.Errorf("opening file %v: %v: %v ",fullPathFileName,description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	defer file.Close()
-
-	buffered := bufio.NewReader(file)
-	_,err = bitSet.ReadFrom(cancelContext,buffered)
-
-	if err != nil {
-		err = fmt.Errorf("restoring from file %v: %v: %v",fullPathFileName,description,err)
-		tracelog.Error(err, packageName, funcName)
-		return err
-	}
-
-	tracelog.Completed(packageName, funcName)
-
-	return err
-}
-
 
 /*
 type StoreType struct {

@@ -21,13 +21,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"sort"
 	"astra/utils"
-	"sparsebitset"
 	//"github.com/couchbase/moss"
-	)
+
+	"hash/fnv"
+)
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
 
@@ -467,10 +467,15 @@ func (dataCategory *DataCategoryType) ReadBitsetFromDisk(ctx context.Context, pa
 
 func testBitsetCompare() (err error) {
 	funcName := "testBitsetCompare"
-	var floatNumericKeyAllowed bool = false
-	actor,err  := dataflow.NewComplexKeyDiscoverer(&dataflow.ComplexKeyDiscoveryConfigType{
-		CollisionLevel:1.2,
-	})
+	ctx, ctxCancelFunc := context.WithCancel(context.Background())
+	_ = ctxCancelFunc
+	//var bruteForcePairCount = 0;
+	actor,err  := dataflow.NewComplexKeyDiscovery(
+			&dataflow.ComplexKeyDiscoveryConfigType{
+				CollisionLevel:          1.2,
+				NumberOfKeysPerFilePass: 5,
+			},
+			)
 
 
 	if *argMetadataIds == string(-math.MaxInt64) {
@@ -484,153 +489,25 @@ func testBitsetCompare() (err error) {
 
 
 
-	dr, err := dataflow.NewInstance()
 
 	tracelog.Started(packageName, funcName)
 	start := time.Now()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	columnToProcess, err := actor.ExtractColumns(metadataIds)
+	columnToProcess, err := actor.ExtractColumns(ctx,metadataIds)
 
-	pairsFilteredByFeatures,err := actor.ComposeAndFilterColumnPairsByFeatures(columnToProcess)
+	pairsFilteredByFeatures,err := actor.ComposeAndFilterColumnPairsByFeatures(ctx,columnToProcess)
+
+	pairsFilteredByHash,err := actor.FilterColumnPairsByBitSets(ctx,pairsFilteredByFeatures)
 
 
-	sort.Slice(
-		pairsFilteredByFeatures,
-		func(i, j int) bool {
-			if pairsFilteredByFeatures[i].PKColumn.HashUniqueCount.Value() == pairsFilteredByFeatures[j].PKColumn.HashUniqueCount.Value() {
-				return pairsFilteredByFeatures[i].PKColumn.Id.Value() < pairsFilteredByFeatures[j].PKColumn.HashUniqueCount.Value()
-			} else {
-				return pairsFilteredByFeatures[i].PKColumn.HashUniqueCount.Value() < pairsFilteredByFeatures[j].PKColumn.HashUniqueCount.Value()
-			}
-		},
-	)
-
-	var lastPKColumn *dataflow.ColumnInfoType
-
-	analyzeItemBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
-		if dataCategoryPK.Stats.ItemBitset == nil {
-			dataCategoryPK.Stats.ItemBitset = sparsebitset.New(0)
-			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.ItemBitsetSuffix)
-		}
-		if dataCategoryFK.Stats.ItemBitset == nil {
-			dataCategoryFK.Stats.ItemBitset = sparsebitset.New(0)
-			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.ItemBitsetSuffix)
-		}
-		if err != nil {
-			tracelog.Error(err, packageName, funcName)
-			return false, err
-		}
-		var cardinality uint64
-		if dataCategoryFK.Stats.ItemBitset == nil {
-			tracelog.Info(packageName, funcName, "Item Bitset for %v (%v) is null ", dataCategoryFK.Column, dataCategoryFK.Key)
-			return false, nil
-		} else {
-			cardinality, err = dataCategoryFK.Stats.ItemBitset.IntersectionCardinality(dataCategoryPK.Stats.ItemBitset)
-			if err != nil {
-				tracelog.Error(err, packageName, funcName)
-				return false, err
-			}
-		}
-		result := cardinality == dataCategoryFK.Stats.ItemBitsetCardinality
-		if !result {
-			tracelog.Info(funcName, packageName,
-				"Column %v is not FKColumn to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Content values %v != %v",
-				dataCategoryFK.Column, dataCategoryPK.Column, dataCategoryFK.Key,
-				cardinality, dataCategoryFK.Stats.ItemBitsetCardinality,
-			)
-		}
-		return result, nil
-	}
-
-	analyzeHashBitsetFunc := func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error) {
-		if dataCategoryPK.Stats.HashBitset == nil {
-			dataCategoryPK.Stats.HashBitset = sparsebitset.New(0)
-			err = dataCategoryPK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.HashBitsetSuffix)
-		}
-		if dataCategoryFK.Stats.HashBitset == nil {
-			dataCategoryFK.Stats.HashBitset = sparsebitset.New(0)
-			err = dataCategoryFK.ReadBitsetFromDisk(ctx, dr.Config.BitsetPath, dataflow.HashBitsetSuffix)
-		}
-		if err != nil {
-			tracelog.Error(err, packageName, funcName)
-			return false, err
-		}
-		var cardinality uint64
-		if dataCategoryFK.Stats.HashBitset == nil {
-			tracelog.Info(packageName, funcName, "Hash Bitset for %v (%v) is null ", dataCategoryFK.Column.Id, dataCategoryFK.Key)
-			return false, nil
-		} else {
-			cardinality, err = dataCategoryFK.Stats.HashBitset.IntersectionCardinality(dataCategoryPK.Stats.HashBitset)
-
-			if err != nil {
-				tracelog.Error(err, packageName, funcName)
-				return false, err
-			}
-		}
-		result := cardinality == dataCategoryFK.Stats.HashBitsetCardinality
-		if !result {
-			tracelog.Info(funcName, packageName,
-				"Column %v is not FKColumn to %v for DataCategory %v: IntersectionCardinality != FkCardinality for Hash values %v != %v",
-				dataCategoryFK.Column, dataCategoryPK.Column, dataCategoryFK.Key,
-				cardinality, dataCategoryFK.Stats.HashBitsetCardinality,
-			)
-		}
-		return result, nil
-	}
-
-	traversePairs := func(
-		pairs []*keyColumnPairType,
-		processPairFunc func(ctx context.Context, dataCategoryPK, dataCategoryFK *dataflow.DataCategoryType) (bool, error),
-	) (nextPairs []*keyColumnPairType, err error) {
-
-		for _, pair := range pairs {
-			if lastPKColumn != nil {
-				if lastPKColumn != pair.PKColumn {
-					lastPKColumn.ResetBitset(dataflow.ItemBitsetSuffix)
-				}
-			}
-			ctx, ctxCancelFunc := context.WithCancel(context.Background())
-			var result = true
-			for dataCategoryKey, dataCategoryFK := range pair.FKColumn.Categories {
-				if dataCategoryPK, found := pair.PKColumn.Categories[dataCategoryKey]; !found {
-					err = fmt.Errorf("The second pass for column pair PKColumn:%v - FKColumn:%v doesn't reveal datacategory for the key code %v.", pair.PKColumn, pair.FKColumn, dataCategoryKey)
-					tracelog.Error(err, packageName, funcName)
-					ctxCancelFunc()
-					return
-				} else {
-					result, err = processPairFunc(ctx, dataCategoryPK, dataCategoryFK)
-					if err != nil {
-						tracelog.Error(err, packageName, funcName)
-						ctxCancelFunc()
-						return nil, err
-					}
-					if !result {
-						break
-					}
-				}
-			}
-			if result {
-				if nextPairs == nil {
-					nextPairs = make([]*keyColumnPairType, 0, 1000)
-				}
-				nextPairs = append(nextPairs, pair)
-			}
-		}
-		return nextPairs, nil
-	}
-
-	tracelog.Info(packageName, funcName,
+/*	tracelog.Info(packageName, funcName,
 		"Feature analysis efficiency: %v%%. Left %v from %v",
 		100.0-math.Trunc(float64(len(pairsFilteredByFeatures))*100/float64(bruteForcePairCount)),
 		len(pairsFilteredByFeatures),
-		bruteForcePairCount,
-	)
+			bruteForcePairCount,
+		)
 
-	pairsFilteredByContent, err := traversePairs(pairsFilteredByFeatures, analyzeItemBitsetFunc)
-	if pairsFilteredByContent == nil {
-		return
-	}
 
 	tracelog.Info(packageName, funcName,
 		"Content analysis efficiency: %v%%. Left %v from %v",
@@ -643,15 +520,13 @@ func testBitsetCompare() (err error) {
 		pair.PKColumn.ResetBitset(dataflow.ItemBitsetSuffix)
 		pair.FKColumn.ResetBitset(dataflow.ItemBitsetSuffix)
 	}
+
 	if false {
 		for _, pair := range pairsFilteredByContent {
 			fmt.Printf("PKColumn:%v(%v) - FKColumn:%v(%v)%v\n", pair.PKColumn, pair.PKColumn.HashUniqueCount, pair.FKColumn, pair.FKColumn.HashUniqueCount, pair.FKColumn.Id)
 		}
 	}
-	pairsFilteredByHash, err := traversePairs(pairsFilteredByContent, analyzeHashBitsetFunc)
-	if pairsFilteredByHash == nil {
-		return
-	}
+
 	tracelog.Info(packageName, funcName,
 		"Hash analysis efficiency: %v%%. Left %v from %v",
 		100.0-math.Trunc(float64(len(pairsFilteredByHash))*100/float64(len(pairsFilteredByContent))),
@@ -671,7 +546,7 @@ func testBitsetCompare() (err error) {
 			fmt.Printf("PKColumn:%v(%v) - FKColumn:%v(%v)%v\n", pair.PKColumn, pair.PKColumn.HashUniqueCount, pair.FKColumn, pair.FKColumn.HashUniqueCount, pair.FKColumn.Id)
 		}
 
-	}
+	}*/
 
 	//TODO: LOAD data here
 	if false {
@@ -687,7 +562,7 @@ func testBitsetCompare() (err error) {
 		}
 
 		for _, pair := range pairsFilteredByHash {
-			appendToColumnMap(pair.PKColumn)
+			appendToColumnMap(pair.ParentColumn)
 		}
 
 		for table, columns := range columnMap {
@@ -723,265 +598,56 @@ func testBitsetCompare() (err error) {
 
 	}
 
-	if true {
+
 		//TODO: Assume real data count doesn't differ to hash data count
-		for _, pair := range pairsFilteredByHash {
-			pair.PKColumn.UniqueRowCount = pair.PKColumn.HashUniqueCount
-			pair.FKColumn.UniqueRowCount = pair.FKColumn.HashUniqueCount
-		}
+	//	for _, pair := range pairsFilteredByHash {
+	//		pair.PKColumn.UniqueRowCount = pair.PKColumn.HashUniqueCount
+	//		pair.FKColumn.UniqueRowCount = pair.FKColumn.HashUniqueCount
+	//	}
 
-		type tablePairType struct {
-			PKTable *dataflow.TableInfoType
-			FKTable *dataflow.TableInfoType
-		}
+		 tablePairMap,err := actor.ComposeTablePairs(ctx, pairsFilteredByHash)
+			if  err!= nil{
 
-		printColumnArray := func(arr []*ComplexPKCombinationType) {
-			if len(arr) == 0 {
-				fmt.Println("No column combinations left")
-				return
-			}
-			for _, key := range arr {
-				fmt.Printf("%v\n", key.Columns)
-			}
-		}
-		_ = printColumnArray
-
-		tablePairMap := make(map[tablePairType][]*keyColumnPairType)
-
-		for _, pair := range pairsFilteredByHash {
-
-			tablePair := tablePairType{
-				PKTable: pair.PKColumn.TableInfo,
-				FKTable: pair.FKColumn.TableInfo,
 			}
 
-			if arr, found := tablePairMap[tablePair]; !found {
-				arr = make([]*keyColumnPairType, 0, 10)
-				arr = append(arr, pair)
-				tablePairMap[tablePair] = arr
-			} else {
-				tablePairMap[tablePair] = append(arr, pair)
-			}
-		}
-
-		{
-			count := 0
-			for _, columnPairs := range tablePairMap {
-				if len(columnPairs) > 1 {
-					count++
-				}
-			}
+			count := len(tablePairMap)
 			if count == 0 {
 				tracelog.Info(packageName, funcName, "There is no complex key candidates found!")
 				return
 			}
+
+
+
+		//if false {
+		//	for _, columnPairs := range tablePairMap {
+		//		if len(columnPairs) > 1 {
+		//			fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
+		//			for _, pair := range columnPairs {
+		//				fmt.Printf("%v - %v -- %v\n", pair.PKColumn, pair.FKColumn, pair.TablePairKeyString())
+		//			}
+		//			fmt.Printf("++++++\n")
+		//		}
+		//
+		//	}
+		//	fmt.Printf("-------------------")
+		//}
+	parentColumnCombinations,err := actor.CollectColumnCombinationsByParentTable(ctx,tablePairMap)
+
+	for parentTable, columnCombinationMap := range parentColumnCombinations {
+		if parentTable.TableName.Value() != "TX_FAIL" {
+			//		continue //_ITEM_REVERSED
 		}
 
-		ComplexPKStage1 := make([]*ComplexPKCombinationType, 0, 10)
-
-		tableCPKs := make(map[*dataflow.TableInfoType]map[string]*ComplexPKCombinationType)
-		if false {
-			for _, columnPairs := range tablePairMap {
-				if len(columnPairs) > 1 {
-					fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
-					for _, pair := range columnPairs {
-						fmt.Printf("%v - %v -- %v\n", pair.PKColumn, pair.FKColumn, pair.TablePairKeyString())
-					}
-					fmt.Printf("++++++\n")
-				}
-
-			}
-			fmt.Printf("-------------------")
+		storedKeys, err := dr.Repository.ComplexKeysByTable(parentTable)
+		if err != nil {
+			return err
 		}
 
-		for tablePair, columnPairs := range tablePairMap {
-			if len(columnPairs) < 2 {
-				continue
-			}
-			fmt.Printf("\nPKColumn:%v - FKColumn:%v:\n", columnPairs[0].PKColumn.TableInfo, columnPairs[0].FKColumn.TableInfo)
+		columnCombinationMap.RemoveKeyColumnCombinations(storedKeys)
 
-			//* Collecting possible PK columns
-			uniqueColumns := make(map[*dataflow.ColumnInfoType][]*keyColumnPairType)
-
-			for _, columnPair := range columnPairs {
-				if pairs, found := uniqueColumns[columnPair.PKColumn]; !found {
-					pairs := make([]*keyColumnPairType, 0, 10)
-					pairs = append(pairs, columnPair)
-					uniqueColumns[columnPair.PKColumn] = pairs
-				} else {
-					pairs = append(pairs, columnPair)
-					uniqueColumns[columnPair.PKColumn] = pairs
-				}
-			}
-
-			if false {
-				if len(uniqueColumns) > 2 {
-					pkTable := columnPairs[0].PKColumn.TableInfo
-
-					TotalNonNullColumn := 0
-					for _, column := range pkTable.Columns {
-						if column.NonNullCount.Value() > 0 {
-							TotalNonNullColumn++
-						}
-					}
-
-					if TotalNonNullColumn > 0 {
-						coverRatio := float64(len(uniqueColumns)) / float64(TotalNonNullColumn)
-
-						if coverRatio > .8 {
-							tracelog.Info(packageName, funcName, "Percentage of non-empty columns is too high %v. Probably %v is data a slice of %v. Skipped %v,%v",
-								coverRatio, columnPairs[0].FKColumn.TableInfo, pkTable, len(uniqueColumns), TotalNonNullColumn)
-							continue
-						}
-					}
-				}
-
-			}
-			var SortedPKColumns []*dataflow.ColumnInfoType
-			SortedPKColumns = make([]*dataflow.ColumnInfoType, 0, len(uniqueColumns))
-
-			for column := range uniqueColumns {
-				SortedPKColumns = append(SortedPKColumns, column)
-			}
-
-			//* Sort possible PK columns from the highest data cardinality
-			sort.Slice(SortedPKColumns, func(i, j int) bool {
-				if SortedPKColumns[i].UniqueRowCount.Value() == SortedPKColumns[j].UniqueRowCount.Value() {
-					return SortedPKColumns[i].Id.Value() > SortedPKColumns[j].Id.Value()
-				} else {
-					return SortedPKColumns[i].UniqueRowCount.Value() > SortedPKColumns[j].UniqueRowCount.Value()
-				}
-			},
-			)
-
-			//* Making PK column combinations
-
-			for {
-				if len(SortedPKColumns) == 0 {
-					break
-				}
-				var inputColumnCombinations []*ComplexPKCombinationType
-				var CPKeysLast int
-
-				inputColumnCombinations = make([]*ComplexPKCombinationType, 1, len(SortedPKColumns))
-				inputColumnCombinations[0] = &ComplexPKCombinationType{
-					ComplexKeyType:	&ComplexKeyType{
-						Columns: make([]*dataflow.ColumnInfoType, 1),
-						TableInfo: tablePair.PKTable,
-					},
-					lastSortedColumnIndex: 1,
-				}
-				inputColumnCombinations[0].Columns[0] = SortedPKColumns[0]
-				//1,2,3,4 -> 12,13,14,123,124,134,23,24,234,34
-
-				for {
-					CPKeysLast = len(ComplexPKStage1)
-					for _, inputColumnCombination := range inputColumnCombinations {
-						var columnCombination *ComplexPKCombinationType
-						inputLength := len(inputColumnCombination.Columns)
-						for index := inputColumnCombination.lastSortedColumnIndex; index < len(SortedPKColumns); index++ {
-							columnCombination = &ComplexPKCombinationType{
-								ComplexKeyType:	&ComplexKeyType{
-									Columns:               make([]*dataflow.ColumnInfoType, inputLength, inputLength+1),
-								},
-								lastSortedColumnIndex: index + 1,
-							}
-							copy(columnCombination.Columns, inputColumnCombination.Columns)
-							columnCombination.Columns = append(columnCombination.Columns, SortedPKColumns[index])
-							ComplexPKStage1 = append(ComplexPKStage1, columnCombination)
-						}
-					}
-					inputColumnCombinations = ComplexPKStage1[CPKeysLast:]
-					if len(inputColumnCombinations) == 0 {
-						break
-					}
-				}
-				SortedPKColumns = SortedPKColumns[1:]
-			}
-
-			for _, columnCombination := range ComplexPKStage1 {
-				for index, column := range columnCombination.Columns {
-					if index == 0 {
-						columnCombination.cardinality = uint64(column.UniqueRowCount.Value())
-					} else {
-						columnCombination.cardinality = columnCombination.cardinality * uint64(column.UniqueRowCount.Value())
-					}
-				}
-				if columnCombination.cardinality < uint64(columnCombination.Columns[0].TableInfo.RowCount.Value()) {
-					/* tracelog.Info(packageName, funcName,
-						"Data volume of column permutation %v is insufficient to fill the table row count. %v < %v",
-						columnCombination.Columns,
-						columnCombination.cardinality,
-						columnCombination.Columns[0].TableInfo.RowCount.Value(),
-					) */
-					continue
-				}
-				table := columnCombination.Columns[0].TableInfo
-				//
-				if collectedColumnCombinations, cccFound := tableCPKs[table]; !cccFound {
-					collectedColumnCombinations = make(map[string]*ComplexPKCombinationType)
-					collectedColumnCombinations[columnCombination.ColumnIndexString()] = columnCombination
-					tableCPKs[table] = collectedColumnCombinations
-				} else {
-					collectedColumnCombinations[columnCombination.ColumnIndexString()] = columnCombination
-					tableCPKs[table] = collectedColumnCombinations
-				}
-			}
+		if len(columnCombinationMap) == 0 {
+			continue
 		}
-		if len(tableCPKs) == 0 {
-		}
-
-		{
-		AllCombinations:
-			for table, columnCombinationMap := range tableCPKs {
-				for _, columnCombination := range columnCombinationMap {
-					if len(columnCombination.Columns) == 0 {
-						err = fmt.Errorf("Table %v has zero-length column combination!", table)
-						tracelog.Info(packageName, funcName, "%v", err)
-						break AllCombinations
-					}
-					columnCombination.InitializeInternals()
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-		//	fmt.Printf("%v\n", columnCombination.Columns)
-
-		//bs := sparsebitset.New(0)
-		for currentPkTable, columnCombinationMap := range tableCPKs {
-			if currentPkTable.TableName.Value() != "TX_FAIL" {
-				//		continue //_ITEM_REVERSED
-			}
-
-			storedKeys, err := dr.Repository.ComplexKeysByTable(currentPkTable)
-			if err != nil {
-				return err
-			}
-
-			for columnCombinationKey, columnCombination := range columnCombinationMap {
-				for _, storedKey := range storedKeys {
-					var columnCount int = 0
-					if len(columnCombination.Columns) == len(storedKey.Columns) {
-						for _, testedColumn := range columnCombination.Columns {
-							for _, storedColumn := range storedKey.Columns {
-								if testedColumn.Id.Value() == storedColumn.ColumnInfoId.Value() {
-									columnCount++
-								}
-							}
-						}
-						if columnCount == len(storedKey.Columns) {
-							tracelog.Info(packageName, funcName, "processed Before: %v", columnCombination.Columns)
-							delete(columnCombinationMap, columnCombinationKey)
-						}
-					}
-				}
-			}
-
-			if len(columnCombinationMap) == 0 {
-				continue
-			}
 
 			cumulativeSavedDataLength := uint64(0)
 			LineNumberToCheckBySlaveHorseTo := uint64(0)
