@@ -915,7 +915,7 @@ func (d *ComplexKeyDiscoveryType) CollectColumnCombinationsByParentTable(
 }
 
 
-func(d *ComplexKeyDiscoveryType) CheckUniqueness(
+func(d *ComplexKeyDiscoveryType) CheckParentColumnCombinationDataUniqueness(
 	parentColumnCombinations map[*TableInfoType]ComplexKeyColumnCombinationMapType,
 	) (err error){
 	funcName := "ComplexKeyDiscoveryType::CheckUniqueness"
@@ -1002,14 +1002,7 @@ func(d *ComplexKeyDiscoveryType) CheckUniqueness(
 					}
 					cumulativeSavedDataLength = 0
 				}
-				/*leadHorseConfig.MoveToByte.Position = DataPosition
-				leadHorseConfig.MoveToByte.FirstLineAs = LineNumber
-				for columnCombinationKey, columnCombination := range (columnCombinationMap) {
-						if len(columnCombination.duplicatesByHash)>0 {
-							columnCombinationMapToCheck[columnCombinationKey] = columnCombination
-						}
-				}
-				return dataflow.ReadDumpActionAbort, nil*/
+
 			}
 			var copiedDataMap map[int]*[]byte
 			copiedDataMap = make(map[int]*[]byte)
