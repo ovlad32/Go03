@@ -424,8 +424,24 @@ func testBitsetCompare() (err error) {
 	parentColumnCombinations,err := actor.CollectColumnCombinationsByParentTable(ctx,tablePairMap)
 	_ =parentColumnCombinations
 
+	childTableSet :=  make(map[*dataflow.TableInfoType]bool)
+	for parentTable,columnCombinationsMap := range parentColumnCombinations {
+		for tablePair,_:= range tablePairMap {
+			if tablePair.ParentTable == parentTable {
+				columnCombinationsMap[parentTable].Columns
+			}
+
+		}
+
+	}
 
 		/*
+		 A,B,C ->  a,b,bb,c,cc
+		 A a, B b, C c
+		 A a, B bb, C c
+		 A a, B b, C, cc
+		 A a, B bb, C, cc
+
 
 		for table,columnCombinationMap := range tableCPKs {
 			fkCombinations:= make(map[*dataflow.TableInfoType]map[int][]*dataflow.ColumnInfoType)
