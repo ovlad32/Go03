@@ -54,6 +54,7 @@ func (dr *DataReaderType) TableDumpConfig() *TableDumpConfigType {
 }
 */
 //var nullBuffer []byte = []byte{0, 0, 0, 0, 0, 0, 0}
+//H1,HN,SEEK
 
 func (dr DataReaderType) BuildHashBitset(ctx context.Context, table *TableInfoType) (err error) {
 	funcName := "DataReaderType.BuildHashBitset"

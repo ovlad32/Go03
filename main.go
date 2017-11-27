@@ -22,6 +22,7 @@ import (
 	//"github.com/couchbase/moss"
 
 	"fmt"
+	"astra/metadata"
 )
 
 //-workflow_id 57 -metadata_id 331 -cpuprofile cpu.prof.out
@@ -426,9 +427,23 @@ func testBitsetCompare() (err error) {
 
 	childTableSet :=  make(map[*dataflow.TableInfoType]bool)
 	for parentTable,columnCombinationsMap := range parentColumnCombinations {
-		for tablePair,_:= range tablePairMap {
+		for tablePair,columnPairArray := range tablePairMap {
 			if tablePair.ParentTable == parentTable {
-				columnCombinationsMap[parentTable].Columns
+				for combinationKey,parentColumns := range columnCombinationsMap {
+					_ = combinationKey
+					parentAndChildColumns := make(map[*dataflow.ColumnInfoType][]*dataflow.ColumnInfoType)
+					for _, parentColumn := range parentColumns.Columns {
+						for _,columnPair := range columnPairArray {
+
+						}
+						if arr,found0 := parentAndChildColumns[parentColumn];!found0 {
+							arr = make([]*dataflow.ColumnInfoType,0,10);
+							arr = append()
+					}
+
+				}
+
+				}
 			}
 
 		}
