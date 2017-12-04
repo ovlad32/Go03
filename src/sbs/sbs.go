@@ -72,7 +72,7 @@ func (s* SparseBitsetType) index(base uint64) (index int,found bool) (
 		s.bits = append(s.bits,0);
 		return 0,true;
     }
-    
+
 //1
 	index = len(s.bases) / 2;
 	index =
