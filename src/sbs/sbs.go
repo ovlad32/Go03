@@ -1,6 +1,6 @@
 package sbs
 
-
+import "fmt"
 
 const (
 	// Size of a word -- `uint64` -- in bits.
@@ -46,14 +46,16 @@ func NewWithSize(blocks int) (result *SparseBitsetType) {
 	return
 }
 
-func (s *SparseBitsetType) Grow() {
-	bases := make([]uint64, cap(s.bases) + s.blockSize);
-	copy(bases,s.bases);
+func (s *SparseBitsetType) grow(index int) {
+	bases := make([]uint64, cap(s.bases) + 1, cap(s.bases) + s.blockSize,);
+	copy(bases,s.bases[0:index]);
+	copy(bases[index+1:],s.bases[index:]);
 	s.bases = bases;
 
 
-	bits := make([]uint64, cap(s.bits) + s.blockSize);
-	copy(bits,s.bits);
+	bits := make([]uint64, cap(s.bits) +1, cap(s.bits)+ s.blockSize);
+	copy(bits,s.bits[0:index]);
+	copy(bits[index+1:],s.bits[index:]);
 	s.bits = bits;
 }
 
@@ -66,22 +68,61 @@ func trailingZeroes64(v uint64) uint64 {
 	return uint64(deBruijn[((v&-v)*0x03f79d71b4ca8b09)>>58])
 }
 
-func (s* SparseBitsetType) index(base uint64) (index int,found bool) (
+func (s* SparseBitsetType) index(base uint64) (index int) {
 	if len(s.bases) == 0 {
-		s.bases = append(s.bases,0);
-		s.bits = append(s.bits,0);
-		return 0,true;
-    }
+		s.bases = append(s.bases, 0);
+		s.bits = append(s.bits, 0);
+		return 0;
+	}
 
-//1
-	index = len(s.bases) / 2;
-	index =
+	top := len(s.bases)-1;
+	bottom := 0;
+	if s.bases[top]<base {
+		s.grow(top)
+		return top
+	}
+	if s.bases[bottom]> base {
+		s.grow(0)
+		return 0
+	}
+	delta := top - bottom;
+	iteration := 10;
+	for {
+		iteration --;
+		fmt.Printf("Top:%v; Bottom:%v Delta: %v",top,bottom,delta)
+		if delta == 1 {
+			index = bottom;
+		} else {
+			index = bottom + int(delta/2)
+		}
 
-	return 0,false;
-)
+		fmt.Printf(" Index: %v ",index)
+		if s.bases[index]  == base {
+			fmt.Printf(": match\n")
+			return index;
+		} else if s.bases[index] < base {
+			bottom = index;
+		} else {
+			top = index
+		}
+		delta = top - bottom;
+		if delta ==0 {
+			fmt.Printf("\nGrow with Top:%v; Bottom:%v Delta: %v\n",top,bottom,delta)
+			s.grow(index)
+			return index
+		}
+
+
+		fmt.Printf(" \n")
+		if iteration <0 {
+			break;
+		}
+	}
+	return -1;
+}
 
 func (s *SparseBitsetType) SetValue(n uint64) (wasSet bool){
-	base, bit := Split(n);
+	//base, bit := Split(n);
 
-return false;
+	return false;
 }
