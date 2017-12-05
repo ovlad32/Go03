@@ -1,7 +1,5 @@
 package sbs
 
-import "fmt"
-
 const (
 	// Size of a word -- `uint64` -- in bits.
 	wordSize = uint64(64)
@@ -29,16 +27,16 @@ var deBruijn = [...]byte{
 type SparseBitsetType struct {
 	bases []uint64
 	bits []uint64
-	blockSize int
+	blockExpansionSize int
 }
 
 func New() (result *SparseBitsetType) {
-  return NewWithSize(1024);
+  return NewWithSize(4*1024);
 }
 
 func NewWithSize(blocks int) (result *SparseBitsetType) {
     result = new(SparseBitsetType);
-    result.blockSize = blocks;
+    result.blockExpansionSize = blocks;
 
 	result.bases = make([]uint64,0,blocks);
 	result.bits = make([]uint64,0,blocks);
@@ -46,17 +44,27 @@ func NewWithSize(blocks int) (result *SparseBitsetType) {
 	return
 }
 
-func (s *SparseBitsetType) grow(index int) {
-	bases := make([]uint64, cap(s.bases) + 1, cap(s.bases) + s.blockSize,);
-	copy(bases,s.bases[0:index]);
-	copy(bases[index+1:],s.bases[index:]);
-	s.bases = bases;
+func (s *SparseBitsetType) insert(index int) {
+	if len(s.bases) == cap(s.bases) {
+		bases := make([]uint64, cap(s.bases)+1, cap(s.bases)+s.blockExpansionSize);
+		copy(bases, s.bases[0:index]);
+		copy(bases[index+1:], s.bases[index:]);
+		s.bases = bases;
 
+		bits := make([]uint64, cap(s.bits)+1, cap(s.bits)+s.blockExpansionSize);
+		copy(bits, s.bits[0:index]);
+		copy(bits[index+1:], s.bits[index:]);
+		s.bits = bits;
+	} else {
+		s.bases = append(s.bases, 0);
+		copy(s.bases[index+1:], s.bases[index:]);
+		s.bases[index] = 0
 
-	bits := make([]uint64, cap(s.bits) +1, cap(s.bits)+ s.blockSize);
-	copy(bits,s.bits[0:index]);
-	copy(bits[index+1:],s.bits[index:]);
-	s.bits = bits;
+		s.bits = append(s.bits, 0);
+		copy(s.bits[index+1:], s.bits[index:]);
+		s.bits[index] = 0
+	}
+
 }
 
 
@@ -68,61 +76,76 @@ func trailingZeroes64(v uint64) uint64 {
 	return uint64(deBruijn[((v&-v)*0x03f79d71b4ca8b09)>>58])
 }
 
+// popcount answers the number of bits set to `1` in this word.  It
+// uses the bit population count (Hamming Weight) logic taken from
+// https://code.google.com/p/go/issues/detail?id=4988#c11.  Original
+// by 'https://code.google.com/u/arnehormann/'.
+func popcount(x uint64) (n uint64) {
+	x -= (x >> 1) & 0x5555555555555555
+	x = (x>>2)&0x3333333333333333 + x&0x3333333333333333
+	x += x >> 4
+	x &= 0x0f0f0f0f0f0f0f0f
+	x *= 0x0101010101010101
+	return x >> 56
+}
+
+// Cardinality answers the number of bits set to `1` in this set.
+func(s *SparseBitsetType) Cardinality() uint64{
+	cardinality := uint64(0)
+	for _, aValue := range s.bits {
+		cardinality += popcount(aValue)
+	}
+	return cardinality
+}
+
 func (s* SparseBitsetType) index(base uint64) (index int) {
 	if len(s.bases) == 0 {
-		s.bases = append(s.bases, 0);
-		s.bits = append(s.bits, 0);
+		s.insert(0);
 		return 0;
 	}
 
-	top := len(s.bases)-1;
+	top := len(s.bases);
 	bottom := 0;
-	if s.bases[top]<base {
-		s.grow(top)
+	if s.bases[top - 1] < base {
+		s.insert(top)
 		return top
 	}
-	if s.bases[bottom]> base {
-		s.grow(0)
+	if s.bases[bottom] > base {
+		s.insert(0)
 		return 0
 	}
 	delta := top - bottom;
-	iteration := 10;
-	for {
-		iteration --;
-		fmt.Printf("Top:%v; Bottom:%v Delta: %v",top,bottom,delta)
-		if delta == 1 {
-			index = bottom;
-		} else {
-			index = bottom + int(delta/2)
-		}
+	for delta > 0{
+		index = bottom + int(delta/2)
 
-		fmt.Printf(" Index: %v ",index)
 		if s.bases[index]  == base {
-			fmt.Printf(": match\n")
 			return index;
-		} else if s.bases[index] < base {
-			bottom = index;
-		} else {
+		} else if s.bases[index] > base {
 			top = index
+		} else {
+			bottom = index + 1;
 		}
 		delta = top - bottom;
-		if delta ==0 {
-			fmt.Printf("\nGrow with Top:%v; Bottom:%v Delta: %v\n",top,bottom,delta)
-			s.grow(index)
-			return index
-		}
-
-
-		fmt.Printf(" \n")
-		if iteration <0 {
-			break;
-		}
 	}
-	return -1;
+	if s.bases[index]<base {
+		index ++
+	}
+	s.insert(index)
+	return index
 }
 
-func (s *SparseBitsetType) SetValue(n uint64) (wasSet bool){
-	//base, bit := Split(n);
-
-	return false;
+func (b *SparseBitsetType) Len() int {
+	return len(b.bases)*2
 }
+
+func (s *SparseBitsetType) SetValue(n uint64) (wasSet bool) {
+	base, bit := Split(n);
+	index := s.index(base);
+	s.bases[index] = base;
+	prevValue := s.bits[index];
+	newValue := uint64(1) << bit
+	s.bits[index] = prevValue | newValue;
+	wasSet = (prevValue & newValue) > 0
+	return
+}
+
