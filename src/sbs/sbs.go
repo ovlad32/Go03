@@ -1,5 +1,13 @@
 package sbs
 
+import (
+	"io"
+	"encoding/binary"
+	"context"
+	"fmt"
+	"sync"
+)
+
 const (
 	// Size of a word -- `uint64` -- in bits.
 	wordSize = uint64(64)
@@ -98,26 +106,37 @@ func(s *SparseBitsetType) Cardinality() uint64{
 	return cardinality
 }
 
-func (s* SparseBitsetType) index(base uint64) (index int) {
+func (s* SparseBitsetType) index(base uint64,makeNew bool) (index int) {
 	if len(s.bases) == 0 {
-		s.insert(0);
-		return 0;
+		if makeNew {
+			s.insert(0);
+			return 0;
+		} else {
+			return -1;
+		}
 	}
 
 	top := len(s.bases);
 	bottom := 0;
 	if s.bases[top - 1] < base {
-		s.insert(top)
-		return top
+		if makeNew {
+			s.insert(top)
+			return top
+		} else {
+			return -1;
+		}
 	}
 	if s.bases[bottom] > base {
-		s.insert(0)
-		return 0
+		if makeNew {
+			s.insert(0)
+			return 0
+		} else {
+			return -1;
+		}
 	}
 	delta := top - bottom;
 	for delta > 0{
 		index = bottom + int(delta/2)
-
 		if s.bases[index]  == base {
 			return index;
 		} else if s.bases[index] > base {
@@ -127,20 +146,24 @@ func (s* SparseBitsetType) index(base uint64) (index int) {
 		}
 		delta = top - bottom;
 	}
-	if s.bases[index]<base {
-		index ++
+	if makeNew {
+		if s.bases[index]<base {
+			index ++
+		}
+		s.insert(index)
+		return index
+	} else {
+		return -1;
 	}
-	s.insert(index)
-	return index
 }
 
 func (b *SparseBitsetType) Len() int {
-	return len(b.bases)*2
+	return len(b.bases)
 }
 
 func (s *SparseBitsetType) SetValue(n uint64) (wasSet bool) {
 	base, bit := Split(n);
-	index := s.index(base);
+	index := s.index(base,true);
 	s.bases[index] = base;
 	prevValue := s.bits[index];
 	newValue := uint64(1) << bit
@@ -149,3 +172,128 @@ func (s *SparseBitsetType) SetValue(n uint64) (wasSet bool) {
 	return
 }
 
+
+func (s *SparseBitsetType) ReadFrom(ctx context.Context, r io.Reader) (err error) {
+
+	// Read length of the data that follows.
+	var lb uint32
+	err = binary.Read(r, binary.BigEndian, &lb)
+	if err != nil {
+		return fmt.Errorf("reading bitset [header] data: %v",err)
+	}
+
+	n := int(lb) / (2 * binary.Size(uint64(0)))
+	s.bases = make([]uint64,0,int(lb))
+	s.bits = make([]uint64,0,int(lb))
+	for i := 0; i < n; i++ {
+		var base, bits uint64
+		select {
+		case <-ctx.Done():
+				return nil
+		default:
+			err = binary.Read(r, binary.BigEndian, &base)
+			if err != nil {
+				return fmt.Errorf("reading bitset [base] data: %v",err)
+			}
+			err = binary.Read(r, binary.BigEndian, &bits)
+			if err != nil {
+				return fmt.Errorf("reading bitset [bits] data: %v", err)
+			}
+			s.bases = append(s.bases,base)
+			s.bits = append(s.bits,bits)
+		}
+	}
+
+	return
+}
+
+func (s *SparseBitsetType) WriteTo(ctx context.Context, w io.Writer) (err error) {
+	// Write length of the data to follow.
+	//b.prune()
+
+	lb := len(s.bases)
+	lb *= 2 * binary.Size(uint64(0))
+	err = binary.Write(w, binary.BigEndian, uint32(lb))
+	if err != nil {
+		return fmt.Errorf("writing bitset [header] data: %v",err)
+	}
+
+	for index, base := range s.bases {
+		select {
+		case <-ctx.Done():
+				return nil
+		default:
+			err = binary.Write(w, binary.BigEndian, base)
+			if err != nil {
+				return fmt.Errorf("writing bitset [base] data: %v",err)
+			}
+			err = binary.Write(w, binary.BigEndian, s.bits[index])
+			if err != nil {
+				return fmt.Errorf("writing bitset [bits] data: %v", err)
+			}
+		}
+	}
+
+	return
+}
+
+func (s *SparseBitsetType) Intersection(c *SparseBitsetType) (result*SparseBitsetType, cardinality uint64){
+	if c == nil {
+		return nil,0
+	}
+
+	result = NewWithSize(s.blockExpansionSize);
+	cardinality = 0;
+
+	for sIndex, base := range s.bases {
+		if cIndex := c.index(base,false); cIndex >= 0 {
+			if resultBits := s.bits[sIndex] & c.bits[cIndex]; resultBits > 0 {
+				result.bases = append(result.bases,base);
+				result.bits = append(result.bits,resultBits);
+				cardinality += popcount(resultBits)
+			}
+		}
+	}
+
+	return
+
+}
+
+
+func (s *SparseBitsetType) BitChan(ctx context.Context) chan uint64 {
+	var wg sync.WaitGroup
+
+	out := make(chan uint64)
+	wg.Add(1)
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	go func() {
+		for index, base := range s.bases {
+			bits := s.bits[index]
+			prod := base * wordSize
+			rsh := uint64(0)
+			prev := uint64(0)
+			for {
+				w := bits >> rsh
+				if w == 0 {
+					break
+				}
+				result := rsh + trailingZeroes64(w) + prod
+				if result != prev {
+					select {
+					case out <- result:
+					case <-ctx.Done():
+						break
+					}
+					prev = result
+				}
+				rsh++
+			}
+		}
+		wg.Done()
+	}()
+	return out
+}
